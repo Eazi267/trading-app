@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { LineChart, Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
+import { Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { BRAND } from '../config/brand.js'
 
 export default function Signup() {
   const [searchParams] = useSearchParams()
@@ -17,15 +18,15 @@ export default function Signup() {
     e.preventDefault()
     const result = signup({ name, email, password, referralCodeUsed })
     if (result.error) setError(result.error)
-    else navigate('/')
+    else navigate('/dashboard')
   }
 
   return (
     <div className="login-split">
       <div className="login-hero">
         <div className="login-hero-top">
-          <div className="login-hero-mark"><LineChart size={22} /></div>
-          <div className="login-hero-brand">Pulse</div>
+          <div className="login-hero-mark"><BRAND.LogoIcon size={22} /></div>
+          <div className="login-hero-brand">{BRAND.name}</div>
           <h2>Create your account and start practicing today.</h2>
           <p>Track live simulated prices, manage a demo portfolio, and learn the flow of trading — completely risk-free.</p>
           <div className="login-hero-features">
@@ -40,7 +41,7 @@ export default function Signup() {
       <div className="login-form-side">
         <form className="login-card" onSubmit={handleSubmit}>
           <h1>Create account</h1>
-          <p className="login-sub">Join Pulse in a few seconds</p>
+          <p className="login-sub">Join {BRAND.name} in a few seconds</p>
 
           {error && <div className="form-error">{error}</div>}
 

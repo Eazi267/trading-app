@@ -1,4 +1,6 @@
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
+import { Link } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -8,17 +10,40 @@ function formatMoney(n) {
 }
 
 export default function Dashboard() {
-  const { prices, history, getPortfolio, transactions } = useApp()
+  const { prices, history, transactions, getBalanceBreakdown, getSessionsForUser } = useApp()
   const { currentUser } = useAuth()
 
-  const portfolio = getPortfolio(currentUser.id)
-  const portfolioValue = portfolio.reduce((total, pos) => total + prices[pos.symbol] * pos.units, 0)
+  const { total, available } = getBalanceBreakdown(currentUser.id)
   const myTransactions = transactions.filter((t) => t.userId === currentUser.id)
+  const mySessions = getSessionsForUser(currentUser.id)
+  const hasNoSessionsYet = mySessions.length === 0
 
   return (
     <Layout pageTitle="Dashboard">
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">Simulated market overview — no real funds are connected.</p>
+
+      {hasNoSessionsYet && (
+        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--accent-dark)' }}>
+          <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <strong style={{ display: 'block', marginBottom: 4 }}>Set up your first trading session</strong>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                {available > 0
+                  ? 'Choose a tier and commit part of your balance to start.'
+                  : 'Deposit first, then choose a tier to start a session.'}
+              </span>
+            </div>
+            <Link
+              to={available > 0 ? '/sessions' : '/transactions'}
+              className="btn-primary"
+              style={{ padding: '10px 16px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              {available > 0 ? 'Choose a session' : 'Deposit funds'} <ArrowRight size={14} />
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="ticker-row">
         {Object.entries(prices).map(([symbol, price]) => (
@@ -31,12 +56,12 @@ export default function Dashboard() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-label">Portfolio value</div>
-          <div className="stat-value">{formatMoney(portfolioValue)}</div>
+          <div className="stat-label">Total balance</div>
+          <div className="stat-value">{formatMoney(total)}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Open positions</div>
-          <div className="stat-value">{portfolio.length}</div>
+          <div className="stat-label">Available balance</div>
+          <div className="stat-value">{formatMoney(available)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Your logged actions</div>

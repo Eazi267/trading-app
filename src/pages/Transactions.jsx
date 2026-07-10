@@ -3,6 +3,7 @@ import { ArrowDownCircle, ArrowUpCircle, Inbox } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { LARGE_ACCOUNT_THRESHOLD } from '../config/tiers.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -14,7 +15,7 @@ function formatDate(iso) {
 
 export default function Transactions() {
   const { transactions, addTransaction, accountBalance } = useApp()
-  const { currentUser } = useAuth()
+  const { currentUser, flagForReview } = useAuth()
   const [amount, setAmount] = useState('')
 
   const myTransactions = transactions.filter((t) => t.userId === currentUser.id)
@@ -23,6 +24,13 @@ export default function Transactions() {
     const value = parseFloat(amount)
     if (!value || value <= 0) return
     addTransaction(type, value)
+    // Large deposit requests skip the normal automated flow — they
+    // still go into the pending queue like any other request, but
+    // the account also gets flagged so an admin knows to reach out
+    // personally before approving it.
+    if (type === 'deposit' && value >= LARGE_ACCOUNT_THRESHOLD) {
+      flagForReview(currentUser.id)
+    }
     setAmount('')
   }
 
@@ -58,6 +66,11 @@ export default function Transactions() {
               color: 'var(--text)', marginBottom: 14, fontSize: 14
             }}
           />
+          {parseFloat(amount) >= LARGE_ACCOUNT_THRESHOLD && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-8px 0 14px' }}>
+              Deposits this size are set up personally — your account will be flagged for your account manager to reach out.
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="tx-btn deposit" onClick={() => handleSubmit('deposit')}>
               <ArrowDownCircle size={16} /> Deposit

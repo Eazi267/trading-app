@@ -3,8 +3,8 @@ import { createContext, useContext, useState } from 'react'
 const AuthContext = createContext(null)
 
 const SEED_USERS = [
-  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString() },
-  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString() }
+  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString(), tier: 'tier1', flaggedForReview: false },
+  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString(), tier: null, flaggedForReview: false }
 ]
 
 function loadUsers() {
@@ -62,6 +62,9 @@ export function AuthProvider({ children }) {
     return null
   }
 
+  // No tier is assigned at signup anymore — a client picks a tier for
+  // real once they've actually deposited and start a session (see
+  // AppContext.startSession). This just creates the account.
   function signup({ name, email, password, referralCodeUsed }) {
     const emailTaken = users.some((u) => u.email.toLowerCase() === email.toLowerCase())
     if (emailTaken) return { error: 'An account with that email already exists.' }
@@ -78,13 +81,46 @@ export function AuthProvider({ children }) {
       role: 'user',
       referralCode: generateReferralCode(name, users),
       referredBy: referrer ? referrer.id : null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      tier: null,
+      flaggedForReview: false
     }
 
     persistUsers([...users, newUser])
     setCurrentUser(newUser)
     localStorage.setItem('pulse_current_user', JSON.stringify(newUser))
     return { user: newUser }
+  }
+
+  // Admin can assign/change a client's tier directly (e.g. after
+  // manually reviewing a flagged large account).
+  function setUserTier(userId, tierId) {
+    const nextUsers = users.map((u) =>
+      u.id === userId ? { ...u, tier: tierId, flaggedForReview: false } : u
+    )
+    persistUsers(nextUsers)
+    if (currentUser?.id === userId) {
+      const next = { ...currentUser, tier: tierId, flaggedForReview: false }
+      setCurrentUser(next)
+      localStorage.setItem('pulse_current_user', JSON.stringify(next))
+    }
+  }
+
+  // Marks an account for manual admin review (e.g. a real deposit
+  // request came in above the large-account threshold). Does not
+  // touch the tier — a human decides what happens next.
+  function flagForReview(userId) {
+    const nextUsers = users.map((u) => (u.id === userId ? { ...u, flaggedForReview: true } : u))
+    persistUsers(nextUsers)
+    if (currentUser?.id === userId) {
+      const next = { ...currentUser, flaggedForReview: true }
+      setCurrentUser(next)
+      localStorage.setItem('pulse_current_user', JSON.stringify(next))
+    }
+  }
+
+  function getFlaggedUsers() {
+    return users.filter((u) => u.flaggedForReview)
   }
 
   function logout() {
@@ -133,7 +169,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, flagForReview, getFlaggedUsers }}>
       {children}
     </AuthContext.Provider>
   )

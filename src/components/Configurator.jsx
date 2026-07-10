@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Settings2, X, Moon, Sun } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
+import { BRAND } from '../config/brand.js'
 
 const ACCENTS = ['ember', 'rose', 'amber']
 
@@ -20,7 +21,7 @@ export default function Configurator() {
         <div className="configurator-head">
           <div>
             <h2>Configurator</h2>
-            <p>Personalize how Pulse looks for you.</p>
+            <p>Personalize how {BRAND.name} looks for you.</p>
           </div>
           <button className="configurator-close" onClick={() => setOpen(false)}><X size={16} /></button>
         </div>

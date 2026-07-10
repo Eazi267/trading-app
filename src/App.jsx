@@ -4,7 +4,10 @@ import { AppProvider } from './context/AppContext.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import Login from './pages/Login.jsx'
 import Signup from './pages/Signup.jsx'
+import Home from './pages/Home.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Balance from './pages/Balance.jsx'
+import Sessions from './pages/Sessions.jsx'
 import Portfolio from './pages/Portfolio.jsx'
 import Watchlist from './pages/Watchlist.jsx'
 import Transactions from './pages/Transactions.jsx'
@@ -22,7 +25,10 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/" element={<Home />} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/balance" element={<ProtectedRoute><Balance /></ProtectedRoute>} />
+            <Route path="/sessions" element={<ProtectedRoute><Sessions /></ProtectedRoute>} />
             <Route path="/portfolio" element={<ProtectedRoute><Portfolio /></ProtectedRoute>} />
             <Route path="/watchlist" element={<ProtectedRoute><Watchlist /></ProtectedRoute>} />
             <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />

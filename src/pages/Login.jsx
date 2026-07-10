@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LineChart, Mail, Lock, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
+import { Mail, Lock, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { BRAND } from '../config/brand.js'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -14,7 +15,7 @@ export default function Login() {
     e.preventDefault()
     const user = login(email, password)
     if (user) {
-      navigate('/')
+      navigate('/dashboard')
     } else {
       setError(true)
     }
@@ -24,8 +25,8 @@ export default function Login() {
     <div className="login-split">
       <div className="login-hero">
         <div className="login-hero-top">
-          <div className="login-hero-mark"><LineChart size={22} /></div>
-          <div className="login-hero-brand">Pulse</div>
+          <div className="login-hero-mark"><BRAND.LogoIcon size={22} /></div>
+          <div className="login-hero-brand">{BRAND.name}</div>
           <h2>Markets move fast. Your dashboard should too.</h2>
           <p>A clean, modern space to track prices, manage a portfolio, and practice the flow of trading — before it's ever real money.</p>
 

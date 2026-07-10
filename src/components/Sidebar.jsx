@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Wallet, Star, ArrowLeftRight, Gift, Settings, LineChart, ClipboardCheck, Users } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, ClipboardCheck, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { BRAND } from '../config/brand.js'
 
 const links = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/portfolio', label: 'Portfolio', icon: Wallet },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/balance', label: 'Balance', icon: PiggyBank },
+  { to: '/sessions', label: 'Sessions', icon: ListChecks },
   { to: '/watchlist', label: 'Watchlist', icon: Star },
   { to: '/transactions', label: 'Deposit / Withdraw', icon: ArrowLeftRight },
   { to: '/referral', label: 'Referrals', icon: Gift },
@@ -22,8 +24,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark"><LineChart size={18} /></div>
-        Pulse
+        <div className="brand-mark"><BRAND.LogoIcon size={18} /></div>
+        {BRAND.name}
       </div>
       <nav>
         {links.map(({ to, label, icon: Icon, end }) => (
