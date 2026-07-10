@@ -2,31 +2,55 @@ import { createContext, useContext, useState } from 'react'
 
 const AuthContext = createContext(null)
 
-export const DEMO_USERS = [
-  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user' },
-  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin' }
+const SEED_USERS = [
+  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString() },
+  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString() }
 ]
+
+function loadUsers() {
+  const saved = localStorage.getItem('pulse_users')
+  if (saved) return JSON.parse(saved)
+  localStorage.setItem('pulse_users', JSON.stringify(SEED_USERS))
+  return SEED_USERS
+}
 
 function loadProfiles() {
   const saved = localStorage.getItem('pulse_profiles')
   return saved ? JSON.parse(saved) : {}
 }
 
-// Merges a demo user's login record with any saved profile edits
+// Merges a user's login record with any saved profile edits
 // (name/email/phone/country/avatar) so the account "remembers" you.
 function mergeProfile(user) {
   const profiles = loadProfiles()
   return { ...user, ...(profiles[user.id] || {}) }
 }
 
+// Initials + random 4 chars, re-rolled until it's unique among existing users.
+function generateReferralCode(name, existingUsers) {
+  const initials = (name || 'USR').trim().split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 3) || 'USR'
+  let code
+  do {
+    const random = Math.random().toString(36).slice(2, 6).toUpperCase()
+    code = `${initials}${random}`
+  } while (existingUsers.some((u) => u.referralCode === code))
+  return code
+}
+
 export function AuthProvider({ children }) {
+  const [users, setUsers] = useState(loadUsers)
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('pulse_current_user')
     return saved ? JSON.parse(saved) : null
   })
 
+  function persistUsers(next) {
+    setUsers(next)
+    localStorage.setItem('pulse_users', JSON.stringify(next))
+  }
+
   function login(email, password) {
-    const match = DEMO_USERS.find(
+    const match = users.find(
       (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
     )
     if (match) {
@@ -36,6 +60,31 @@ export function AuthProvider({ children }) {
       return merged
     }
     return null
+  }
+
+  function signup({ name, email, password, referralCodeUsed }) {
+    const emailTaken = users.some((u) => u.email.toLowerCase() === email.toLowerCase())
+    if (emailTaken) return { error: 'An account with that email already exists.' }
+
+    const referrer = referralCodeUsed
+      ? users.find((u) => u.referralCode.toLowerCase() === referralCodeUsed.toLowerCase())
+      : null
+
+    const newUser = {
+      id: Date.now(),
+      name,
+      email,
+      password,
+      role: 'user',
+      referralCode: generateReferralCode(name, users),
+      referredBy: referrer ? referrer.id : null,
+      createdAt: new Date().toISOString()
+    }
+
+    persistUsers([...users, newUser])
+    setCurrentUser(newUser)
+    localStorage.setItem('pulse_current_user', JSON.stringify(newUser))
+    return { user: newUser }
   }
 
   function logout() {
@@ -58,8 +107,33 @@ export function AuthProvider({ children }) {
     })
   }
 
+  // Verifies the current password before allowing a change — basic
+  // safeguard so anyone briefly at an unlocked session can't lock
+  // the real owner out without knowing the existing password.
+  function changePassword(currentPassword, newPassword) {
+    if (currentUser.password !== currentPassword) {
+      return { error: 'Current password is incorrect.' }
+    }
+    if (newPassword.length < 6) {
+      return { error: 'New password must be at least 6 characters.' }
+    }
+
+    const nextUser = { ...currentUser, password: newPassword }
+    setCurrentUser(nextUser)
+    localStorage.setItem('pulse_current_user', JSON.stringify(nextUser))
+
+    const nextUsers = users.map((u) => (u.id === currentUser.id ? { ...u, password: newPassword } : u))
+    persistUsers(nextUsers)
+
+    return { success: true }
+  }
+
+  function getReferrals(userId) {
+    return users.filter((u) => u.referredBy === userId)
+  }
+
   return (
-    <AuthContext.Provider value={{ currentUser, login, logout, updateProfile }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals }}>
       {children}
     </AuthContext.Provider>
   )

@@ -11,11 +11,15 @@ const STARTING_PRICES = {
   'GBP/USD': 1.271
 }
 
-const STARTING_PORTFOLIO = [
-  { symbol: 'BTC/USD', units: 0.42, avgPrice: 61000 },
-  { symbol: 'ETH/USD', units: 3.1, avgPrice: 2980 },
-  { symbol: 'EUR/USD', units: 5000, avgPrice: 1.079 }
-]
+// Only the original demo trader (id 1) starts with sample positions.
+// Everyone else starts empty until an admin trades on their behalf.
+const STARTING_PORTFOLIOS = {
+  1: [
+    { symbol: 'BTC/USD', units: 0.42, avgPrice: 61000 },
+    { symbol: 'ETH/USD', units: 3.1, avgPrice: 2980 },
+    { symbol: 'EUR/USD', units: 5000, avgPrice: 1.079 }
+  ]
+}
 
 const STARTING_WATCHLIST = ['BTC/USD', 'ETH/USD']
 
@@ -31,9 +35,10 @@ export function AppProvider({ children }) {
   const [prices, setPrices] = useState(STARTING_PRICES)
   const [history, setHistory] = useState([])
 
-  const [portfolio, setPortfolio] = useState(() => {
-    const saved = localStorage.getItem('pulse_portfolio')
-    return saved ? JSON.parse(saved) : STARTING_PORTFOLIO
+  // Keyed by userId: { [userId]: [ { symbol, units, avgPrice }, ... ] }
+  const [portfolios, setPortfolios] = useState(() => {
+    const saved = localStorage.getItem('pulse_portfolios')
+    return saved ? JSON.parse(saved) : STARTING_PORTFOLIOS
   })
 
   const [orders, setOrders] = useState(() => {
@@ -53,8 +58,8 @@ export function AppProvider({ children }) {
   }, [transactions])
 
   useEffect(() => {
-    localStorage.setItem('pulse_portfolio', JSON.stringify(portfolio))
-  }, [portfolio])
+    localStorage.setItem('pulse_portfolios', JSON.stringify(portfolios))
+  }, [portfolios])
 
   useEffect(() => {
     localStorage.setItem('pulse_orders', JSON.stringify(orders))
@@ -93,12 +98,18 @@ export function AppProvider({ children }) {
     )
   }
 
-  function logOrder(type, symbol, units, price) {
+  // Reads one user's portfolio. Returns [] if they don't have one yet.
+  function getPortfolio(userId) {
+    return portfolios[userId] || []
+  }
+
+  function logOrder(targetUserId, type, symbol, units, price) {
     setOrders((prev) => [
       {
         id: Date.now(),
-        userId: currentUser?.id,
-        userName: currentUser?.name,
+        userId: targetUserId,
+        executedByAdminId: currentUser?.id,
+        executedByAdminName: currentUser?.name,
         type,
         symbol,
         units,
@@ -109,42 +120,45 @@ export function AppProvider({ children }) {
     ])
   }
 
-  // Buying: if you already hold this symbol, blend the average price
-  // (this is how real brokers compute cost basis). Otherwise open a
-  // new position.
-  function buyAsset(symbol, units) {
+  // Admin buys on behalf of targetUserId. Blends cost basis like a real broker.
+  function buyAsset(targetUserId, symbol, units) {
     const price = prices[symbol]
     if (!price || units <= 0) return
 
-    setPortfolio((prev) => {
-      const existing = prev.find((p) => p.symbol === symbol)
+    setPortfolios((prev) => {
+      const existingList = prev[targetUserId] || []
+      const existing = existingList.find((p) => p.symbol === symbol)
+      let nextList
       if (existing) {
         const totalUnits = existing.units + units
         const blendedAvg = (existing.avgPrice * existing.units + price * units) / totalUnits
-        return prev.map((p) =>
+        nextList = existingList.map((p) =>
           p.symbol === symbol ? { ...p, units: totalUnits, avgPrice: blendedAvg } : p
         )
+      } else {
+        nextList = [...existingList, { symbol, units, avgPrice: price }]
       }
-      return [...prev, { symbol, units, avgPrice: price }]
+      return { ...prev, [targetUserId]: nextList }
     })
 
-    logOrder('buy', symbol, units, price)
+    logOrder(targetUserId, 'buy', symbol, units, price)
   }
 
-  // Selling: reduce units, never below zero, avgPrice stays the same
-  // (cost basis doesn't change when you sell part of a position).
-  function sellAsset(symbol, units) {
+  // Admin sells on behalf of targetUserId. Never below zero; avgPrice unchanged.
+  function sellAsset(targetUserId, symbol, units) {
     const price = prices[symbol]
-    const existing = portfolio.find((p) => p.symbol === symbol)
+    const existingList = portfolios[targetUserId] || []
+    const existing = existingList.find((p) => p.symbol === symbol)
     if (!price || !existing || units <= 0 || units > existing.units) return
 
-    setPortfolio((prev) =>
-      prev.map((p) =>
+    setPortfolios((prev) => ({
+      ...prev,
+      [targetUserId]: (prev[targetUserId] || []).map((p) =>
         p.symbol === symbol ? { ...p, units: p.units - units } : p
       )
-    )
+    }))
 
-    logOrder('sell', symbol, units, price)
+    logOrder(targetUserId, 'sell', symbol, units, price)
   }
 
   function addTransaction(type, amount) {
@@ -179,8 +193,10 @@ export function AppProvider({ children }) {
     )
   }
 
+  // FIX: now scoped to the logged-in user only — previously this summed
+  // every user's approved transactions into one shared number.
   const accountBalance = transactions
-    .filter((t) => t.status === 'approved')
+    .filter((t) => t.userId === currentUser?.id && t.status === 'approved')
     .reduce((sum, t) => sum + (t.type === 'deposit' ? t.amount : -t.amount), 0)
 
   const value = {
@@ -190,7 +206,7 @@ export function AppProvider({ children }) {
     setAccent: setAccentState,
     prices,
     history,
-    portfolio,
+    getPortfolio,
     buyAsset,
     sellAsset,
     orders,

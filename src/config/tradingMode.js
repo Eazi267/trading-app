@@ -5,7 +5,7 @@
 // 'demo' or 'live' — always import and check this constant.
 // ---------------------------------------------------------
 
-export const TRADING_MODE = 'live' // 'demo' | 'live'
+export const TRADING_MODE = 'demo' // 'demo' | 'live'
 
 export const isDemoMode = TRADING_MODE === 'demo'
 export const isLiveMode = TRADING_MODE === 'live'

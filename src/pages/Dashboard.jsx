@@ -1,15 +1,19 @@
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
 export default function Dashboard() {
-  const { prices, history, portfolio, transactions } = useApp()
+  const { prices, history, getPortfolio, transactions } = useApp()
+  const { currentUser } = useAuth()
 
+  const portfolio = getPortfolio(currentUser.id)
   const portfolioValue = portfolio.reduce((total, pos) => total + prices[pos.symbol] * pos.units, 0)
+  const myTransactions = transactions.filter((t) => t.userId === currentUser.id)
 
   return (
     <Layout pageTitle="Dashboard">
@@ -35,8 +39,8 @@ export default function Dashboard() {
           <div className="stat-value">{portfolio.length}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Logged actions</div>
-          <div className="stat-value">{transactions.length}</div>
+          <div className="stat-label">Your logged actions</div>
+          <div className="stat-value">{myTransactions.length}</div>
         </div>
       </div>
 

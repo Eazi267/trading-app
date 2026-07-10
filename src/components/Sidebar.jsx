@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Wallet, Star, ArrowLeftRight, Settings, LineChart, ClipboardCheck, Users } from 'lucide-react'
+import { LayoutDashboard, Wallet, Star, ArrowLeftRight, Gift, Settings, LineChart, ClipboardCheck, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 
 const links = [
@@ -7,6 +7,7 @@ const links = [
   { to: '/portfolio', label: 'Portfolio', icon: Wallet },
   { to: '/watchlist', label: 'Watchlist', icon: Star },
   { to: '/transactions', label: 'Deposit / Withdraw', icon: ArrowLeftRight },
+  { to: '/referral', label: 'Referrals', icon: Gift },
   { to: '/settings', label: 'Settings', icon: Settings }
 ]
 

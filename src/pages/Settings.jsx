@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, Lock } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
@@ -12,7 +12,7 @@ const inputStyle = {
 }
 
 export default function Settings() {
-  const { currentUser, updateProfile } = useAuth()
+  const { currentUser, updateProfile, changePassword } = useAuth()
   const fileRef = useRef(null)
   const [form, setForm] = useState({
     name: currentUser.name || '',
@@ -23,13 +23,15 @@ export default function Settings() {
   })
   const [saved, setSaved] = useState(false)
 
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
+  const [pwError, setPwError] = useState('')
+  const [pwSaved, setPwSaved] = useState(false)
+
   function handleChange(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
     setSaved(false)
   }
 
-  // Reads the picked image file and converts it to a base64 string
-  // so it can live in localStorage (no server/file storage in this demo).
   function handleAvatarPick(e) {
     const file = e.target.files[0]
     if (!file) return
@@ -41,6 +43,26 @@ export default function Settings() {
   function handleSave() {
     updateProfile(form)
     setSaved(true)
+  }
+
+  function handlePwChange(field, value) {
+    setPwForm((f) => ({ ...f, [field]: value }))
+    setPwError('')
+    setPwSaved(false)
+  }
+
+  function handlePasswordSave() {
+    if (pwForm.next !== pwForm.confirm) {
+      setPwError('New passwords do not match.')
+      return
+    }
+    const result = changePassword(pwForm.current, pwForm.next)
+    if (result.error) {
+      setPwError(result.error)
+      return
+    }
+    setPwForm({ current: '', next: '', confirm: '' })
+    setPwSaved(true)
   }
 
   return (
@@ -95,6 +117,31 @@ export default function Settings() {
           </button>
 
           {saved && <p style={{ color: 'var(--success)', fontSize: 13, marginTop: 10 }}>Saved.</p>}
+        </div>
+      </div>
+
+      <div className="panel" style={{ maxWidth: 480, marginTop: 16 }}>
+        <div className="panel-head">
+          <h3><Lock size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Change password</h3>
+        </div>
+        <div style={{ padding: '0 20px 20px' }}>
+
+          {pwError && <div className="form-error" style={{ marginBottom: 14 }}>{pwError}</div>}
+
+          <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Current password</label>
+          <input type="password" value={pwForm.current} onChange={(e) => handlePwChange('current', e.target.value)} style={inputStyle} />
+
+          <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>New password</label>
+          <input type="password" value={pwForm.next} onChange={(e) => handlePwChange('next', e.target.value)} style={inputStyle} minLength={6} />
+
+          <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>Confirm new password</label>
+          <input type="password" value={pwForm.confirm} onChange={(e) => handlePwChange('confirm', e.target.value)} style={inputStyle} minLength={6} />
+
+          <button className="btn-primary" style={{ marginTop: 18, width: '100%' }} onClick={handlePasswordSave}>
+            Update password
+          </button>
+
+          {pwSaved && <p style={{ color: 'var(--success)', fontSize: 13, marginTop: 10 }}>Password updated.</p>}
         </div>
       </div>
     </Layout>
