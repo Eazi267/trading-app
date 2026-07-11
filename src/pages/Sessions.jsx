@@ -12,7 +12,6 @@ function formatMoney(n) {
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
-
 export default function Sessions() {
   const { currentUser } = useAuth()
   const { getBalanceBreakdown, getSessionsForUser, startSession, closeSession, sessionCurrentValue } = useApp()
