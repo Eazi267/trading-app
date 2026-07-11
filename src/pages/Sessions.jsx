@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Lock } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -12,12 +12,24 @@ function formatMoney(n) {
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+
+function formatTimeLeft(expiresAtIso) {
+  const msLeft = new Date(expiresAtIso).getTime() - Date.now()
+  if (msLeft <= 0) return 'expired'
+  const days = Math.floor(msLeft / (24 * 60 * 60 * 1000))
+  const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+  if (days > 0) return `${days}d ${hours}h left`
+  const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000))
+  return `${hours}h ${minutes}m left`
+}
+
 export default function Sessions() {
   const { currentUser } = useAuth()
   const { getBalanceBreakdown, getSessionsForUser, startSession, closeSession, sessionCurrentValue } = useApp()
   const [selectedTier, setSelectedTier] = useState(TIERS[0].id)
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
+  const [closeError, setCloseError] = useState('')
 
   const { available } = getBalanceBreakdown(currentUser.id)
   const mySessions = getSessionsForUser(currentUser.id)
@@ -37,6 +49,12 @@ export default function Sessions() {
       return
     }
     setAmount('')
+  }
+
+  function handleClose(sessionId) {
+    setCloseError('')
+    const result = closeSession(sessionId)
+    if (result?.error) setCloseError(result.error)
   }
 
   return (
@@ -77,6 +95,7 @@ export default function Sessions() {
                     {formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}
                   </div>
                   <div className="tier-preview-cap">Max payout: {tier.maxPayoutMultiplier * 100}% of session amount</div>
+                  <div className="tier-preview-cap">{tier.leverageRange.min}x–{tier.leverageRange.max}x leverage (set by your account manager) · runs {tier.durationDays} day{tier.durationDays === 1 ? '' : 's'}</div>
                 </button>
               )
             })}
@@ -110,25 +129,34 @@ export default function Sessions() {
       {activeSessions.length > 0 && (
         <div className="panel" style={{ marginTop: 16 }}>
           <div className="panel-head"><h3>Active sessions</h3></div>
+          {closeError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{closeError}</div>}
           <table>
-            <thead><tr><th>Tier</th><th>Amount</th><th>Started</th><th>Live P&L</th><th>Action</th></tr></thead>
+            <thead><tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Time left</th><th>Live P&L</th><th>Action</th></tr></thead>
             <tbody>
               {activeSessions.map((s) => {
                 const tier = getTier(s.tierId)
                 const liveValue = sessionCurrentValue(s)
                 const livePnl = liveValue - s.amount
+                const isExpired = new Date(s.expiresAt).getTime() <= Date.now()
                 return (
                   <tr key={s.id}>
                     <td>{tier?.name || s.tierId}</td>
                     <td>{formatMoney(s.amount)}</td>
-                    <td>{formatDate(s.startedAt)}</td>
+                    <td>{s.leverage}x</td>
+                    <td>{formatTimeLeft(s.expiresAt)}</td>
                     <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
                       {livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)}
                     </td>
                     <td>
-                      <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => closeSession(s.id)}>
-                        End session
-                      </button>
+                      {isExpired ? (
+                        <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleClose(s.id)}>
+                          End session
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Lock size={12} /> Locked until timer ends
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )

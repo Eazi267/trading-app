@@ -3,7 +3,7 @@ import { Settings2, X, Moon, Sun } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { BRAND } from '../config/brand.js'
 
-const ACCENTS = ['ember', 'rose', 'amber']
+const ACCENTS = ['ember', 'rose', 'amber', 'sapphire']
 
 export default function Configurator() {
   const [open, setOpen] = useState(false)

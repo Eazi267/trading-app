@@ -60,7 +60,7 @@ export default function Balance() {
         ) : (
           <table>
             <thead>
-              <tr><th>Tier</th><th>Amount</th><th>Started</th><th>Status</th><th>Result</th></tr>
+              <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th></tr>
             </thead>
             <tbody>
               {mySessions.map((s) => {
@@ -72,6 +72,7 @@ export default function Balance() {
                   <tr key={s.id}>
                     <td>{tier?.name || s.tierId}</td>
                     <td>{formatMoney(s.amount)}</td>
+                    <td>{s.leverage}x</td>
                     <td>{formatDate(s.startedAt)}</td>
                     <td><span className={'status-pill status-' + (s.status === 'active' ? 'pending' : 'approved')}>{s.status}</span></td>
                     <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>

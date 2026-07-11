@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useNotifications } from '../context/NotificationContext.jsx'
 import { TIERS, getTier } from '../config/tiers.js'
 
 function formatMoney(n) {
@@ -14,26 +15,49 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+// Turns a future ISO date into "2d 4h left" / "expired" for the
+// session countdown. Pure display helper, no state.
+function formatTimeLeft(expiresAtIso) {
+  const msLeft = new Date(expiresAtIso).getTime() - Date.now()
+  if (msLeft <= 0) return 'expired'
+  const days = Math.floor(msLeft / (24 * 60 * 60 * 1000))
+  const hours = Math.floor((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+  if (days > 0) return `${days}d ${hours}h left`
+  const minutes = Math.floor((msLeft % (60 * 60 * 1000)) / (60 * 1000))
+  return `${hours}h ${minutes}m left`
+}
+
 export default function AdminUserDetail() {
   const { id } = useParams()
   const userId = Number(id)
   const navigate = useNavigate()
-  const { prices, getPortfolio, buyAsset, sellAsset, orders, transactions, sessions, startSession, closeSession, sessionCurrentValue } = useApp()
+  const {
+    prices, orders, transactions, sessions, getRecentRange,
+    startSession, closeSession, sessionCurrentValue,
+    openSessionPosition, closeSessionPosition, setSessionLeverage
+  } = useApp()
   const { users, setUserTier } = useAuth()
-  const [amounts, setAmounts] = useState({})
+  const { notify } = useNotifications()
+
   const [newSessionTier, setNewSessionTier] = useState(TIERS[0].id)
   const [newSessionAmount, setNewSessionAmount] = useState('')
   const [sessionError, setSessionError] = useState('')
 
+  // Which active session the admin is currently trading against.
+  const [selectedSessionId, setSelectedSessionId] = useState(null)
+  const [tradeSymbol, setTradeSymbol] = useState(Object.keys(prices)[0])
+  const [tradeMargin, setTradeMargin] = useState('')
+  const [tradeError, setTradeError] = useState('')
+  const [leverageInput, setLeverageInput] = useState('')
+  const [leverageError, setLeverageError] = useState('')
+
   const targetUser = users.find((u) => u.id === userId)
-  const portfolio = getPortfolio(userId)
   const userOrders = orders.filter((o) => o.userId === userId)
   const userTransactions = transactions.filter((t) => t.userId === userId)
   const userSessions = sessions.filter((s) => s.userId === userId)
+  const activeSessions = userSessions.filter((s) => s.status === 'active')
 
-  const totalValue = portfolio.reduce((sum, pos) => sum + prices[pos.symbol] * pos.units, 0)
-  const totalCost = portfolio.reduce((sum, pos) => sum + pos.avgPrice * pos.units, 0)
-  const totalPnl = totalValue - totalCost
+  const selectedSession = activeSessions.find((s) => s.id === selectedSessionId) || activeSessions[0] || null
 
   if (!targetUser) {
     return (
@@ -41,24 +65,6 @@ export default function AdminUserDetail() {
         <div className="empty-state"><p>No such user.</p></div>
       </Layout>
     )
-  }
-
-  function setAmount(symbol, value) {
-    setAmounts((a) => ({ ...a, [symbol]: value }))
-  }
-
-  function handleBuy(symbol) {
-    const units = parseFloat(amounts[symbol])
-    if (!units || units <= 0) return
-    buyAsset(userId, symbol, units)
-    setAmount(symbol, '')
-  }
-
-  function handleSell(symbol) {
-    const units = parseFloat(amounts[symbol])
-    if (!units || units <= 0) return
-    sellAsset(userId, symbol, units)
-    setAmount(symbol, '')
   }
 
   function handleStartSession() {
@@ -73,6 +79,43 @@ export default function AdminUserDetail() {
     setNewSessionAmount('')
   }
 
+  function handleOpenPosition() {
+    setTradeError('')
+    if (!selectedSession) return
+    const margin = parseFloat(tradeMargin)
+    if (!margin || margin <= 0) {
+      setTradeError('Enter a margin amount above zero.')
+      return
+    }
+    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin)
+    if (result.error) {
+      setTradeError(result.error)
+      return
+    }
+    setTradeMargin('')
+  }
+
+  function handleClosePosition(positionId) {
+    if (!selectedSession) return
+    closeSessionPosition(selectedSession.id, positionId)
+  }
+
+  function handleSetLeverage() {
+    setLeverageError('')
+    if (!selectedSession) return
+    const leverage = parseFloat(leverageInput)
+    if (!leverage || leverage <= 0) {
+      setLeverageError('Enter a leverage above zero.')
+      return
+    }
+    const result = setSessionLeverage(selectedSession.id, leverage)
+    if (result.error) {
+      setLeverageError(result.error)
+      return
+    }
+    setLeverageInput('')
+  }
+
   return (
     <Layout pageTitle={targetUser.name}>
       <button
@@ -83,14 +126,43 @@ export default function AdminUserDetail() {
       </button>
 
       <h1 className="page-title">{targetUser.name}</h1>
-      <p className="page-sub">{targetUser.email} — trade on this user's behalf below.</p>
+      <p className="page-sub">{targetUser.email} — trade inside their active sessions below.</p>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Market prices</h3></div>
+        <div className="stats-grid" style={{ padding: '16px 20px' }}>
+          {Object.entries(prices).map(([symbol, price]) => {
+            const { high, low } = getRecentRange(symbol)
+            return (
+              <div className="stat-card" key={symbol}>
+                <div className="stat-label">{symbol}</div>
+                <div className="stat-value">{formatMoney(price)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Range: {formatMoney(low)} – {formatMoney(high)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Tier</h3></div>
         <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <select
             value={targetUser.tier || ''}
-            onChange={(e) => setUserTier(userId, e.target.value || null)}
+            onChange={(e) => {
+              const newTierId = e.target.value || null
+              setUserTier(userId, newTierId)
+              const newTier = newTierId ? getTier(newTierId) : null
+              notify(
+                userId,
+                'tier_changed',
+                'Tier updated',
+                newTier ? `Your account was moved to ${newTier.name}.` : 'Your tier assignment was removed.',
+                { tierId: newTierId }
+              )
+            }}
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
           >
             <option value="">No tier assigned</option>
@@ -104,76 +176,164 @@ export default function AdminUserDetail() {
         </div>
       </div>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Portfolio value</div>
-          <div className="stat-value">{formatMoney(totalValue)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Total P&L</div>
-          <div className={'stat-value ' + (totalPnl >= 0 ? 'pnl-up' : 'pnl-down')}>
-            {totalPnl >= 0 ? '+' : ''}{formatMoney(totalPnl)}
-          </div>
-        </div>
+      {/* ---------- Per-session leveraged trading ---------- */}
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Trade inside a session</h3></div>
+
+        {activeSessions.length === 0 ? (
+          <div className="empty-state"><p>No active sessions for this client yet — start one below first.</p></div>
+        ) : (
+          <>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+              <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Active session</label>
+              <select
+                value={selectedSession?.id || ''}
+                onChange={(e) => setSelectedSessionId(Number(e.target.value))}
+                style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, minWidth: 260 }}
+              >
+                {activeSessions.map((s) => {
+                  const tier = getTier(s.tierId)
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {tier?.name || s.tierId} — {formatMoney(s.amount)} — {formatTimeLeft(s.expiresAt)}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+
+            {selectedSession && (
+              <>
+                <div className="stats-grid" style={{ padding: '16px 20px 0' }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Session cash (uncommitted)</div>
+                    <div className="stat-value">{formatMoney(selectedSession.cash)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Live session value</div>
+                    <div className="stat-value">{formatMoney(sessionCurrentValue(selectedSession))}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Time left</div>
+                    <div className="stat-value">{formatTimeLeft(selectedSession.expiresAt)}</div>
+                  </div>
+                </div>
+
+                <div style={{ padding: '16px 20px 0' }}>
+                  <div className="stat-label" style={{ marginBottom: 6 }}>
+                    Leverage — currently {selectedSession.leverage}x
+                    {(() => {
+                      const tier = getTier(selectedSession.tierId)
+                      return tier ? ` (range ${tier.leverageRange.min}x–${tier.leverageRange.max}x for ${tier.name})` : ''
+                    })()}
+                  </div>
+                  {leverageError && <div className="form-error" style={{ marginBottom: 8 }}>{leverageError}</div>}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      value={leverageInput}
+                      onChange={(e) => setLeverageInput(e.target.value)}
+                      placeholder={`New leverage (x)`}
+                      style={{ width: 160, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                    />
+                    <button className="tx-btn" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleSetLeverage}>
+                      Apply
+                    </button>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      Only affects positions opened from now on — open positions keep the leverage they started with.
+                    </span>
+                  </div>
+                </div>
+
+                {tradeError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{tradeError}</div>}
+
+                <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+                  <select
+                    value={tradeSymbol}
+                    onChange={(e) => setTradeSymbol(e.target.value)}
+                    style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                  >
+                    {Object.keys(prices).map((symbol) => (
+                      <option key={symbol} value={symbol}>{symbol}</option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    @ {formatMoney(prices[tradeSymbol])}
+                  </span>
+                  <input
+                    type="number"
+                    value={tradeMargin}
+                    onChange={(e) => setTradeMargin(e.target.value)}
+                    placeholder="Margin amount (USD)"
+                    style={{ width: 170, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                  />
+                  <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleOpenPosition}>
+                    Open position ({selectedSession.leverage}x)
+                  </button>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Committed from this session's own cash — never the client's wider balance.
+                  </span>
+                </div>
+
+                {selectedSession.positions.length === 0 ? (
+                  <div className="empty-state"><p>No open positions in this session.</p></div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr><th>Symbol</th><th>Margin</th><th>Entry price</th><th>Current price</th><th>Live P&L</th><th>Action</th></tr>
+                    </thead>
+                    <tbody>
+                      {selectedSession.positions.map((p) => {
+                        const currentPrice = prices[p.symbol]
+                        const livePnl = p.marginAmount * p.leverage * ((currentPrice - p.entryPrice) / p.entryPrice)
+                        return (
+                          <tr key={p.id}>
+                            <td>{p.symbol}</td>
+                            <td>{formatMoney(p.marginAmount)}</td>
+                            <td>{formatMoney(p.entryPrice)}</td>
+                            <td>{formatMoney(currentPrice)}</td>
+                            <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
+                              {livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)}
+                            </td>
+                            <td>
+                              <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleClosePosition(p.id)}>
+                                Close
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      <div className="panel">
-        <div className="panel-head"><h3>Positions — trade on their behalf</h3></div>
-        <table>
-          <thead>
-            <tr><th>Symbol</th><th>Units</th><th>Avg price</th><th>Current price</th><th>Value</th><th>P&L</th><th>Trade</th></tr>
-          </thead>
-          <tbody>
-            {Object.keys(prices).map((symbol) => {
-              const pos = portfolio.find((p) => p.symbol === symbol)
-              const current = prices[symbol]
-              const units = pos?.units || 0
-              const value = current * units
-              const pnl = pos ? (current - pos.avgPrice) * units : 0
-              return (
-                <tr key={symbol}>
-                  <td>{symbol}</td>
-                  <td>{units.toFixed(4)}</td>
-                  <td>{pos ? formatMoney(pos.avgPrice) : '—'}</td>
-                  <td>{formatMoney(current)}</td>
-                  <td>{formatMoney(value)}</td>
-                  <td className={pnl >= 0 ? 'pnl-up' : 'pnl-down'}>
-                    {pos ? (pnl >= 0 ? '+' : '') + formatMoney(pnl) : '—'}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <input
-                        type="number"
-                        value={amounts[symbol] || ''}
-                        onChange={(e) => setAmount(symbol, e.target.value)}
-                        placeholder="Units"
-                        style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-                      />
-                      <button className="tx-btn deposit" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleBuy(symbol)}>Buy</button>
-                      <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleSell(symbol)}>Sell</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
+      {/* ---------- Trade history (legacy buy/sell + new open/close position, same audit log) ---------- */}
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head"><h3>Trade history</h3></div>
         {userOrders.length === 0 ? (
           <div className="empty-state"><p>No trades yet.</p></div>
         ) : (
           <table>
-            <thead><tr><th>Type</th><th>Symbol</th><th>Units</th><th>Price</th><th>Executed by</th><th>Date</th></tr></thead>
+            <thead><tr><th>Type</th><th>Symbol</th><th>Detail</th><th>Price</th><th>P&amp;L</th><th>Executed by</th><th>Date</th></tr></thead>
             <tbody>
               {userOrders.map((o) => (
                 <tr key={o.id}>
-                  <td style={{ textTransform: 'capitalize' }}>{o.type}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{o.type.replace('_', ' ')}</td>
                   <td>{o.symbol}</td>
-                  <td>{o.units.toFixed(4)}</td>
+                  <td>
+                    {o.units != null
+                      ? `${o.units.toFixed(4)} units`
+                      : `${formatMoney(o.marginAmount)} @ ${o.leverage}x`}
+                  </td>
                   <td>{formatMoney(o.price)}</td>
+                  <td className={o.pnl != null ? (o.pnl >= 0 ? 'pnl-up' : 'pnl-down') : undefined}>
+                    {o.pnl != null ? (o.pnl >= 0 ? '+' : '') + formatMoney(o.pnl) : '—'}
+                  </td>
                   <td>{o.executedByAdminName || '—'}</td>
                   <td>{formatDate(o.date)}</td>
                 </tr>
@@ -193,7 +353,7 @@ export default function AdminUserDetail() {
             <tbody>
               {userTransactions.map((t) => (
                 <tr key={t.id}>
-                  <td style={{ textTransform: 'capitalize' }}>{t.type}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')}</td>
                   <td>{formatMoney(t.amount)}</td>
                   <td>{formatDate(t.date)}</td>
                   <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
@@ -203,6 +363,7 @@ export default function AdminUserDetail() {
           </table>
         )}
       </div>
+
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head"><h3>Trading sessions</h3></div>
 
@@ -215,7 +376,9 @@ export default function AdminUserDetail() {
             style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
           >
             {TIERS.map((t) => (
-              <option key={t.id} value={t.id}>{t.name} (cap {t.maxPayoutMultiplier * 100}%)</option>
+              <option key={t.id} value={t.id}>
+                {t.name} (cap {t.maxPayoutMultiplier * 100}%, {t.leverageRange.min}x–{t.leverageRange.max}x, {t.durationDays}d)
+              </option>
             ))}
           </select>
           <input
@@ -235,7 +398,7 @@ export default function AdminUserDetail() {
         ) : (
           <table>
             <thead>
-              <tr><th>Tier</th><th>Amount</th><th>Started</th><th>Status</th><th>Result</th><th>Action</th></tr>
+              <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th><th>Action</th></tr>
             </thead>
             <tbody>
               {userSessions.map((s) => {
@@ -247,14 +410,21 @@ export default function AdminUserDetail() {
                   <tr key={s.id}>
                     <td>{tier?.name || s.tierId}</td>
                     <td>{formatMoney(s.amount)}</td>
+                    <td>{s.leverage}x</td>
                     <td>{formatDate(s.startedAt)}</td>
-                    <td><span className={'status-pill status-' + (s.status === 'active' ? 'pending' : 'approved')}>{s.status}</span></td>
+                    <td>
+                      <span className={'status-pill status-' + (s.status === 'active' ? 'pending' : 'approved')}>{s.status}</span>
+                      {s.status === 'active' && (
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{formatTimeLeft(s.expiresAt)}</span>
+                      )}
+                    </td>
                     <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
                       {s.status === 'active'
                         ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
                         : <>
                             {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
                             {wasCapped && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (capped from {formatMoney(s.rawPnl)})</span>}
+                            {s.closedReason === 'expired' && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (auto-expired)</span>}
                           </>
                       }
                     </td>

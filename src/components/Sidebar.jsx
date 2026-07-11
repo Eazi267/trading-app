@@ -1,10 +1,13 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, ClipboardCheck, Users } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, ClipboardCheck, Users, Sliders, CandlestickChart, BarChart3, Bell } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { BRAND } from '../config/brand.js'
 
 const links = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/markets', label: 'Markets', icon: CandlestickChart },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/balance', label: 'Balance', icon: PiggyBank },
   { to: '/sessions', label: 'Sessions', icon: ListChecks },
   { to: '/watchlist', label: 'Watchlist', icon: Star },
@@ -15,7 +18,8 @@ const links = [
 
 const adminLinks = [
   { to: '/admin/requests', label: 'Pending Requests', icon: ClipboardCheck },
-  { to: '/admin/users', label: 'Users', icon: Users }
+  { to: '/admin/users', label: 'Clients', icon: Users },
+  { to: '/admin/scenario', label: 'Scenario Control', icon: Sliders }
 ]
 
 export default function Sidebar() {
