@@ -4,6 +4,7 @@ import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getTier } from '../config/tiers.js'
+import AdminBalanceView from './AdminBalanceView.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -17,7 +18,15 @@ export default function Balance() {
   const { currentUser } = useAuth()
   const { getBalanceBreakdown, getSessionsForUser, sessionCurrentValue } = useApp()
 
-  const { total, available, pending } = getBalanceBreakdown(currentUser.id)
+  if (currentUser.role === 'admin') {
+    return (
+      <Layout pageTitle="Admin Balance">
+        <AdminBalanceView />
+      </Layout>
+    )
+  }
+
+  const { total, available, pending, pendingCappedProfit } = getBalanceBreakdown(currentUser.id)
   const mySessions = getSessionsForUser(currentUser.id)
 
   return (
@@ -40,7 +49,19 @@ export default function Balance() {
           <div className="stat-label"><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Pending in sessions</div>
           <div className="stat-value">{formatMoney(pending)}</div>
         </div>
+        {pendingCappedProfit > 0 && (
+          <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
+            <div className="stat-label">Pending profit review</div>
+            <div className="stat-value">{formatMoney(pendingCappedProfit)}</div>
+          </div>
+        )}
       </div>
+
+      {pendingCappedProfit > 0 && (
+        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
+          A recent session outperformed its tier's payout cap. The extra {formatMoney(pendingCappedProfit)} is held for admin review before it's added to your available balance.
+        </p>
+      )}
 
       {pending > 0 && (
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '-6px 0 16px' }}>
@@ -80,7 +101,11 @@ export default function Balance() {
                         ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
                         : <>
                             {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
-                            {wasCapped && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (capped from {formatMoney(s.rawPnl)})</span>}
+                            {wasCapped && (
+                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                                {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} pending review)
+                              </span>
+                            )}
                           </>
                       }
                     </td>

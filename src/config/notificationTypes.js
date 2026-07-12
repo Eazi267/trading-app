@@ -1,6 +1,6 @@
 import {
   Zap, TrendingUp, TrendingDown, Trophy, ArrowDownCircle, ArrowUpCircle,
-  Wallet, Award, Layers, Bell
+  Wallet, Award, Layers, Bell, Hourglass, Gift
 } from 'lucide-react'
 
 // One source of truth for how each notification type looks — icon
@@ -18,7 +18,9 @@ export const NOTIFICATION_META = {
   withdrawal_approved: { icon: ArrowUpCircle, colorVar: 'var(--accent-bright)' },
   balance_update: { icon: Wallet, colorVar: 'var(--text-secondary)' },
   achievement: { icon: Award, colorVar: '#fbbf24' },
-  tier_changed: { icon: Layers, colorVar: 'var(--accent-bright)' }
+  tier_changed: { icon: Layers, colorVar: 'var(--accent-bright)' },
+  capped_profit_pending: { icon: Hourglass, colorVar: '#fbbf24' },
+  capped_profit_released: { icon: Gift, colorVar: 'var(--success)' }
 }
 
 export function getNotificationMeta(type) {

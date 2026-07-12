@@ -3,8 +3,8 @@ import { createContext, useContext, useState } from 'react'
 const AuthContext = createContext(null)
 
 const SEED_USERS = [
-  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString(), tier: 'tier1', flaggedForReview: false },
-  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString(), tier: null, flaggedForReview: false }
+  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString(), tier: 'tier1', flaggedForReview: false, vipUnlocked: null },
+  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString(), tier: null, flaggedForReview: false, vipUnlocked: null }
 ]
 
 function loadUsers() {
@@ -106,6 +106,21 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Admin-only: unlocks a hidden VIP tier for self-service on the
+  // client's own Sessions page. This is separate from `tier` (their
+  // current default assignment) — vipUnlocked just adds an extra
+  // tier CARD they're allowed to pick, it doesn't remove the standard
+  // three. Set to null to revoke access again.
+  function setClientVip(userId, vipTierId) {
+    const nextUsers = users.map((u) => (u.id === userId ? { ...u, vipUnlocked: vipTierId } : u))
+    persistUsers(nextUsers)
+    if (currentUser?.id === userId) {
+      const next = { ...currentUser, vipUnlocked: vipTierId }
+      setCurrentUser(next)
+      localStorage.setItem('pulse_current_user', JSON.stringify(next))
+    }
+  }
+
   // Marks an account for manual admin review (e.g. a real deposit
   // request came in above the large-account threshold). Does not
   // touch the tier — a human decides what happens next.
@@ -169,7 +184,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, flagForReview, getFlaggedUsers }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers }}>
       {children}
     </AuthContext.Provider>
   )

@@ -8,6 +8,7 @@ import { useCountUp } from '../hooks/useCountUp.js'
 import { useSkeleton } from '../hooks/useSkeleton.js'
 import { getTradeStats, getProfitBreakdown, getActiveTradeCount, getClosedPositions } from '../utils/analytics.js'
 import { getTier } from '../config/tiers.js'
+import AdminDashboardView from './AdminDashboardView.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -38,6 +39,14 @@ export default function Dashboard() {
   const loading = useSkeleton(500)
   const { prices, history, orders, transactions, sessions, getBalanceBreakdown, getSessionsForUser } = useApp()
   const { currentUser } = useAuth()
+
+  if (currentUser.role === 'admin') {
+    return (
+      <Layout pageTitle="Admin Dashboard">
+        <AdminDashboardView />
+      </Layout>
+    )
+  }
 
   const { total, available } = getBalanceBreakdown(currentUser.id)
   const mySessions = getSessionsForUser(currentUser.id)

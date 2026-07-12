@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { TIERS, getTier } from '../config/tiers.js'
 
 function formatMoney(n) {
+  if (!Number.isFinite(n)) return 'no limit'
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
@@ -37,6 +38,7 @@ export default function Sessions() {
   const { currentUser } = useAuth()
   const { getBalanceBreakdown, getSessionsForUser, startSession, closeSession, sessionCurrentValue } = useApp()
   const [selectedTier, setSelectedTier] = useState(TIERS[0].id)
+  const [duration, setDuration] = useState(TIERS[0].durationDays)
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
   const [closeError, setCloseError] = useState('')
@@ -46,6 +48,13 @@ export default function Sessions() {
   const activeSessions = mySessions.filter((s) => s.status === 'active')
   const closedSessions = mySessions.filter((s) => s.status === 'closed')
 
+  // Standard three tiers, plus one VIP tier ONLY if an admin has
+  // specifically unlocked it for this client (see AdminUserDetail's
+  // "VIP status" control). Never shown otherwise — Mini/Major VIP
+  // stay admin-only unless explicitly granted.
+  const unlockedVipTier = currentUser.vipUnlocked ? getTier(currentUser.vipUnlocked) : null
+  const visibleTiers = unlockedVipTier ? [...TIERS, unlockedVipTier] : TIERS
+
   function handleStart() {
     setError('')
     const value = parseFloat(amount)
@@ -53,7 +62,7 @@ export default function Sessions() {
       setError('Enter an amount above zero.')
       return
     }
-    const result = startSession(currentUser.id, selectedTier, value)
+    const result = startSession(currentUser.id, selectedTier, value, duration)
     if (result.error) {
       setError(result.error)
       return
@@ -86,13 +95,16 @@ export default function Sessions() {
         <div className="panel-head"><h3>Start a new session</h3></div>
         <div style={{ padding: '16px 20px' }}>
           <div className="tier-preview-grid">
-            {TIERS.map((tier) => {
+            {visibleTiers.map((tier) => {
               const isSelected = selectedTier === tier.id
               return (
                 <button
                   key={tier.id}
                   type="button"
-                  onClick={() => setSelectedTier(tier.id)}
+                  onClick={() => {
+                    setSelectedTier(tier.id)
+                    setDuration(tier.durationDays)
+                  }}
                   className={'tier-preview-card' + (isSelected ? ' tier-preview-active' : '')}
                   style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
                 >
@@ -105,16 +117,21 @@ export default function Sessions() {
                     {formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}
                   </div>
                   <div className="tier-preview-cap">Max payout: {tier.maxPayoutMultiplier * 100}% of session amount</div>
-                  <div className="tier-preview-cap">{tier.leverageRange.min}x–{tier.leverageRange.max}x leverage (set by your account manager) · runs {tier.durationDays} day{tier.durationDays === 1 ? '' : 's'}</div>
+                  <div className="tier-preview-cap">{tier.leverageRange.min}x–{tier.leverageRange.max}x leverage (set by your account manager) · {tier.durationRange.min}–{tier.durationRange.max} day session</div>
                 </button>
               )
             })}
           </div>
 
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 16px' }}>
+            Need a session below {formatMoney(TIERS[0].minDeposit)} or above {formatMoney(TIERS[TIERS.length - 1].maxDeposit)}?
+            {' '}Contact your account manager — they can set up a tailored session for accounts outside the standard range.
+          </p>
+
           {error && <div className="form-error">{error}</div>}
 
           <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Amount to commit (USD)</label>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
             <input
               type="number"
               value={amount}
@@ -128,6 +145,37 @@ export default function Sessions() {
             />
             <button className="tx-btn deposit" onClick={handleStart}>Start session</button>
           </div>
+
+          {(() => {
+            const tier = getTier(selectedTier)
+            const durationOptions = []
+            for (let d = tier.durationRange.min; d <= tier.durationRange.max; d++) durationOptions.push(d)
+            return (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  Session length ({tier.durationRange.min}–{tier.durationRange.max} days)
+                </label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {durationOptions.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDuration(d)}
+                      className="tx-btn"
+                      style={{
+                        padding: '6px 12px', fontSize: 12,
+                        background: duration === d ? 'var(--accent)' : 'var(--bg)',
+                        color: duration === d ? '#fff' : 'var(--text)',
+                        border: '1px solid var(--border)'
+                      }}
+                    >
+                      {d} day{d === 1 ? '' : 's'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
           {available <= 0 && (
             <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 10 }}>
               You don't have available balance yet — deposit first from the Deposit / Withdraw page.
@@ -200,7 +248,11 @@ export default function Sessions() {
                     <td>{formatDate(s.closedAt)}</td>
                     <td className={s.payout >= 0 ? 'pnl-up' : 'pnl-down'}>
                       {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
-                      {wasCapped && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (capped from {formatMoney(s.rawPnl)})</span>}
+                      {wasCapped && (
+                        <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                          {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} pending admin review)
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )

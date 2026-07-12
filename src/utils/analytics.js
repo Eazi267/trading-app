@@ -45,7 +45,13 @@ export function getTradeStats(orders, userId) {
 }
 
 function getSessionSettlements(transactions, userId) {
-  return transactions.filter((t) => t.userId === userId && t.type === 'session_settlement')
+  // Approved capped-profit releases are real, realized profit too —
+  // they just arrived on a delay for admin review. Once approved,
+  // they count the same as any other settlement.
+  return transactions.filter(
+    (t) => t.userId === userId && t.status === 'approved' &&
+    (t.type === 'session_settlement' || t.type === 'capped_profit_release')
+  )
 }
 
 function sumAmountSince(entries, sinceDate) {
@@ -101,6 +107,7 @@ export function getBalanceHistory(transactions, userId) {
     if (t.type === 'deposit') running += t.amount
     else if (t.type === 'withdrawal') running -= t.amount
     else if (t.type === 'session_settlement') running += t.amount
+    else if (t.type === 'capped_profit_release') running += t.amount
     return { date: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), balance: running }
   })
 }

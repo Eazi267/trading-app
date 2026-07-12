@@ -12,6 +12,7 @@ import {
   getTradeStats, getProfitBreakdown, getROI, getBalanceHistory,
   getAssetAllocation, getTradingActivity
 } from '../utils/analytics.js'
+import AdminAnalyticsView from './AdminAnalyticsView.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -36,6 +37,14 @@ export default function Analytics() {
   const loading = useSkeleton(500)
   const { orders, transactions, sessions } = useApp()
   const { currentUser } = useAuth()
+
+  if (currentUser.role === 'admin') {
+    return (
+      <Layout pageTitle="Admin Analytics">
+        <AdminAnalyticsView />
+      </Layout>
+    )
+  }
 
   const trade = getTradeStats(orders, currentUser.id)
   const profit = getProfitBreakdown(transactions, currentUser.id)

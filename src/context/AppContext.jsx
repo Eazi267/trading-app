@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useNotifications } from './NotificationContext.jsx'
 import { isLiveMode } from '../config/tradingMode.js'
-import { getTier, clampLeverage } from '../config/tiers.js'
+import { getTier, clampLeverage, clampDuration } from '../config/tiers.js'
 
 const AppContext = createContext(null)
 
@@ -65,7 +65,11 @@ function computeSessionSettlement(session, currentPrices) {
   // Gains are capped at the tier's multiplier. Losses are NEVER
   // capped — a real loss is paid out in full, however large.
   const payout = rawPnl > 0 ? Math.min(rawPnl, cappedGain) : rawPnl
-  return { endValue, rawPnl, payout }
+  // The portion of a real gain ABOVE the cap is never discarded —
+  // it's held as a separate pending amount for admin review (see
+  // closeSession/auto-expiry), rather than silently disappearing.
+  const excessPending = rawPnl > cappedGain ? rawPnl - cappedGain : 0
+  return { endValue, rawPnl, payout, excessPending }
 }
 
 export function AppProvider({ children }) {
@@ -110,7 +114,18 @@ export function AppProvider({ children }) {
   // choice + a starting amount, and closes into a capped payout.
   const [sessions, setSessions] = useState(() => {
     const saved = localStorage.getItem('pulse_sessions')
-    return saved ? JSON.parse(saved) : []
+    if (!saved) return []
+    // Defensive normalization: a session saved before the
+    // trading-engine rework won't have positions/cash/leverage at
+    // all. Without this, reading session.positions.length on one of
+    // these throws and can silently blank out an entire panel —
+    // exactly the "positions disappeared" symptom this guards against.
+    return JSON.parse(saved).map((s) => ({
+      cash: s.amount ?? 0,
+      positions: [],
+      leverage: 1,
+      ...s
+    }))
   })
 
   useEffect(() => {
@@ -217,11 +232,11 @@ export function AppProvider({ children }) {
           expired.forEach((session) => {
             const effectivePrices = { ...next, ...(updatedScenarios[session.id]?.prices || {}) }
             delete updatedScenarios[session.id]
-            const { endValue, rawPnl, payout } = computeSessionSettlement(session, effectivePrices)
+            const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, effectivePrices)
             setSessions((prevSessions) =>
               prevSessions.map((s) =>
                 s.id === session.id
-                  ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, closedReason: 'expired' }
+                  ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, excessPending, closedReason: 'expired' }
                   : s
               )
             )
@@ -238,6 +253,18 @@ export function AppProvider({ children }) {
                 sessionId: session.id,
                 closedReason: 'expired'
               },
+              ...(excessPending > 0
+                ? [{
+                    id: `${Date.now()}-${session.id}-excess`,
+                    userId: session.userId,
+                    userName: owner?.name,
+                    type: 'capped_profit_release',
+                    amount: excessPending,
+                    date: new Date().toISOString(),
+                    status: 'pending',
+                    sessionId: session.id
+                  }]
+                : []),
               ...prevTx
             ])
             notifyRef.current(
@@ -247,6 +274,15 @@ export function AppProvider({ children }) {
               `Your session timer ran out. Result: ${payout >= 0 ? '+' : ''}$${payout.toFixed(2)}.`,
               { sessionId: session.id, payout }
             )
+            if (excessPending > 0) {
+              notifyRef.current(
+                session.userId,
+                'capped_profit_pending',
+                'Extra profit pending review',
+                `This session outperformed its tier cap by $${excessPending.toFixed(2)}. That extra amount is held for admin review before it's added to your balance.`,
+                { sessionId: session.id, excessPending }
+              )
+            }
           })
         }
 
@@ -368,6 +404,7 @@ export function AppProvider({ children }) {
         if (t.type === 'deposit') return sum + t.amount
         if (t.type === 'withdrawal') return sum - t.amount
         if (t.type === 'session_settlement') return sum + t.amount
+        if (t.type === 'capped_profit_release') return sum + t.amount
         return sum
       }, 0)
   }
@@ -380,7 +417,10 @@ export function AppProvider({ children }) {
     const pending = sessions
       .filter((s) => s.userId === userId && s.status === 'active')
       .reduce((sum, s) => sum + s.amount, 0)
-    return { total, available: total - pending, pending }
+    const pendingCappedProfit = transactions
+      .filter((t) => t.userId === userId && t.type === 'capped_profit_release' && t.status === 'pending')
+      .reduce((sum, t) => sum + t.amount, 0)
+    return { total, available: total - pending, pending, pendingCappedProfit }
   }
 
   // Starts a new trading session for a client at a given tier.
@@ -389,15 +429,26 @@ export function AppProvider({ children }) {
   // available balance, so a session can never be funded by money
   // that isn't actually there. The session's own `cash` starts equal
   // to `amount`; leverage and duration come straight from the tier.
-  function startSession(targetUserId, tierId, amount) {
+  function startSession(targetUserId, tierId, amount, durationDays) {
     const tier = getTier(tierId)
     if (!tier || !amount || amount <= 0) return { error: 'Invalid tier or amount.' }
+
+    if (amount < tier.minDeposit) {
+      return { error: `${tier.name} requires at least ${formatUsd(tier.minDeposit)} per session.` }
+    }
+    if (Number.isFinite(tier.maxDeposit) && amount > tier.maxDeposit) {
+      return { error: `${tier.name} allows at most ${formatUsd(tier.maxDeposit)} per session.` }
+    }
 
     const { available } = getBalanceBreakdown(targetUserId)
     if (amount > available) return { error: 'Amount exceeds available balance.' }
 
+    // Duration is selectable within the tier's range, same as
+    // leverage — pick a preset within bounds, or fall back to the
+    // tier's default if nothing was specified.
+    const resolvedDuration = clampDuration(tierId, durationDays || tier.durationDays)
     const startedAt = new Date()
-    const expiresAt = new Date(startedAt.getTime() + tier.durationDays * 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
 
     const session = {
       id: Date.now(),
@@ -444,6 +495,22 @@ export function AppProvider({ children }) {
     const clamped = clampLeverage(session.tierId, leverage)
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, leverage: clamped } : s)))
     return { leverage: clamped }
+  }
+
+  // ADMIN-ONLY: changes a session's total duration, clamped to its
+  // tier's allowed range — same pattern as setSessionLeverage.
+  // Recomputes expiresAt from the session's original startedAt, so
+  // "5 days" always means 5 days from when it actually began, not
+  // from whenever the admin happens to make this change.
+  function setSessionDuration(sessionId, days) {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
+    if (!days || days <= 0) return { error: 'Enter a duration above zero.' }
+
+    const clamped = clampDuration(session.tierId, days)
+    const newExpiresAt = new Date(new Date(session.startedAt).getTime() + clamped * 24 * 60 * 60 * 1000)
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, expiresAt: newExpiresAt.toISOString() } : s)))
+    return { days: clamped, expiresAt: newExpiresAt.toISOString() }
   }
 
   // ADMIN-ONLY: opens a leveraged position scoped to ONE session's own
@@ -622,13 +689,13 @@ export function AppProvider({ children }) {
       return { error: 'This session can\u2019t be closed until its timer ends.' }
     }
 
-    const { endValue, rawPnl, payout } = computeSessionSettlement(session, getEffectivePricesForSession(sessionId))
+    const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, getEffectivePricesForSession(sessionId))
     clearSessionScenario(sessionId)
 
     setSessions((prev) =>
       prev.map((s) =>
         s.id === sessionId
-          ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, closedReason: 'manual' }
+          ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, excessPending, closedReason: 'manual' }
           : s
       )
     )
@@ -646,6 +713,18 @@ export function AppProvider({ children }) {
         sessionId,
         closedReason: 'manual'
       },
+      ...(excessPending > 0
+        ? [{
+            id: `${Date.now()}-excess`,
+            userId: session.userId,
+            userName: owner?.name,
+            type: 'capped_profit_release',
+            amount: excessPending,
+            date: new Date().toISOString(),
+            status: 'pending',
+            sessionId
+          }]
+        : []),
       ...prev
     ])
     notify(
@@ -655,6 +734,15 @@ export function AppProvider({ children }) {
       `Result: ${payout >= 0 ? '+' : ''}${formatUsd(payout)}${payout < rawPnl ? ' (capped by tier)' : ''}.`,
       { sessionId, payout, rawPnl }
     )
+    if (excessPending > 0) {
+      notify(
+        session.userId,
+        'capped_profit_pending',
+        'Extra profit pending review',
+        `This session outperformed its tier cap by ${formatUsd(excessPending)}. That extra amount is held for admin review before it's added to your balance.`,
+        { sessionId, excessPending }
+      )
+    }
     if (payout > 0) {
       const priorProfitableSessions = sessions.filter(
         (s) => s.userId === session.userId && s.status === 'closed' && s.payout > 0
@@ -696,13 +784,23 @@ export function AppProvider({ children }) {
       prev.map((t) => (t.id === id ? { ...t, status: 'approved' } : t))
     )
     if (tx) {
-      notify(
-        tx.userId,
-        tx.type === 'deposit' ? 'deposit_approved' : 'withdrawal_approved',
-        tx.type === 'deposit' ? 'Deposit approved' : 'Withdrawal approved',
-        `Your ${tx.type} of ${formatUsd(tx.amount)} was approved.`,
-        { transactionId: id, amount: tx.amount }
-      )
+      if (tx.type === 'capped_profit_release') {
+        notify(
+          tx.userId,
+          'capped_profit_released',
+          'Pending profit released',
+          `The extra ${formatUsd(tx.amount)} held above your tier cap was approved and added to your balance.`,
+          { transactionId: id, amount: tx.amount }
+        )
+      } else {
+        notify(
+          tx.userId,
+          tx.type === 'deposit' ? 'deposit_approved' : 'withdrawal_approved',
+          tx.type === 'deposit' ? 'Deposit approved' : 'Withdrawal approved',
+          `Your ${tx.type} of ${formatUsd(tx.amount)} was approved.`,
+          { transactionId: id, amount: tx.amount }
+        )
+      }
     }
   }
 
@@ -712,13 +810,23 @@ export function AppProvider({ children }) {
       prev.map((t) => (t.id === id ? { ...t, status: 'rejected' } : t))
     )
     if (tx) {
-      notify(
-        tx.userId,
-        'balance_update',
-        `${tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} request rejected`,
-        `Your ${tx.type} request of ${formatUsd(tx.amount)} was rejected. Contact support if this is unexpected.`,
-        { transactionId: id, amount: tx.amount }
-      )
+      if (tx.type === 'capped_profit_release') {
+        notify(
+          tx.userId,
+          'balance_update',
+          'Pending profit not released',
+          `The extra ${formatUsd(tx.amount)} held above your tier cap was not approved for release.`,
+          { transactionId: id, amount: tx.amount }
+        )
+      } else {
+        notify(
+          tx.userId,
+          'balance_update',
+          `${tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} request rejected`,
+          `Your ${tx.type} request of ${formatUsd(tx.amount)} was rejected. Contact support if this is unexpected.`,
+          { transactionId: id, amount: tx.amount }
+        )
+      }
     }
   }
 
@@ -750,6 +858,7 @@ export function AppProvider({ children }) {
     openSessionPosition,
     closeSessionPosition,
     setSessionLeverage,
+    setSessionDuration,
     sessionCurrentValue,
     getSessionsForUser,
     sessionScenarios,

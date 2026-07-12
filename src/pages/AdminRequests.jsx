@@ -10,6 +10,11 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function formatType(type) {
+  if (type === 'capped_profit_release') return 'Capped profit release'
+  return type.charAt(0).toUpperCase() + type.slice(1)
+}
+
 export default function AdminRequests() {
   const { transactions, approveTransaction, rejectTransaction } = useApp()
   const pending = transactions.filter((t) => t.status === 'pending')
@@ -44,7 +49,7 @@ export default function AdminRequests() {
               {pending.map((t) => (
                 <tr key={t.id}>
                   <td>{t.userName}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{t.type}</td>
+                  <td>{formatType(t.type)}</td>
                   <td>{formatMoney(t.amount)}</td>
                   <td>{formatDate(t.date)}</td>
                   <td>
@@ -84,7 +89,7 @@ export default function AdminRequests() {
               {resolved.map((t) => (
                 <tr key={t.id}>
                   <td>{t.userName}</td>
-                  <td style={{ textTransform: 'capitalize' }}>{t.type}</td>
+                  <td>{formatType(t.type)}</td>
                   <td>{formatMoney(t.amount)}</td>
                   <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
                 </tr>

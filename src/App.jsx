@@ -15,7 +15,6 @@ import Watchlist from './pages/Watchlist.jsx'
 import Transactions from './pages/Transactions.jsx'
 import Referral from './pages/Referral.jsx'
 import Settings from './pages/Settings.jsx'
-import AdminRequests from './pages/AdminRequests.jsx'
 import AdminUsers from './pages/AdminUsers.jsx'
 import AdminUserDetail from './pages/AdminUserDetail.jsx'
 import AdminScenario from './pages/AdminScenario.jsx'
@@ -41,7 +40,6 @@ export default function App() {
             <Route path="/referral" element={<ProtectedRoute><Referral /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
-            <Route path="/admin/requests" element={<ProtectedRoute requireRole="admin"><AdminRequests /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requireRole="admin"><AdminUsers /></ProtectedRoute>} />
             <Route path="/admin/users/:id" element={<ProtectedRoute requireRole="admin"><AdminUserDetail /></ProtectedRoute>} />
             <Route path="/admin/scenario" element={<ProtectedRoute requireRole="admin"><AdminScenario /></ProtectedRoute>} />

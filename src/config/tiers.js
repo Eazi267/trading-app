@@ -18,6 +18,7 @@ export const TIERS = [
     minDeposit: 100,
     maxDeposit: 999,
     durationDays: 2,
+    durationRange: { min: 1, max: 3 },
     leverageRange: { min: 1, max: 300 },
     defaultLeverage: 2
   },
@@ -29,6 +30,7 @@ export const TIERS = [
     minDeposit: 1000,
     maxDeposit: 4999,
     durationDays: 5,
+    durationRange: { min: 3, max: 7 },
     leverageRange: { min: 1, max: 500 },
     defaultLeverage: 5
   },
@@ -40,10 +42,54 @@ export const TIERS = [
     minDeposit: 5000,
     maxDeposit: 24999,
     durationDays: 7,
+    durationRange: { min: 5, max: 14 },
     leverageRange: { min: 1, max: 1000 },
     defaultLeverage: 10
   }
 ]
+
+// Hidden, admin-only tiers — never shown in a client's own tier
+// picker (Sessions.jsx filters these out by checking `hidden`).
+// Mini VIP covers accounts too small for Tier 1's $100 floor; Major
+// VIP covers the same $25,000+ bracket that already gets flagged for
+// manual review at deposit time (LARGE_ACCOUNT_THRESHOLD below) — so
+// requiring an admin to set these up isn't a new rule, it's the same
+// "large/unusual accounts get a human, not an auto-assignment" rule
+// already in place, just extended to the tier itself.
+export const VIP_TIERS = [
+  {
+    id: 'mini_vip',
+    name: 'Mini VIP',
+    description: 'Small-balance accounts below the standard Tier 1 floor. Admin-assigned only.',
+    maxPayoutMultiplier: 2,
+    minDeposit: 10,
+    maxDeposit: 99,
+    durationDays: 1,
+    durationRange: { min: 1, max: 2 },
+    leverageRange: { min: 1, max: 100 },
+    defaultLeverage: 2,
+    hidden: true
+  },
+  {
+    id: 'major_vip',
+    name: 'Major VIP',
+    description: 'High-balance accounts above the standard tier ceiling. Admin-assigned only.',
+    maxPayoutMultiplier: 15,
+    minDeposit: 25001,
+    maxDeposit: Infinity,
+    durationDays: 14,
+    durationRange: { min: 7, max: 30 },
+    leverageRange: { min: 1, max: 2000 },
+    defaultLeverage: 20,
+    hidden: true
+  }
+]
+
+// Every tier that actually exists, hidden or not — used anywhere a
+// session's tier needs to resolve correctly regardless of whether a
+// client would ever see it in their own picker (settlement math,
+// leverage clamping, admin's own tier-assignment dropdown, etc).
+export const ALL_TIERS = [...TIERS, ...VIP_TIERS]
 
 // Deposits at or above this amount skip the automated tier
 // bands entirely — they're flagged for the admin to review
@@ -51,7 +97,7 @@ export const TIERS = [
 export const LARGE_ACCOUNT_THRESHOLD = 25000
 
 export function getTier(tierId) {
-  return TIERS.find((t) => t.id === tierId) || null
+  return ALL_TIERS.find((t) => t.id === tierId) || null
 }
 
 // Clamps a requested leverage into the tier's allowed range. Used
@@ -62,6 +108,16 @@ export function clampLeverage(tierId, requested) {
   if (!tier) return requested
   const { min, max } = tier.leverageRange
   return Math.min(max, Math.max(min, Math.round(requested)))
+}
+
+// Same idea as clampLeverage, for a session's chosen duration (in
+// days). Selectable at session creation, and editable afterward by
+// an admin — same pattern as leverage.
+export function clampDuration(tierId, requestedDays) {
+  const tier = getTier(tierId)
+  if (!tier) return requestedDays
+  const { min, max } = tier.durationRange
+  return Math.min(max, Math.max(min, Math.round(requestedDays)))
 }
 
 // Given a deposit amount, find the tier band it falls into.
