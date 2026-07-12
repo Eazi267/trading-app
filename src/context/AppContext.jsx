@@ -76,19 +76,22 @@ export function AppProvider({ children }) {
   const [prices, setPrices] = useState(STARTING_PRICES)
   const [history, setHistory] = useState([])
 
-  // Demo-only scenario control. Neutral means zero effect — the price
-  // feed behaves exactly as before. This is admin-only in the UI, and
-  // it never touches a balance or a session's payout directly; it only
-  // tilts the random walk that ALL settlement math already reads from.
-  const [marketBias, setMarketBiasState] = useState(() => {
-    const saved = localStorage.getItem('pulse_market_bias')
-    const parsed = saved ? JSON.parse(saved) : null
-    return { mode: 'neutral', strength: 1, volatility: 1, speed: 1, ...parsed }
+  // Demo-only scenario control — per SESSION, not global. Each active
+  // session can carry its own bias/volatility/speed (or none at all).
+  // A session with no entry here just tracks the real, always-neutral
+  // global price feed. This is what makes "bias one client's session
+  // while another client's market stays completely normal" true: the
+  // global `prices` random walk below is now always plain/neutral —
+  // nothing admin sets ever touches it. Only a session with an entry
+  // here sees a different, independently-evolving synthetic price.
+  const [sessionScenarios, setSessionScenarios] = useState(() => {
+    const saved = localStorage.getItem('pulse_session_scenarios')
+    return saved ? JSON.parse(saved) : {}
   })
 
   useEffect(() => {
-    localStorage.setItem('pulse_market_bias', JSON.stringify(marketBias))
-  }, [marketBias])
+    localStorage.setItem('pulse_session_scenarios', JSON.stringify(sessionScenarios))
+  }, [sessionScenarios])
 
   const [orders, setOrders] = useState(() => {
     const saved = localStorage.getItem('pulse_orders')
@@ -139,54 +142,82 @@ export function AppProvider({ children }) {
   // fresh values from on every tick without needing to be re-created.
   const sessionsRef = useRef(sessions)
   const usersRef = useRef(users)
-  const marketBiasRef = useRef(marketBias)
+  const sessionScenariosRef = useRef(sessionScenarios)
   const notifyRef = useRef(notify)
   useEffect(() => { sessionsRef.current = sessions }, [sessions])
   useEffect(() => { usersRef.current = users }, [users])
-  useEffect(() => { marketBiasRef.current = marketBias }, [marketBias])
+  useEffect(() => { sessionScenariosRef.current = sessionScenarios }, [sessionScenarios])
   useEffect(() => { notifyRef.current = notify }, [notify])
 
   useEffect(() => {
     const id = setInterval(() => {
       setPrices((prev) => {
-        const bias = marketBiasRef.current
-        const drift = biasToDrift(bias)
-        const volatility = bias.volatility || 1
-        // "Speed" compounds multiple random-walk steps into this one
-        // 2-second tick instead of re-creating the interval at a
-        // different frequency — same timer, more motion per tick.
-        // That's what makes a session visibly play out faster during
-        // a demo, without touching the interval's own timing.
-        const steps = Math.max(1, Math.min(10, Math.round(bias.speed || 1)))
+        // The shared/global feed is ALWAYS plain and neutral now — no
+        // admin control ever touches it. This is the fix: previously
+        // a single bias setting here affected every client's session
+        // at once. Now bias only ever lives inside a specific
+        // session's entry in sessionScenarios, ticked separately below.
+        const next = {}
+        Object.keys(prev).forEach((symbol) => {
+          next[symbol] = randomWalk(prev[symbol])
+        })
+        setHistory((prevHistory) => {
+          const point = { time: new Date().toLocaleTimeString(), value: next['BTC/USD'], ...next }
+          return [...prevHistory, point].slice(-150)
+        })
 
-        let next = prev
-        const newPoints = []
-        for (let i = 0; i < steps; i++) {
-          const stepped = {}
-          Object.keys(next).forEach((symbol) => {
-            stepped[symbol] = randomWalk(next[symbol], drift, volatility)
-          })
-          next = stepped
-          // Every symbol's price is captured on each history point
-          // (not just BTC), so per-instrument charts and candlesticks
-          // on the Markets page have real data to read from — `value`
-          // is kept as an alias so the existing Dashboard chart
-          // doesn't need to change.
-          newPoints.push({ time: new Date().toLocaleTimeString(), value: next['BTC/USD'], ...next })
-        }
-
-        setHistory((prevHistory) => [...prevHistory, ...newPoints].slice(-150))
+        // Tick every session's own scenario independently. A session
+        // not in this map simply isn't touched — it keeps reading the
+        // plain `next` prices above, i.e. "normal market," even while
+        // a sibling session right next to it is biased.
+        const updatedScenarios = {}
+        Object.entries(sessionScenariosRef.current).forEach(([sessionId, scenario]) => {
+          if (scenario.reset) {
+            const elapsed = Date.now() - new Date(scenario.reset.startedAt).getTime()
+            const progress = Math.min(1, Math.max(0, elapsed / scenario.reset.durationMs))
+            if (progress >= 1) {
+              // Fully settled back to normal — drop the scenario
+              // entirely so this session goes back to reading the
+              // real global feed directly, with nothing layered on top.
+              return
+            }
+            const interpolated = {}
+            Object.keys(scenario.reset.fromPrices).forEach((symbol) => {
+              const from = scenario.reset.fromPrices[symbol]
+              const to = next[symbol]
+              interpolated[symbol] = from + (to - from) * progress
+            })
+            updatedScenarios[sessionId] = { ...scenario, prices: interpolated }
+          } else {
+            const drift = biasToDrift(scenario)
+            const volatility = scenario.volatility || 1
+            const steps = Math.max(1, Math.min(10, Math.round(scenario.speed || 1)))
+            let stepped = scenario.prices
+            for (let i = 0; i < steps; i++) {
+              const tickResult = {}
+              Object.keys(stepped).forEach((symbol) => {
+                tickResult[symbol] = randomWalk(stepped[symbol], drift, volatility)
+              })
+              stepped = tickResult
+            }
+            updatedScenarios[sessionId] = { ...scenario, prices: stepped }
+          }
+        })
+        setSessionScenarios(updatedScenarios)
 
         // Auto-expiry: any active session whose expiresAt has passed
-        // gets force-settled here, using the final price snapshot
-        // from this tick (`next`) rather than state, since state
-        // hasn't re-rendered yet at this point in the tick.
+        // gets force-settled here. Each session settles against ITS
+        // OWN effective prices — the plain global feed, merged with
+        // that session's synthetic prices if it has an active
+        // scenario — computed fresh from this same tick, never stale.
         const expired = sessionsRef.current.filter(
           (s) => s.status === 'active' && s.expiresAt && new Date(s.expiresAt).getTime() <= Date.now()
         )
         if (expired.length > 0) {
           expired.forEach((session) => {
-            const { endValue, rawPnl, payout } = computeSessionSettlement(session, next)
+            const effectivePrices = { ...next, ...(updatedScenarios[session.id]?.prices || {}) }
+            delete updatedScenarios[session.id]
+            const { endValue, rawPnl, payout } = computeSessionSettlement(session, effectivePrices)
             setSessions((prevSessions) =>
               prevSessions.map((s) =>
                 s.id === session.id
@@ -239,6 +270,91 @@ export function AppProvider({ children }) {
     const values = history.map((point) => point[symbol]).filter((v) => v != null)
     if (values.length === 0) return { high: prices[symbol], low: prices[symbol] }
     return { high: Math.max(...values), low: Math.min(...values) }
+  }
+
+  // The real market price everywhere, merged with ONE session's own
+  // synthetic prices if it currently has a scenario applied. Every
+  // position calculation for that session — open, close, live value,
+  // settlement — reads through this single function, so there's
+  // exactly one place that decides "which price does this session see."
+  function getEffectivePricesForSession(sessionId) {
+    const scenario = sessionScenarios[sessionId]
+    if (!scenario) return prices
+    return { ...prices, ...scenario.prices }
+  }
+
+  const RESET_DURATIONS = { mild: 5 * 60 * 1000, normal: 90 * 1000, hard: 15 * 1000 }
+  const SCENARIO_MODES = ['neutral', 'bullish', 'bearish']
+
+  // ADMIN-ONLY, demo tool. Applies (or updates) a bias to exactly ONE
+  // session — every other session, including other sessions for the
+  // same client, keeps reading the real, unbiased global price feed.
+  // This is the actual fix for "scenario control affected every
+  // client at once": there is no more global switch, only this.
+  //   mode/strength: which way this session's synthetic price leans, how hard
+  //   volatility: how big each swing is
+  //   speed: how many steps compound per tick (visibly faster motion)
+  function applySessionScenario(sessionId, mode, strength = 1, volatility = 1, speed = 1) {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
+    if (!SCENARIO_MODES.includes(mode)) return { error: 'Invalid scenario mode.' }
+
+    const existing = sessionScenarios[sessionId]
+    // Continuation, not a jump: if this session already has synthetic
+    // prices, keep them as the starting point for the new settings.
+    // Otherwise seed from wherever the real market is right now.
+    const seedPrices = existing?.prices || { ...prices }
+
+    setSessionScenarios((prev) => ({
+      ...prev,
+      [sessionId]: {
+        mode,
+        strength: Math.min(3, Math.max(1, Math.round(strength))),
+        volatility: Math.min(3, Math.max(1, Math.round(volatility))),
+        speed: Math.min(10, Math.max(1, Math.round(speed))),
+        appliedAt: new Date().toISOString(),
+        prices: seedPrices,
+        reset: null
+      }
+    }))
+    return { ok: true }
+  }
+
+  // ADMIN-ONLY, demo tool. Starts this session's synthetic price
+  // interpolating back to the real market price over a chosen
+  // duration — mild (5 min, gentle) / normal (90s) / hard (15s, a
+  // near-immediate snap back). Once progress reaches 1 the scenario
+  // is dropped entirely (handled in the tick above) and the session
+  // goes back to reading the real feed directly, with nothing layered
+  // on top of it anymore.
+  function resetSessionScenario(sessionId, level) {
+    if (!RESET_DURATIONS[level]) return { error: 'Invalid reset level.' }
+    const scenario = sessionScenarios[sessionId]
+    if (!scenario) return { error: 'This session has no scenario applied to reset.' }
+
+    setSessionScenarios((prev) => ({
+      ...prev,
+      [sessionId]: {
+        ...scenario,
+        reset: {
+          level,
+          startedAt: new Date().toISOString(),
+          durationMs: RESET_DURATIONS[level],
+          fromPrices: scenario.prices
+        }
+      }
+    }))
+    return { ok: true }
+  }
+
+  // Immediately clears a session's scenario with no interpolation —
+  // used when a scenario should just stop, not gradually unwind.
+  function clearSessionScenario(sessionId) {
+    setSessionScenarios((prev) => {
+      const next = { ...prev }
+      delete next[sessionId]
+      return next
+    })
   }
 
   // Reads any user's real balance, calculated purely from their
@@ -310,7 +426,8 @@ export function AppProvider({ children }) {
   // mark-to-market equity of every position still open in it.
   // Calculated purely from the real price feed, never typed in.
   function sessionCurrentValue(session) {
-    return session.cash + session.positions.reduce((sum, p) => sum + positionEquity(p, prices), 0)
+    const effectivePrices = getEffectivePricesForSession(session.id)
+    return session.cash + session.positions.reduce((sum, p) => sum + positionEquity(p, effectivePrices), 0)
   }
 
   // ADMIN-ONLY: changes a session's leverage going forward, clamped to
@@ -337,7 +454,7 @@ export function AppProvider({ children }) {
   function openSessionPosition(sessionId, symbol, marginAmount) {
     const session = sessions.find((s) => s.id === sessionId)
     if (!session || session.status !== 'active') return { error: 'Session is not active.' }
-    const price = prices[symbol]
+    const price = getEffectivePricesForSession(sessionId)[symbol]
     if (!price || !marginAmount || marginAmount <= 0) return { error: 'Invalid symbol or margin amount.' }
     if (marginAmount > session.cash) return { error: 'Exceeds this session\u2019s available cash.' }
 
@@ -379,8 +496,8 @@ export function AppProvider({ children }) {
     const position = session.positions.find((p) => p.id === positionId)
     if (!position) return { error: 'Position not found.' }
 
-    const price = prices[position.symbol]
-    const equity = positionEquity(position, prices)
+    const price = getEffectivePricesForSession(sessionId)[position.symbol]
+    const equity = positionEquity(position, getEffectivePricesForSession(sessionId))
     const pnl = equity - position.marginAmount
 
     setSessions((prev) =>
@@ -445,29 +562,6 @@ export function AppProvider({ children }) {
     ])
   }
 
-  // ADMIN-ONLY, demo tool. Sets how the real price feed's random walk
-  // is tilted and how energetically it moves. 'neutral'/1/1/1 fully
-  // restores plain, original behavior. This is the sanctioned
-  // alternative to a hand-typed profit: it changes the INPUT (the
-  // price feed's drift, amplitude, and pace), never the OUTPUT (a
-  // session's payout, which is still always computed).
-  //   mode: 'neutral' | 'bullish' | 'bearish' — which way the walk leans
-  //   strength: 1-3 — how hard it leans that way
-  //   volatility: 1-3 — how big each random swing is, regardless of lean
-  //   speed: 1-10 — how many random-walk steps compound into each tick
-  //          (higher = the market visibly moves faster during a demo)
-  const BIAS_MODES = ['neutral', 'bullish', 'bearish']
-  function setMarketScenario(mode, strength = 1, volatility = 1, speed = 1) {
-    if (!BIAS_MODES.includes(mode)) return { error: 'Invalid scenario mode.' }
-    setMarketBiasState({
-      mode,
-      strength: Math.min(3, Math.max(1, Math.round(strength))),
-      volatility: Math.min(3, Math.max(1, Math.round(volatility))),
-      speed: Math.min(10, Math.max(1, Math.round(speed)))
-    })
-    return { ok: true }
-  }
-
   // ADMIN-ONLY, demo tool. Pulls a session's expiresAt closer by the
   // given number of hours, so a demo doesn't need to wait out real
   // tier durations (2-7 days). This ONLY changes timing — if it pushes
@@ -528,7 +622,8 @@ export function AppProvider({ children }) {
       return { error: 'This session can\u2019t be closed until its timer ends.' }
     }
 
-    const { endValue, rawPnl, payout } = computeSessionSettlement(session, prices)
+    const { endValue, rawPnl, payout } = computeSessionSettlement(session, getEffectivePricesForSession(sessionId))
+    clearSessionScenario(sessionId)
 
     setSessions((prev) =>
       prev.map((s) =>
@@ -657,8 +752,11 @@ export function AppProvider({ children }) {
     setSessionLeverage,
     sessionCurrentValue,
     getSessionsForUser,
-    marketBias,
-    setMarketScenario,
+    sessionScenarios,
+    applySessionScenario,
+    resetSessionScenario,
+    clearSessionScenario,
+    getEffectivePricesForSession,
     fastForwardSession,
     fastForwardAllSessions
   }

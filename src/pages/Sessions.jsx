@@ -23,6 +23,16 @@ function formatTimeLeft(expiresAtIso) {
   return `${hours}h ${minutes}m left`
 }
 
+// Percentage of a session's duration that has elapsed, for the
+// animated progress bar — real elapsed/total time, not decorative.
+function sessionProgress(session) {
+  const start = new Date(session.startedAt).getTime()
+  const end = new Date(session.expiresAt).getTime()
+  const now = Date.now()
+  if (end <= start) return 100
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100))
+}
+
 export default function Sessions() {
   const { currentUser } = useAuth()
   const { getBalanceBreakdown, getSessionsForUser, startSession, closeSession, sessionCurrentValue } = useApp()
@@ -143,7 +153,12 @@ export default function Sessions() {
                     <td>{tier?.name || s.tierId}</td>
                     <td>{formatMoney(s.amount)}</td>
                     <td>{s.leverage}x</td>
-                    <td>{formatTimeLeft(s.expiresAt)}</td>
+                    <td>
+                      {formatTimeLeft(s.expiresAt)}
+                      <div className="progress-track" style={{ width: 70 }}>
+                        <div className="progress-fill" style={{ width: `${sessionProgress(s)}%` }} />
+                      </div>
+                    </td>
                     <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
                       {livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)}
                     </td>

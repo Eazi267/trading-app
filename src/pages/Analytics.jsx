@@ -7,6 +7,7 @@ import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useCountUp } from '../hooks/useCountUp.js'
+import { useSkeleton } from '../hooks/useSkeleton.js'
 import {
   getTradeStats, getProfitBreakdown, getROI, getBalanceHistory,
   getAssetAllocation, getTradingActivity
@@ -32,6 +33,7 @@ function StatCard({ icon: Icon, label, value, formatter, positive, animationClas
 }
 
 export default function Analytics() {
+  const loading = useSkeleton(500)
   const { orders, transactions, sessions } = useApp()
   const { currentUser } = useAuth()
 
@@ -57,6 +59,20 @@ export default function Analytics() {
         Every number below is calculated from your real trade and transaction history — nothing here is a placeholder.
       </p>
 
+      {loading ? (
+        <>
+          <div className="hero-stats-grid">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)}
+          </div>
+          <div className="hero-stats-grid">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)}
+          </div>
+          <div className="hero-stats-grid">
+            {[1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)}
+          </div>
+        </>
+      ) : (
+        <>
       <div className="hero-stats-grid">
         <StatCard icon={Calendar} label="Today's profit" value={profit.today} formatter={(v) => (v >= 0 ? '+' : '') + formatMoney(v)} positive={profit.today >= 0} animationClass="fade-in-up fade-in-up-1" />
         <StatCard icon={CalendarDays} label="This week's profit" value={profit.thisWeek} formatter={(v) => (v >= 0 ? '+' : '') + formatMoney(v)} positive={profit.thisWeek >= 0} animationClass="fade-in-up fade-in-up-2" />
@@ -77,6 +93,8 @@ export default function Analytics() {
         <StatCard icon={ArrowUpRight} label="Largest win" value={trade.largestWin} formatter={(v) => formatMoney(v)} positive animationClass="fade-in-up fade-in-up-3" />
         <StatCard icon={ArrowDownRight} label="Largest loss" value={trade.largestLoss} formatter={(v) => formatMoney(v)} positive={false} animationClass="fade-in-up fade-in-up-4" />
       </div>
+        </>
+      )}
 
       <div className="glass-card" style={{ marginBottom: 20 }}>
         <div className="panel-head"><h3>Account growth</h3></div>

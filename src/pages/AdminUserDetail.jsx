@@ -27,14 +27,23 @@ function formatTimeLeft(expiresAtIso) {
   return `${hours}h ${minutes}m left`
 }
 
+function sessionProgress(session) {
+  const start = new Date(session.startedAt).getTime()
+  const end = new Date(session.expiresAt).getTime()
+  const now = Date.now()
+  if (end <= start) return 100
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100))
+}
+
 export default function AdminUserDetail() {
   const { id } = useParams()
   const userId = Number(id)
   const navigate = useNavigate()
   const {
-    prices, orders, transactions, sessions, getRecentRange,
+    prices, orders, transactions, sessions, getRecentRange, getBalanceBreakdown,
     startSession, closeSession, sessionCurrentValue,
-    openSessionPosition, closeSessionPosition, setSessionLeverage
+    openSessionPosition, closeSessionPosition, setSessionLeverage,
+    getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
   const { users, setUserTier } = useAuth()
   const { notify } = useNotifications()
@@ -129,6 +138,31 @@ export default function AdminUserDetail() {
       <p className="page-sub">{targetUser.email} — trade inside their active sessions below.</p>
 
       <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Client balance</h3></div>
+        <div className="stats-grid" style={{ padding: '16px 20px' }}>
+          {(() => {
+            const { total, available, pending } = getBalanceBreakdown(userId)
+            return (
+              <>
+                <div className="stat-card">
+                  <div className="stat-label">Total balance</div>
+                  <div className="stat-value">{formatMoney(total)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Available</div>
+                  <div className="stat-value">{formatMoney(available)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Committed to active sessions</div>
+                  <div className="stat-value">{formatMoney(pending)}</div>
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Market prices</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
           {Object.entries(prices).map(([symbol, price]) => {
@@ -202,8 +236,21 @@ export default function AdminUserDetail() {
               </select>
             </div>
 
-            {selectedSession && (
+            {selectedSession && (() => {
+              const effectivePrices = getEffectivePricesForSession(selectedSession.id)
+              const scenario = sessionScenarios[selectedSession.id]
+              return (
               <>
+                {scenario && (
+                  <div style={{ margin: '16px 20px 0', padding: '10px 14px', borderRadius: 10, background: 'var(--accent-bg)', border: '1px solid var(--accent)', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <strong>Scenario active:</strong>
+                    {scenario.reset
+                      ? ` Resetting (${scenario.reset.level}) — returning to real market price.`
+                      : ` ${scenario.mode} · strength ${scenario.strength} · volatility ${scenario.volatility} · ${scenario.speed}x speed.`}
+                    {' '}This session is seeing a simulated price, not the real market shown above.
+                  </div>
+                )}
+
                 <div className="stats-grid" style={{ padding: '16px 20px 0' }}>
                   <div className="stat-card">
                     <div className="stat-label">Session cash (uncommitted)</div>
@@ -216,6 +263,9 @@ export default function AdminUserDetail() {
                   <div className="stat-card">
                     <div className="stat-label">Time left</div>
                     <div className="stat-value">{formatTimeLeft(selectedSession.expiresAt)}</div>
+                    <div className="progress-track">
+                      <div className="progress-fill" style={{ width: `${sessionProgress(selectedSession)}%` }} />
+                    </div>
                   </div>
                 </div>
 
@@ -258,7 +308,7 @@ export default function AdminUserDetail() {
                     ))}
                   </select>
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    @ {formatMoney(prices[tradeSymbol])}
+                    @ {formatMoney(effectivePrices[tradeSymbol])}
                   </span>
                   <input
                     type="number"
@@ -284,7 +334,7 @@ export default function AdminUserDetail() {
                     </thead>
                     <tbody>
                       {selectedSession.positions.map((p) => {
-                        const currentPrice = prices[p.symbol]
+                        const currentPrice = effectivePrices[p.symbol]
                         const livePnl = p.marginAmount * p.leverage * ((currentPrice - p.entryPrice) / p.entryPrice)
                         return (
                           <tr key={p.id}>
@@ -307,7 +357,8 @@ export default function AdminUserDetail() {
                   </table>
                 )}
               </>
-            )}
+              )
+            })()}
           </>
         )}
       </div>

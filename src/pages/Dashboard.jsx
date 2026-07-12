@@ -5,6 +5,7 @@ import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useCountUp } from '../hooks/useCountUp.js'
+import { useSkeleton } from '../hooks/useSkeleton.js'
 import { getTradeStats, getProfitBreakdown, getActiveTradeCount, getClosedPositions } from '../utils/analytics.js'
 import { getTier } from '../config/tiers.js'
 
@@ -34,6 +35,7 @@ function HeroStat({ icon: Icon, label, value, formatter, deltaLabel, deltaPositi
 }
 
 export default function Dashboard() {
+  const loading = useSkeleton(500)
   const { prices, history, orders, transactions, sessions, getBalanceBreakdown, getSessionsForUser } = useApp()
   const { currentUser } = useAuth()
 
@@ -81,6 +83,10 @@ export default function Dashboard() {
       )}
 
       <div className="hero-stats-grid">
+        {loading ? (
+          [1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)
+        ) : (
+          <>
         <HeroStat
           icon={Wallet}
           label="Portfolio value"
@@ -113,6 +119,8 @@ export default function Dashboard() {
           formatter={(v) => Math.round(v).toString()}
           animationClass="fade-in-up fade-in-up-4"
         />
+          </>
+        )}
       </div>
 
       <div className="ticker-row">
