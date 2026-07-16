@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import Layout from '../components/Layout.jsx'
 import CandlestickChart from '../components/CandlestickChart.jsx'
-import { useApp } from '../context/AppContext.jsx'
+import { useApp, REAL_SYMBOLS } from '../context/AppContext.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: n > 100 ? 2 : 4 })
@@ -34,11 +34,12 @@ const BUCKET_OPTIONS = [
 ]
 
 export default function Markets() {
-  const { prices, history, getRecentRange } = useApp()
+  const { prices, history, getRecentRange, priceFeedStatus } = useApp()
   const symbols = Object.keys(prices)
   const [selectedSymbol, setSelectedSymbol] = useState(symbols[0])
   const [view, setView] = useState('line')
   const [bucketSize, setBucketSize] = useState(5)
+  const isRealSymbol = REAL_SYMBOLS.includes(selectedSymbol)
 
   const { high, low } = getRecentRange(selectedSymbol)
   const price = prices[selectedSymbol]
@@ -51,7 +52,7 @@ export default function Markets() {
     <Layout pageTitle="Markets">
       <h1 className="page-title">Markets</h1>
       <p className="page-sub">
-        Live simulated prices for every instrument, independent of any session you have running.
+        Real prices for BTC and ETH via CoinGecko; EUR/USD and GBP/USD are still simulated until a real forex feed is connected.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -69,14 +70,24 @@ export default function Markets() {
             }}
           >
             {symbol}
+            <span style={{ fontSize: 10, opacity: 0.75, marginLeft: 6 }}>
+              {REAL_SYMBOLS.includes(symbol) ? 'LIVE' : 'SIM'}
+            </span>
           </button>
         ))}
       </div>
 
       <div className="stats-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card">
-          <div className="stat-label">Price</div>
+          <div className="stat-label">
+            {isRealSymbol ? 'Price (live)' : 'Price (simulated)'}
+          </div>
           <div className="stat-value">{formatMoney(price)}</div>
+          {isRealSymbol && (
+            <div style={{ fontSize: 11, color: priceFeedStatus.error ? 'var(--danger)' : 'var(--text-muted)', marginTop: 4 }}>
+              {priceFeedStatus.error || `Updated ${priceFeedStatus.lastUpdated ? new Date(priceFeedStatus.lastUpdated).toLocaleTimeString() : '—'}`}
+            </div>
+          )}
         </div>
         <div className="stat-card">
           <div className="stat-label">Recent range</div>

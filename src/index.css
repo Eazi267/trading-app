@@ -184,6 +184,12 @@ body {
   border-radius: 20px;
 }
 
+.badge-feed-warning {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: var(--danger);
+}
+
 .icon-btn {
   width: 36px;
   height: 36px;

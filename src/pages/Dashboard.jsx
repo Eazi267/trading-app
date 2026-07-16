@@ -67,7 +67,7 @@ export default function Dashboard() {
   return (
     <Layout pageTitle="Dashboard">
       <h1 className="page-title">Dashboard</h1>
-      <p className="page-sub">Simulated market overview — no real funds are connected.</p>
+      <p className="page-sub">BTC/ETH prices are real (via CoinGecko); EUR/GBP are still simulated — no real funds are connected.</p>
 
       {hasNoSessionsYet && (
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--accent-dark)' }}>

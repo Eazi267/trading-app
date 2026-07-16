@@ -5,8 +5,8 @@
 // only real, calculated gains are bounded, and only once a
 // session closes. Nothing here promises a return up front.
 //
-// Single switch pattern, same as tradingMode.js — change the
-// numbers here, nothing else should hardcode tier values.
+// Single source of truth pattern — change the numbers here, nothing
+// else should hardcode tier values.
 // ---------------------------------------------------------
 
 export const TIERS = [

@@ -1,10 +1,18 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useNotifications } from './NotificationContext.jsx'
-import { isLiveMode } from '../config/tradingMode.js'
 import { getTier, clampLeverage, clampDuration } from '../config/tiers.js'
+import { fetchRealCryptoPrices } from '../services/coingecko.js'
 
 const AppContext = createContext(null)
+
+// BTC/ETH now track a real feed (CoinGecko); EUR/GBP stay on the
+// original simulated random walk until a forex data source is wired
+// up (that one needs a backend — CORS/paid-key territory, unlike
+// CoinGecko's keyless public endpoint).
+export const REAL_SYMBOLS = ['BTC/USD', 'ETH/USD']
+export const SIMULATED_SYMBOLS = ['EUR/USD', 'GBP/USD']
+const REAL_PRICE_POLL_MS = 90 * 1000 // 90s — inside the 1-5 min range, cheap on CoinGecko's free tier
 
 const STARTING_PRICES = {
   'BTC/USD': 64200,
@@ -79,6 +87,12 @@ export function AppProvider({ children }) {
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
   const [prices, setPrices] = useState(STARTING_PRICES)
   const [history, setHistory] = useState([])
+  // Tracks the REAL feed's health — when it last succeeded, and
+  // whether the most recent poll failed. Markets.jsx/Dashboard use
+  // this to show something honest ("live", "last updated 40s ago",
+  // "feed unavailable, showing last known price") instead of implying
+  // every price on screen is always fresh.
+  const [priceFeedStatus, setPriceFeedStatus] = useState({ lastUpdated: null, error: null })
 
   // Demo-only scenario control — per SESSION, not global. Each active
   // session can carry its own bias/volatility/speed (or none at all).
@@ -167,13 +181,14 @@ export function AppProvider({ children }) {
   useEffect(() => {
     const id = setInterval(() => {
       setPrices((prev) => {
-        // The shared/global feed is ALWAYS plain and neutral now — no
-        // admin control ever touches it. This is the fix: previously
-        // a single bias setting here affected every client's session
-        // at once. Now bias only ever lives inside a specific
-        // session's entry in sessionScenarios, ticked separately below.
-        const next = {}
-        Object.keys(prev).forEach((symbol) => {
+        // Real symbols (BTC/ETH) are left untouched on this fast tick
+        // — their actual value only changes when the periodic
+        // CoinGecko fetch below succeeds. Simulated symbols (EUR/GBP)
+        // keep the original random walk until a real forex feed is
+        // wired up. Either way, nothing here is a global bias switch
+        // anymore — bias only ever lives inside sessionScenarios.
+        const next = { ...prev }
+        SIMULATED_SYMBOLS.forEach((symbol) => {
           next[symbol] = randomWalk(prev[symbol])
         })
         setHistory((prevHistory) => {
@@ -290,6 +305,34 @@ export function AppProvider({ children }) {
       })
     }, 2000)
     return () => clearInterval(id)
+  }, [])
+
+  // Real price feed: polls CoinGecko for BTC/ETH on its own slower
+  // interval, independent of the 2-second simulated tick above. An
+  // immediate fetch on mount means the real price shows up right
+  // away rather than waiting a full poll interval. On failure, the
+  // last known price is kept as-is — never zeroed, never silently
+  // replaced with a guess.
+  useEffect(() => {
+    let cancelled = false
+
+    async function poll() {
+      const result = await fetchRealCryptoPrices()
+      if (cancelled) return
+      if (result) {
+        setPrices((prev) => ({ ...prev, ...result }))
+        setPriceFeedStatus({ lastUpdated: new Date().toISOString(), error: null })
+      } else {
+        setPriceFeedStatus((prev) => ({ ...prev, error: 'Price feed temporarily unavailable — showing last known price.' }))
+      }
+    }
+
+    poll()
+    const id = setInterval(poll, REAL_PRICE_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
   }, [])
 
   function toggleWatchlist(symbol) {
@@ -759,11 +802,6 @@ export function AppProvider({ children }) {
   }
 
   function addTransaction(type, amount) {
-    if (isLiveMode) {
-      console.log('LIVE mode: would call Deriv API here')
-      return
-    }
-
     setTransactions((prev) => [
       {
         id: Date.now(),
@@ -841,6 +879,7 @@ export function AppProvider({ children }) {
     setAccent: setAccentState,
     prices,
     history,
+    priceFeedStatus,
     getRecentRange,
     orders,
     watchlist,

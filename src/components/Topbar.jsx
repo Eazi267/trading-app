@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Bell, Moon, Sun, FlaskConical, User, LogOut, ChevronRight, Home } from 'lucide-react'
+import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
 import { getNotificationMeta } from '../config/notificationTypes.js'
-import { isLiveMode } from '../config/tradingMode.js'
 
 function timeAgo(iso) {
   const ms = Date.now() - new Date(iso).getTime()
@@ -18,7 +17,7 @@ function timeAgo(iso) {
 }
 
 export default function Topbar({ pageTitle }) {
-  const { theme, setTheme } = useApp()
+  const { theme, setTheme, priceFeedStatus } = useApp()
   const { currentUser, logout } = useAuth()
   const { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead } = useNotifications()
   const navigate = useNavigate()
@@ -52,8 +51,13 @@ export default function Topbar({ pageTitle }) {
   return (
     <div>
       <div className="topbar-row">
-        <span className="badge-demo">
-          <FlaskConical size={13} /> {isLiveMode ? 'Live — Deriv connected' : 'Demo — no real funds'}
+        <span className={'badge-demo' + (priceFeedStatus.error ? ' badge-feed-warning' : '')}>
+          {priceFeedStatus.error ? <WifiOff size={13} /> : <Wifi size={13} />}
+          {priceFeedStatus.error
+            ? ' Price feed unavailable — showing last known price'
+            : priceFeedStatus.lastUpdated
+              ? ` Live prices · updated ${timeAgo(priceFeedStatus.lastUpdated)}`
+              : ' Connecting to live prices…'}
         </span>
         <div className="topbar-right">
           <div className="notif-wrap" ref={notifRef}>
