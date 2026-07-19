@@ -1,36 +1,22 @@
 import { useState } from 'react'
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip } from 'recharts'
 import Layout from '../components/Layout.jsx'
 import CandlestickChart from '../components/CandlestickChart.jsx'
 import { useApp, REAL_SYMBOLS } from '../context/AppContext.jsx'
+import { dedupeSeriesForSymbol, bucketToCandles, tightDomain } from '../utils/priceCharts.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: n > 100 ? 2 : 4 })
 }
 
-// Groups the raw tick-by-tick history into OHLC candles. bucketSize
-// controls how many ticks make up one candle — smaller bucket = more,
-// finer candles; larger bucket = fewer, chunkier ones.
-function bucketToCandles(history, symbol, bucketSize) {
-  const values = history.map((point) => point[symbol]).filter((v) => v != null)
-  const candles = []
-  for (let i = 0; i < values.length; i += bucketSize) {
-    const chunk = values.slice(i, i + bucketSize)
-    if (chunk.length === 0) continue
-    candles.push({
-      open: chunk[0],
-      close: chunk[chunk.length - 1],
-      high: Math.max(...chunk),
-      low: Math.min(...chunk)
-    })
-  }
-  return candles
+function formatAxisPrice(n) {
+  return n.toLocaleString(undefined, { maximumFractionDigits: n > 100 ? 2 : 4 })
 }
 
 const BUCKET_OPTIONS = [
   { label: 'Fine', size: 2 },
-  { label: 'Normal', size: 5 },
-  { label: 'Chunky', size: 10 }
+  { label: 'Normal', size: 4 },
+  { label: 'Chunky', size: 8 }
 ]
 
 export default function Markets() {
@@ -43,10 +29,12 @@ export default function Markets() {
 
   const { high, low } = getRecentRange(selectedSymbol)
   const price = prices[selectedSymbol]
-  const firstInHistory = history.find((p) => p[selectedSymbol] != null)?.[selectedSymbol]
+  const dedupedSeries = dedupeSeriesForSymbol(history, selectedSymbol)
+  const firstInHistory = dedupedSeries[0]?.[selectedSymbol]
   const changePercent = firstInHistory ? ((price - firstInHistory) / firstInHistory) * 100 : 0
 
-  const candles = bucketToCandles(history, selectedSymbol, bucketSize)
+  const candles = bucketToCandles(dedupedSeries, selectedSymbol, bucketSize)
+  const lineValues = dedupedSeries.map((p) => p[selectedSymbol]).filter((v) => v != null)
 
   return (
     <Layout pageTitle="Markets">
@@ -103,7 +91,7 @@ export default function Markets() {
 
       <div className="panel">
         <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <h3>{selectedSymbol} — live (simulated)</h3>
+          <h3>{selectedSymbol} — {isRealSymbol ? 'live' : 'simulated'}</h3>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               className="tx-btn"
@@ -123,18 +111,37 @@ export default function Markets() {
         </div>
 
         {view === 'line' ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={history}>
+          <ResponsiveContainer width="100%" height={320}>
+            <AreaChart data={dedupedSeries} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
               <defs>
                 <linearGradient id="marketsFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--accent-bright)" stopOpacity={0.4} />
+                  <stop offset="0%" stopColor="var(--accent-bright)" stopOpacity={0.35} />
                   <stop offset="100%" stopColor="var(--accent-bright)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="time" hide />
-              <YAxis domain={['auto', 'auto']} hide />
-              <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} />
-              <Area type="monotone" dataKey={selectedSymbol} stroke="var(--accent-bright)" fill="url(#marketsFill)" strokeWidth={2} />
+              <CartesianGrid strokeDasharray="2 4" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 10.5, fill: 'var(--text-muted)' }}
+                minTickGap={40}
+                axisLine={{ stroke: 'var(--border)' }}
+                tickLine={false}
+              />
+              <YAxis
+                domain={tightDomain(lineValues)}
+                orientation="right"
+                tick={{ fontSize: 10.5, fill: 'var(--text-muted)' }}
+                tickFormatter={formatAxisPrice}
+                axisLine={false}
+                tickLine={false}
+                width={64}
+              />
+              <Tooltip
+                contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
+                formatter={(v) => formatMoney(v)}
+              />
+              <ReferenceLine y={price} stroke="var(--accent-bright)" strokeDasharray="4 3" />
+              <Area type="monotone" dataKey={selectedSymbol} stroke="var(--accent-bright)" fill="url(#marketsFill)" strokeWidth={2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         ) : (

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { BRAND } from '../config/brand.js'
 
@@ -22,6 +22,7 @@ const sharedLinks = [
 // are hidden entirely for the admin role instead of showing empty.
 const clientOnlyLinks = [
   { to: '/sessions', label: 'Sessions', icon: ListChecks },
+  { to: '/transaction-history', label: 'Transaction History', icon: History },
   { to: '/watchlist', label: 'Watchlist', icon: Star },
   { to: '/referral', label: 'Referrals', icon: Gift }
 ]

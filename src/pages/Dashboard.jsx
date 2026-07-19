@@ -1,4 +1,4 @@
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip } from 'recharts'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Wallet, TrendingUp, Target, Activity } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useCountUp } from '../hooks/useCountUp.js'
 import { useSkeleton } from '../hooks/useSkeleton.js'
 import { getTradeStats, getProfitBreakdown, getActiveTradeCount, getClosedPositions } from '../utils/analytics.js'
+import { dedupeSeriesForSymbol, tightDomain } from '../utils/priceCharts.js'
 import { getTier } from '../config/tiers.js'
 import AdminDashboardView from './AdminDashboardView.jsx'
 
@@ -143,25 +144,41 @@ export default function Dashboard() {
 
       <div className="glass-card" style={{ marginBottom: 20, overflow: 'hidden' }}>
         <div className="panel-head">
-          <h3>BTC/USD — live (simulated)</h3>
+          <h3>BTC/USD — live</h3>
           <Link to="/markets" style={{ fontSize: 12.5, color: 'var(--accent-bright)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             Full markets <ArrowRight size={12} />
           </Link>
         </div>
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={history}>
-            <defs>
-              <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent-bright)" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="var(--accent-bright)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis dataKey="time" hide />
-            <YAxis domain={['auto', 'auto']} hide />
-            <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} />
-            <Area type="monotone" dataKey="value" stroke="var(--accent-bright)" fill="url(#priceFill)" strokeWidth={2} />
-          </AreaChart>
-        </ResponsiveContainer>
+        {(() => {
+          const btcSeries = dedupeSeriesForSymbol(history, 'BTC/USD')
+          const btcValues = btcSeries.map((p) => p['BTC/USD']).filter((v) => v != null)
+          return (
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={btcSeries} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                <defs>
+                  <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent-bright)" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="var(--accent-bright)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="2 4" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="time" tick={{ fontSize: 10.5, fill: 'var(--text-muted)' }} minTickGap={40} axisLine={{ stroke: 'var(--border)' }} tickLine={false} />
+                <YAxis
+                  domain={tightDomain(btcValues)}
+                  orientation="right"
+                  tick={{ fontSize: 10.5, fill: 'var(--text-muted)' }}
+                  tickFormatter={(v) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  axisLine={false}
+                  tickLine={false}
+                  width={60}
+                />
+                <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => v.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} />
+                <ReferenceLine y={prices['BTC/USD']} stroke="var(--accent-bright)" strokeDasharray="4 3" />
+                <Area type="monotone" dataKey="BTC/USD" stroke="var(--accent-bright)" fill="url(#priceFill)" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )
+        })()}
       </div>
 
       <div className="glass-card" style={{ marginBottom: 20 }}>

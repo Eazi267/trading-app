@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { PiggyBank, Lock, Unlock } from 'lucide-react'
+import { PiggyBank, Lock, Unlock, Receipt } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -16,7 +16,7 @@ function formatDate(iso) {
 
 export default function Balance() {
   const { currentUser } = useAuth()
-  const { getBalanceBreakdown, getSessionsForUser, sessionCurrentValue } = useApp()
+  const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees, payOutstandingFee } = useApp()
 
   if (currentUser.role === 'admin') {
     return (
@@ -26,14 +26,27 @@ export default function Balance() {
     )
   }
 
-  const { total, available, pending, pendingCappedProfit } = getBalanceBreakdown(currentUser.id)
+  const { total, available, pending, pendingCappedProfit, outstandingFees } = getBalanceBreakdown(currentUser.id)
   const mySessions = getSessionsForUser(currentUser.id)
+  const outstandingFeeList = getOutstandingFees(currentUser.id)
+
+  // A fee already has a pending payment request sitting in the
+  // approval queue if there's a pending deposit tagged with its id —
+  // checked from real data, not local state, so this stays correct
+  // even after navigating away and back (local state would forget).
+  function hasPendingPayment(feeId) {
+    return transactions.some((t) => t.payingFeeId === feeId && t.status === 'pending')
+  }
+
+  function handlePayFee(feeId) {
+    payOutstandingFee(feeId)
+  }
 
   return (
     <Layout pageTitle="Balance">
       <h1 className="page-title">Balance</h1>
       <p className="page-sub">
-        Your balance updates automatically whenever a trading session closes — nothing here is ever entered by hand.
+        Your balance updates automatically whenever a trading session closes.
       </p>
 
       <div className="stats-grid">
@@ -55,6 +68,12 @@ export default function Balance() {
             <div className="stat-value">{formatMoney(pendingCappedProfit)}</div>
           </div>
         )}
+        {outstandingFees > 0 && (
+          <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
+            <div className="stat-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Outstanding fees</div>
+            <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
+          </div>
+        )}
       </div>
 
       {pendingCappedProfit > 0 && (
@@ -67,6 +86,40 @@ export default function Balance() {
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '-6px 0 16px' }}>
           Pending balance is committed to active sessions and isn't available to withdraw until those sessions close.
         </p>
+      )}
+
+      {outstandingFeeList.length > 0 && (
+        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
+          <div className="panel-head"><h3>Outstanding fees</h3></div>
+          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '0 20px', marginTop: -6, marginBottom: 12 }}>
+            Each fee stays outstanding until you deposit its exact amount — that specific deposit is what clears it, once an admin approves it.
+          </p>
+          <table>
+            <thead><tr><th>Date</th><th>Reason</th><th>Amount</th><th>Action</th></tr></thead>
+            <tbody>
+              {outstandingFeeList.map((fee) => (
+                <tr key={fee.id}>
+                  <td>{formatDate(fee.date)}</td>
+                  <td>{fee.note || '—'}</td>
+                  <td className="pnl-down">-{formatMoney(fee.amount)}</td>
+                  <td>
+                    <button
+                      className="tx-btn deposit"
+                      style={{ padding: '6px 12px', fontSize: 12 }}
+                      onClick={() => handlePayFee(fee.id)}
+                      disabled={hasPendingPayment(fee.id)}
+                    >
+                      {hasPendingPayment(fee.id) ? 'Awaiting approval' : `Pay ${formatMoney(fee.amount)}`}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '12px 20px 16px' }}>
+            Paying submits a deposit request for that exact amount — it needs admin approval, same as any deposit, before the fee clears.
+          </p>
+        </div>
       )}
 
       <div className="panel">

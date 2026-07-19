@@ -12,7 +12,7 @@ const AppContext = createContext(null)
 // CoinGecko's keyless public endpoint).
 export const REAL_SYMBOLS = ['BTC/USD', 'ETH/USD']
 export const SIMULATED_SYMBOLS = ['EUR/USD', 'GBP/USD']
-const REAL_PRICE_POLL_MS = 90 * 1000 // 90s — inside the 1-5 min range, cheap on CoinGecko's free tier
+const REAL_PRICE_POLL_MS = 20 * 1000 // 20s — 3 req/min, well under CoinGecko's keyless limit
 
 const STARTING_PRICES = {
   'BTC/USD': 64200,
@@ -448,6 +448,7 @@ export function AppProvider({ children }) {
         if (t.type === 'withdrawal') return sum - t.amount
         if (t.type === 'session_settlement') return sum + t.amount
         if (t.type === 'capped_profit_release') return sum + t.amount
+        if (t.type === 'fee') return sum - t.amount
         return sum
       }, 0)
   }
@@ -463,7 +464,10 @@ export function AppProvider({ children }) {
     const pendingCappedProfit = transactions
       .filter((t) => t.userId === userId && t.type === 'capped_profit_release' && t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0)
-    return { total, available: total - pending, pending, pendingCappedProfit }
+    const outstandingFees = transactions
+      .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
+      .reduce((sum, t) => sum + t.amount, 0)
+    return { total, available: total - pending, pending, pendingCappedProfit, outstandingFees }
   }
 
   // Starts a new trading session for a client at a given tier.
@@ -816,13 +820,103 @@ export function AppProvider({ children }) {
     ])
   }
 
+  // ADMIN-ONLY: charges a client a fee, immediately — this is
+  // admin-initiated (like a session settlement or a manual trade),
+  // not a client request, so it's auto-approved rather than sitting
+  // in the pending queue. Shows up inline with deposits/withdrawals
+  // in the client's transaction history as a debit.
+  function applyFee(targetUserId, amount, note) {
+    if (!amount || amount <= 0) return { error: 'Enter a fee amount above zero.' }
+
+    const owner = users.find((u) => u.id === targetUserId)
+    setTransactions((prev) => [
+      {
+        id: Date.now(),
+        userId: targetUserId,
+        userName: owner?.name,
+        type: 'fee',
+        amount,
+        note: note || null,
+        date: new Date().toISOString(),
+        status: 'approved',
+        // A fee is immediately real (it debits the balance right
+        // away), but stays "outstanding" until the client submits a
+        // deposit earmarked specifically to it — see
+        // payOutstandingFee(). Only that linked deposit being
+        // approved flips this to 'paid'; any other deposit still adds
+        // to the balance as normal, but doesn't clear the flag.
+        feeStatus: 'outstanding',
+        executedByAdminName: currentUser?.name
+      },
+      ...prev
+    ])
+    notify(
+      targetUserId,
+      'fee_charged',
+      'Fee charged',
+      `A fee of ${formatUsd(amount)} was applied to your account${note ? `: ${note}` : '.'} Deposit that exact amount to clear it.`,
+      { amount, note }
+    )
+    return { ok: true }
+  }
+
+  // CLIENT-INITIATED: submits a deposit request for the EXACT amount
+  // of one specific outstanding fee, tagged so approving it clears
+  // that fee. Goes through the normal pending -> admin-approves flow,
+  // same as any deposit — this doesn't bypass approval, it just links
+  // the resulting deposit back to the fee it's meant to settle.
+  function payOutstandingFee(feeId) {
+    const fee = transactions.find((t) => t.id === feeId && t.type === 'fee')
+    if (!fee) return { error: 'Fee not found.' }
+    if (fee.feeStatus !== 'outstanding') return { error: 'This fee has already been paid.' }
+    if (fee.userId !== currentUser?.id) return { error: 'You can only pay your own fees.' }
+
+    setTransactions((prev) => [
+      {
+        id: Date.now(),
+        userId: fee.userId,
+        userName: currentUser?.name,
+        type: 'deposit',
+        amount: fee.amount,
+        payingFeeId: fee.id,
+        date: new Date().toISOString(),
+        status: 'pending'
+      },
+      ...prev
+    ])
+    return { ok: true }
+  }
+
+  // Every fee still marked outstanding for this user, oldest first —
+  // what the Balance page lists so a client can pay each one off
+  // individually with its own exact-amount deposit.
+  function getOutstandingFees(userId) {
+    return transactions
+      .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+  }
+
   function approveTransaction(id) {
     const tx = transactions.find((t) => t.id === id)
     setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: 'approved' } : t))
+      prev.map((t) => {
+        if (t.id === id) return { ...t, status: 'approved' }
+        // This deposit was earmarked to pay off a specific fee —
+        // approving the deposit is what actually clears it.
+        if (tx?.payingFeeId && t.id === tx.payingFeeId) return { ...t, feeStatus: 'paid' }
+        return t
+      })
     )
     if (tx) {
-      if (tx.type === 'capped_profit_release') {
+      if (tx.payingFeeId) {
+        notify(
+          tx.userId,
+          'fee_paid',
+          'Fee cleared',
+          `Your payment of ${formatUsd(tx.amount)} was approved and the outstanding fee is now cleared.`,
+          { transactionId: id, amount: tx.amount, feeId: tx.payingFeeId }
+        )
+      } else if (tx.type === 'capped_profit_release') {
         notify(
           tx.userId,
           'capped_profit_released',
@@ -886,6 +980,9 @@ export function AppProvider({ children }) {
     toggleWatchlist,
     transactions,
     addTransaction,
+    applyFee,
+    payOutstandingFee,
+    getOutstandingFees,
     approveTransaction,
     rejectTransaction,
     accountBalance,

@@ -3,22 +3,26 @@ import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getClients, getClientCount, getFlaggedClientCount } from '../config/clients.js'
+import { getClientBalances } from '../utils/adminAnalytics.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
 export default function AdminUsers() {
-  const { transactions } = useApp()
+  const { transactions, sessions } = useApp()
   const { users } = useAuth()
   const navigate = useNavigate()
 
   const clients = getClients(users)
+  // Same real balance calculation used everywhere else (Balance
+  // page, Dashboard, AdminUserDetail) — this used to be a separate,
+  // simpler version here that incorrectly subtracted session wins
+  // and profit releases instead of adding them.
+  const balances = getClientBalances(users, transactions, sessions)
 
   function balanceFor(userId) {
-    return transactions
-      .filter((t) => t.userId === userId && t.status === 'approved')
-      .reduce((sum, t) => sum + (t.type === 'deposit' ? t.amount : -t.amount), 0)
+    return balances.find((b) => b.user.id === userId)?.total ?? 0
   }
 
   function pendingCountFor(userId) {

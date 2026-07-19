@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts'
 import { ArrowRight, Wallet, Users, Activity, ClipboardCheck } from 'lucide-react'
@@ -44,10 +45,11 @@ export default function AdminDashboardView() {
   const loading = useSkeleton(500)
   const { transactions, sessions, orders } = useApp()
   const { users } = useAuth()
+  const [trendDays, setTrendDays] = useState(14)
 
   const totals = getPlatformTotals(users, transactions, sessions)
   const balances = getClientBalances(users, transactions, sessions).sort((a, b) => b.total - a.total)
-  const trend = getDepositWithdrawTrend(transactions, 14)
+  const trend = getDepositWithdrawTrend(transactions, trendDays)
   const recentActivity = getRecentPlatformActivity(orders, transactions, 8)
   const pendingCount = transactions.filter((t) => t.status === 'pending').length
 
@@ -70,16 +72,33 @@ export default function AdminDashboardView() {
       </div>
 
       <div className="glass-card" style={{ marginBottom: 20 }}>
-        <div className="panel-head">
-          <h3>Deposits vs withdrawals — last 14 days</h3>
-          <Link to="/transactions" style={{ fontSize: 12.5, color: 'var(--accent-bright)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            Full requests <ArrowRight size={12} />
-          </Link>
+        <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <h3>Deposits vs withdrawals — last {trendDays} days</h3>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {[7, 14, 30, 60].map((d) => (
+              <button
+                key={d}
+                onClick={() => setTrendDays(d)}
+                className="tx-btn"
+                style={{
+                  padding: '5px 10px', fontSize: 11,
+                  background: trendDays === d ? 'var(--accent)' : 'var(--bg)',
+                  color: trendDays === d ? '#fff' : 'var(--text)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                {d}d
+              </button>
+            ))}
+            <Link to="/transactions" style={{ fontSize: 12.5, color: 'var(--accent-bright)', display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }}>
+              Full requests <ArrowRight size={12} />
+            </Link>
+          </div>
         </div>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={trend}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={1} />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={Math.max(0, Math.floor(trendDays / 10) - 1)} />
             <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
             <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => formatMoney(v)} />
             <Bar dataKey="deposits" fill="var(--success)" radius={[4, 4, 0, 0]} />

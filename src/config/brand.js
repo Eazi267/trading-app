@@ -6,7 +6,7 @@
 import { LineChart } from 'lucide-react'
 
 export const BRAND = {
-  name: 'Pulse',
-  tagline: 'Portfolio management built for account managers, not solo traders.',
+  name: 'XM MARKETS',
+  tagline: 'Portfolio management built for account managers, earn massively here.',
   LogoIcon: LineChart
 }

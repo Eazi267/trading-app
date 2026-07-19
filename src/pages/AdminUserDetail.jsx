@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Send } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -42,11 +42,11 @@ export default function AdminUserDetail() {
   const {
     prices, orders, transactions, sessions, getRecentRange, getBalanceBreakdown,
     startSession, closeSession, sessionCurrentValue,
-    openSessionPosition, closeSessionPosition, setSessionLeverage, setSessionDuration,
+    openSessionPosition, closeSessionPosition, setSessionLeverage, setSessionDuration, applyFee,
     getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
-  const { users, setUserTier, setClientVip } = useAuth()
-  const { notify } = useNotifications()
+  const { users, setUserTier, setClientVip, currentUser } = useAuth()
+  const { notify, getNotificationsForUser } = useNotifications()
 
   const [newSessionTier, setNewSessionTier] = useState(TIERS[0].id)
   const [newSessionDuration, setNewSessionDuration] = useState(TIERS[0].durationDays)
@@ -62,6 +62,13 @@ export default function AdminUserDetail() {
   const [leverageError, setLeverageError] = useState('')
   const [durationInput, setDurationInput] = useState('')
   const [durationError, setDurationError] = useState('')
+  const [feeAmount, setFeeAmount] = useState('')
+  const [feeNote, setFeeNote] = useState('')
+  const [feeError, setFeeError] = useState('')
+  const [messageTitle, setMessageTitle] = useState('')
+  const [messageBody, setMessageBody] = useState('')
+  const [messageError, setMessageError] = useState('')
+  const [messageSent, setMessageSent] = useState(false)
 
   const targetUser = users.find((u) => u.id === userId)
   const userOrders = orders.filter((o) => o.userId === userId)
@@ -144,6 +151,39 @@ export default function AdminUserDetail() {
     setDurationInput('')
   }
 
+  function handleApplyFee() {
+    setFeeError('')
+    const amount = parseFloat(feeAmount)
+    if (!amount || amount <= 0) {
+      setFeeError('Enter a fee amount above zero.')
+      return
+    }
+    const result = applyFee(userId, amount, feeNote.trim())
+    if (result.error) {
+      setFeeError(result.error)
+      return
+    }
+    setFeeAmount('')
+    setFeeNote('')
+  }
+
+  function handleSendMessage() {
+    setMessageError('')
+    setMessageSent(false)
+    if (!messageTitle.trim()) {
+      setMessageError('Give the message a short title.')
+      return
+    }
+    if (!messageBody.trim()) {
+      setMessageError('Enter a message to send.')
+      return
+    }
+    notify(userId, 'admin_message', messageTitle.trim(), messageBody.trim(), { sentByAdminName: currentUser?.name })
+    setMessageTitle('')
+    setMessageBody('')
+    setMessageSent(true)
+  }
+
   return (
     <Layout pageTitle={targetUser.name}>
       <button
@@ -160,7 +200,7 @@ export default function AdminUserDetail() {
         <div className="panel-head"><h3>Client balance</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
           {(() => {
-            const { total, available, pending, pendingCappedProfit } = getBalanceBreakdown(userId)
+            const { total, available, pending, pendingCappedProfit, outstandingFees } = getBalanceBreakdown(userId)
             return (
               <>
                 <div className="stat-card">
@@ -181,10 +221,94 @@ export default function AdminUserDetail() {
                     <div className="stat-value">{formatMoney(pendingCappedProfit)}</div>
                   </div>
                 )}
+                {outstandingFees > 0 && (
+                  <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
+                    <div className="stat-label">Outstanding fees</div>
+                    <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
+                  </div>
+                )}
               </>
             )
           })()}
         </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Apply a fee</h3></div>
+        {feeError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{feeError}</div>}
+        <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            type="number"
+            value={feeAmount}
+            onChange={(e) => setFeeAmount(e.target.value)}
+            placeholder="Fee amount (USD)"
+            style={{ width: 160, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+          />
+          <input
+            type="text"
+            value={feeNote}
+            onChange={(e) => setFeeNote(e.target.value)}
+            placeholder="Reason (optional)"
+            style={{ flex: 1, minWidth: 180, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+          />
+          <button className="tx-btn withdraw" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleApplyFee}>
+            Charge fee
+          </button>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
+          Takes effect immediately — deducted from balance and recorded in this client's Transaction History. It stays marked "outstanding" until the client deposits that exact amount and you approve it — that's what clears it.
+        </p>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Message this client</h3></div>
+        {messageError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{messageError}</div>}
+        {messageSent && <div style={{ margin: '16px 20px 0', fontSize: 13, color: 'var(--success)' }}>Sent — it'll appear in their notifications right away.</div>}
+        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <input
+            type="text"
+            value={messageTitle}
+            onChange={(e) => setMessageTitle(e.target.value)}
+            placeholder='Title (e.g. "Discount applied")'
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+          />
+          <textarea
+            value={messageBody}
+            onChange={(e) => setMessageBody(e.target.value)}
+            placeholder="Write a custom message for this client..."
+            rows={3}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+          />
+          <div>
+            <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handleSendMessage}>
+              <Send size={14} /> Send
+            </button>
+          </div>
+        </div>
+
+        {(() => {
+          const priorMessages = getNotificationsForUser(userId)
+            .filter((n) => n.type === 'admin_message')
+            .slice(0, 5)
+          if (priorMessages.length === 0) return null
+          return (
+            <>
+              <div style={{ padding: '4px 20px 0', fontSize: 12, color: 'var(--text-muted)' }}>Recently sent</div>
+              <table>
+                <thead><tr><th>Title</th><th>Message</th><th>Sent</th></tr></thead>
+                <tbody>
+                  {priorMessages.map((n) => (
+                    <tr key={n.id}>
+                      <td>{n.title}</td>
+                      <td style={{ maxWidth: 320, whiteSpace: 'normal' }}>{n.message}</td>
+                      <td>{formatDate(n.date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )
+        })()}
       </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>

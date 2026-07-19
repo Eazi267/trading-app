@@ -108,11 +108,38 @@ export function getBalanceHistory(transactions, userId) {
     else if (t.type === 'withdrawal') running -= t.amount
     else if (t.type === 'session_settlement') running += t.amount
     else if (t.type === 'capped_profit_release') running += t.amount
+    else if (t.type === 'fee') running -= t.amount
     return { date: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), balance: running }
   })
 }
 
-// Current exposure by symbol across every active session's open
+// The full account ledger — every deposit, withdrawal, fee, session
+// settlement, and capped-profit review for this client, newest
+// first, each tagged with the running balance AT THAT POINT. Only
+// approved entries move the running balance; pending/rejected ones
+// are shown with the balance as it stood before them (they haven't
+// affected the account yet, or never will).
+export function getFullTransactionHistory(transactions, userId) {
+  const mine = transactions
+    .filter((t) => t.userId === userId)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+
+  let running = 0
+  const withBalance = mine.map((t) => {
+    if (t.status === 'approved') {
+      if (t.type === 'deposit') running += t.amount
+      else if (t.type === 'withdrawal') running -= t.amount
+      else if (t.type === 'session_settlement') running += t.amount
+      else if (t.type === 'capped_profit_release') running += t.amount
+      else if (t.type === 'fee') running -= t.amount
+    }
+    return { ...t, runningBalance: running }
+  })
+
+  return withBalance.reverse()
+}
+
+
 // positions — margin × leverage, i.e. the real notional size being
 // risked per instrument right now. Empty if nothing's open.
 export function getAssetAllocation(sessions, userId) {

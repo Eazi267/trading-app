@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip
@@ -37,6 +38,7 @@ export default function Analytics() {
   const loading = useSkeleton(500)
   const { orders, transactions, sessions } = useApp()
   const { currentUser } = useAuth()
+  const [activityDays, setActivityDays] = useState(14)
 
   if (currentUser.role === 'admin') {
     return (
@@ -51,7 +53,7 @@ export default function Analytics() {
   const roi = getROI(transactions, currentUser.id)
   const balanceHistory = getBalanceHistory(transactions, currentUser.id)
   const allocation = getAssetAllocation(sessions, currentUser.id)
-  const activity = getTradingActivity(orders, currentUser.id, 14)
+  const activity = getTradingActivity(orders, currentUser.id, activityDays)
 
   const winLossData = [
     { name: 'Wins', value: trade.winningTrades },
@@ -180,11 +182,30 @@ export default function Analytics() {
       </div>
 
       <div className="glass-card">
-        <div className="panel-head"><h3>Trading activity — last 14 days</h3></div>
+        <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <h3>Trading activity — last {activityDays} days</h3>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[7, 14, 30, 60].map((d) => (
+              <button
+                key={d}
+                onClick={() => setActivityDays(d)}
+                className="tx-btn"
+                style={{
+                  padding: '5px 10px', fontSize: 11,
+                  background: activityDays === d ? 'var(--accent)' : 'var(--bg)',
+                  color: activityDays === d ? '#fff' : 'var(--text)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={activity}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={1} />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={Math.max(0, Math.floor(activityDays / 10) - 1)} />
             <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
             <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} />
             <Bar dataKey="count" fill="var(--accent-bright)" radius={[4, 4, 0, 0]} />

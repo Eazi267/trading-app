@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts'
 import { ArrowDownCircle, ArrowUpCircle, Inbox, Check, X, Clock, Hourglass } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
@@ -37,7 +38,8 @@ function AdminTransactionsView() {
   const pending = transactions.filter((t) => t.status === 'pending')
   const resolved = transactions.filter((t) => t.status !== 'pending').slice(0, 15)
   const summary = getPendingRequestsSummary(transactions)
-  const trend = getDepositWithdrawTrend(transactions, 14)
+  const [trendDays, setTrendDays] = useState(14)
+  const trend = getDepositWithdrawTrend(transactions, trendDays)
 
   return (
     <>
@@ -52,11 +54,30 @@ function AdminTransactionsView() {
       </div>
 
       <div className="glass-card" style={{ marginBottom: 20 }}>
-        <div className="panel-head"><h3>Deposits vs withdrawals — last 14 days</h3></div>
+        <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <h3>Deposits vs withdrawals — last {trendDays} days</h3>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[7, 14, 30, 60].map((d) => (
+              <button
+                key={d}
+                onClick={() => setTrendDays(d)}
+                className="tx-btn"
+                style={{
+                  padding: '5px 10px', fontSize: 11,
+                  background: trendDays === d ? 'var(--accent)' : 'var(--bg)',
+                  color: trendDays === d ? '#fff' : 'var(--text)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart data={trend}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={1} />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={Math.max(0, Math.floor(trendDays / 10) - 1)} />
             <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
             <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => formatMoney(v)} />
             <Bar dataKey="deposits" fill="var(--success)" radius={[4, 4, 0, 0]} />
@@ -76,7 +97,7 @@ function AdminTransactionsView() {
               {pending.map((t) => (
                 <tr key={t.id}>
                   <td>{t.userName}</td>
-                  <td>{formatType(t.type)}</td>
+                  <td>{formatType(t.type)}{t.payingFeeId && <span style={{ fontSize: 11, marginLeft: 6, color: 'var(--text-muted)' }}>(fee payment)</span>}</td>
                   <td>{formatMoney(t.amount)}</td>
                   <td>{formatDate(t.date)}</td>
                   <td>
@@ -129,7 +150,7 @@ export default function Transactions() {
     )
   }
 
-  const myTransactions = transactions.filter((t) => t.userId === currentUser.id)
+  const myRequests = transactions.filter((t) => t.userId === currentUser.id && (t.type === 'deposit' || t.type === 'withdrawal'))
 
   function handleSubmit(type) {
     const value = parseFloat(amount)
@@ -191,9 +212,9 @@ export default function Transactions() {
 
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head">
-          <h3>Your history</h3>
+          <h3>Your recent requests</h3>
         </div>
-        {myTransactions.length === 0 ? (
+        {myRequests.length === 0 ? (
           <div className="empty-state">
             <Inbox size={20} />
             <p>No requests yet.</p>
@@ -209,7 +230,7 @@ export default function Transactions() {
               </tr>
             </thead>
             <tbody>
-              {myTransactions.map((t) => (
+              {myRequests.map((t) => (
                 <tr key={t.id}>
                   <td>{formatType(t.type)}</td>
                   <td>{formatMoney(t.amount)}</td>
@@ -220,6 +241,10 @@ export default function Transactions() {
             </tbody>
           </table>
         )}
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
+          Looking for your complete account activity, including session results and fees? See{' '}
+          <Link to="/transaction-history" style={{ color: 'var(--accent-bright)' }}>Transaction History</Link>.
+        </p>
       </div>
     </Layout>
   )
