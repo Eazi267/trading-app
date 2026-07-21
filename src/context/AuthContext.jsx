@@ -37,6 +37,30 @@ function generateReferralCode(name, existingUsers) {
   return code
 }
 
+// Plausible-looking names/emails for the demo client generator below.
+// Not tied to any real person — just a pool to draw from.
+const DEMO_FIRST_NAMES = ['Olivia', 'Liam', 'Emma', 'Noah', 'Ava', 'Ethan', 'Sophia', 'Mason', 'Isabella', 'Lucas', 'Mia', 'Elijah', 'Amelia', 'James', 'Harper', 'Benjamin', 'Evelyn', 'Henry', 'Abigail', 'Alexander', 'Ella', 'Sebastian', 'Scarlett', 'Jack', 'Grace', 'Owen', 'Chloe', 'Daniel', 'Victoria', 'Matthew', 'Riley', 'Samuel', 'Zoey', 'David', 'Lily', 'Joseph', 'Hannah', 'Carter', 'Layla', 'Wyatt']
+const DEMO_LAST_NAMES = ['Bennett', 'Carter', 'Diaz', 'Evans', 'Foster', 'Grant', 'Hayes', 'Ibrahim', 'Jensen', 'Kelly', 'Lawson', 'Mitchell', 'Nguyen', 'Ortiz', 'Parker', 'Quinn', 'Reyes', 'Sullivan', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xu', 'Young', 'Zimmerman', 'Abbott', 'Brooks', 'Chavez', 'Dawson', 'Ellis']
+const DEMO_EMAIL_DOMAINS = ['gmail.com', 'outlook.com', 'yahoo.com', 'proton.me']
+
+function randomDemoName() {
+  const first = DEMO_FIRST_NAMES[Math.floor(Math.random() * DEMO_FIRST_NAMES.length)]
+  const last = DEMO_LAST_NAMES[Math.floor(Math.random() * DEMO_LAST_NAMES.length)]
+  return `${first} ${last}`
+}
+
+function demoEmailFor(name, existingUsers) {
+  const domain = DEMO_EMAIL_DOMAINS[Math.floor(Math.random() * DEMO_EMAIL_DOMAINS.length)]
+  const base = name.toLowerCase().replace(/[^a-z]+/g, '.')
+  let suffix = ''
+  let n = 1
+  while (existingUsers.some((u) => u.email.toLowerCase() === `${base}${suffix}@${domain}`)) {
+    suffix = String(n)
+    n += 1
+  }
+  return `${base}${suffix}@${domain}`
+}
+
 export function AuthProvider({ children }) {
   const [users, setUsers] = useState(loadUsers)
   const [currentUser, setCurrentUser] = useState(() => {
@@ -183,8 +207,59 @@ export function AuthProvider({ children }) {
     return users.filter((u) => u.referredBy === userId)
   }
 
+  // ADMIN-ONLY, demo tool. Creates `count` real client accounts with
+  // plausible names/emails. No balance or trade history is set here —
+  // this only creates the account, exactly like a real signup would
+  // (no tier, no transactions). Tagged `isDemoGenerated: true` so it
+  // can always be told apart from a genuine client and safely bulk-
+  // removed later (see removeDemoClients) without any risk of ever
+  // touching a real account. Financial activity is a separate step —
+  // see AppContext.generateDemoActivity — built from real deposits and
+  // sessions that run through the same settlement math as everything
+  // else, not typed-in balances.
+  function generateDemoClients(count) {
+    if (!count || count <= 0) return { error: 'Enter a number of clients above zero.' }
+    if (count > 200) return { error: 'Generate at most 200 at a time.' }
+
+    const created = []
+    let working = [...users]
+    for (let i = 0; i < count; i++) {
+      const name = randomDemoName()
+      const email = demoEmailFor(name, working)
+      const daysAgo = Math.floor(Math.random() * 90)
+      const newUser = {
+        id: Date.now() + i,
+        name,
+        email,
+        password: Math.random().toString(36).slice(2, 10),
+        role: 'user',
+        referralCode: generateReferralCode(name, working),
+        referredBy: null,
+        createdAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+        tier: null,
+        flaggedForReview: false,
+        vipUnlocked: null,
+        isDemoGenerated: true
+      }
+      working = [...working, newUser]
+      created.push(newUser)
+    }
+    persistUsers(working)
+    return { users: created }
+  }
+
+  // Removes every account ever created by generateDemoClients — real
+  // accounts (no isDemoGenerated flag) are never touched, regardless
+  // of how this is called. Returns the removed ids so the caller can
+  // also purge their transactions/sessions/orders in AppContext.
+  function removeDemoClients() {
+    const removedIds = users.filter((u) => u.isDemoGenerated).map((u) => u.id)
+    persistUsers(users.filter((u) => !u.isDemoGenerated))
+    return removedIds
+  }
+
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients }}>
       {children}
     </AuthContext.Provider>
   )

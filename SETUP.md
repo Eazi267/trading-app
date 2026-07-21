@@ -27,6 +27,12 @@ forex/crypto site. Deposits/withdrawals and a real broker connection
    price chart, and a portfolio table — all updating every 2 seconds
    with fake data.
 
+## Demo logins
+No longer shown on the login screen (removed for a cleaner, more genuine-looking
+UI when presenting to prospective clients). Keep these handy for your own testing:
+- Client: `trader@pulse.app` / `trader123`
+- Admin: `admin@pulse.app` / `admin123`
+
 ## If something breaks
 Copy the exact error message from the terminal and send it to me —
 same debugging process we used for Ledger.

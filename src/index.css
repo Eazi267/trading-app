@@ -114,6 +114,23 @@ body {
   box-shadow: 0 4px 12px var(--glow);
 }
 
+.nav-section {
+  margin-bottom: 4px;
+}
+
+.nav-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 20px 12px 8px;
+}
+
+.nav-section:first-child .nav-section-label {
+  margin-top: 4px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -126,7 +143,7 @@ body {
   text-decoration: none;
   margin-bottom: 2px;
   position: relative;
-  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  transition: color 0.18s ease, background 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .nav-item.active {
@@ -144,11 +161,17 @@ body {
   height: 60%;
   border-radius: 0 3px 3px 0;
   background: var(--accent-bright);
+  transition: height 0.18s ease;
 }
 
 .nav-item:hover {
   color: #ffffff;
+  background: var(--surface-2);
   transform: translateX(2px);
+}
+
+.nav-item.active:hover {
+  background: var(--accent-bg);
 }
 
 /* Main + topbar */

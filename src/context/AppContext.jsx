@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useNotifications } from './NotificationContext.jsx'
-import { getTier, clampLeverage, clampDuration } from '../config/tiers.js'
+import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
 
 const AppContext = createContext(null)
@@ -828,6 +828,162 @@ export function AppProvider({ children }) {
     return sessions.filter((s) => s.userId === userId)
   }
 
+  // ADMIN-ONLY, demo tool. Builds real deposit + session records for a
+  // batch of accounts in one shot. This deliberately does NOT call
+  // startSession/openSessionPosition/closeSession in a loop — those
+  // read from React state, so back-to-back calls in one synchronous
+  // pass would all see the same stale `sessions` snapshot. Instead
+  // this constructs the records directly and commits them in one
+  // batch — but every closed session's payout still comes from the
+  // real, shared computeSessionSettlement() function run against a
+  // real current price and a randomized (but genuine) exit price, not
+  // a number typed in. A generated account is functionally
+  // indistinguishable from a real one once created; it's just
+  // pre-populated instead of starting empty.
+  function generateDemoActivity(userIds, opts = {}) {
+    const {
+      minDeposit = 300,
+      maxDeposit = 8000,
+      minSessionsPerUser = 1,
+      maxSessionsPerUser = 3,
+      closedRatio = 0.7 // fraction of generated sessions settled vs left active
+    } = opts
+
+    const rand = (min, max) => min + Math.random() * (max - min)
+    function pickTier() {
+      const roll = Math.random()
+      if (roll < 0.6) return TIERS[0]
+      if (roll < 0.9) return TIERS[1]
+      return TIERS[2]
+    }
+
+    let idCounter = Date.now()
+    const nextId = () => idCounter++
+
+    const newTransactions = []
+    const newSessions = []
+    const newOrders = []
+    const symbols = Object.keys(prices)
+
+    userIds.forEach((userId) => {
+      const owner = users.find((u) => u.id === userId)
+      const joinedAt = owner ? new Date(owner.createdAt) : new Date()
+
+      // Real deposit, backdated close to signup so it reads as a
+      // genuinely funded account rather than something created today.
+      const depositAmount = Math.round(rand(minDeposit, maxDeposit))
+      const depositDate = new Date(joinedAt.getTime() + rand(0, 2) * 24 * 60 * 60 * 1000)
+      newTransactions.push({
+        id: nextId(),
+        userId,
+        userName: owner?.name,
+        type: 'deposit',
+        amount: depositAmount,
+        date: depositDate.toISOString(),
+        status: 'approved'
+      })
+
+      let availableCash = depositAmount
+      const sessionCount = Math.round(rand(minSessionsPerUser, maxSessionsPerUser))
+
+      for (let i = 0; i < sessionCount; i++) {
+        const tier = pickTier()
+        const cap = Math.min(tier.maxDeposit, availableCash)
+        if (cap < tier.minDeposit) continue // not enough left to fund this tier's floor
+
+        const sessionAmount = Math.round(rand(tier.minDeposit, cap))
+        const leverage = clampLeverage(tier.id, tier.defaultLeverage)
+        const durationDays = clampDuration(tier.id, tier.durationDays)
+        const startedAt = new Date(depositDate.getTime() + i * 6 * 60 * 60 * 1000)
+        const expiresAt = new Date(startedAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
+        const willClose = Math.random() < closedRatio
+        const sessionId = nextId()
+
+        // 1-2 synthetic positions, entered at a REAL current price —
+        // the price relationship is genuine even though the position
+        // itself is synthetic.
+        let cash = sessionAmount
+        const positions = []
+        const positionCount = Math.random() < 0.6 ? 1 : 2
+        for (let p = 0; p < positionCount; p++) {
+          const symbol = symbols[Math.floor(Math.random() * symbols.length)]
+          const marginAmount = Math.round(rand(cash * 0.2, cash * 0.6))
+          if (marginAmount <= 0 || marginAmount > cash) continue
+          cash -= marginAmount
+          const position = { id: nextId(), symbol, entryPrice: prices[symbol], marginAmount, leverage, openedAt: startedAt.toISOString() }
+          positions.push(position)
+          newOrders.push({
+            id: nextId(), userId, sessionId, executedByAdminId: currentUser?.id, executedByAdminName: currentUser?.name,
+            type: 'open_position', symbol, marginAmount, leverage, price: prices[symbol], pnl: null, date: startedAt.toISOString()
+          })
+        }
+
+        if (willClose) {
+          // A plausible exit price for each position — still random,
+          // slightly positive-skewed like the real feed's drift, then
+          // run through the exact same settlement function every real
+          // session uses. The payout is genuinely computed here, not
+          // set directly.
+          const exitPrices = {}
+          positions.forEach((pos) => { exitPrices[pos.symbol] = pos.entryPrice * (1 + (Math.random() - 0.45) * 0.08) })
+          const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(
+            { tierId: tier.id, amount: sessionAmount, cash, positions },
+            exitPrices
+          )
+          const closedAt = new Date(Math.min(expiresAt.getTime(), Date.now()) - rand(0, 6) * 60 * 60 * 1000)
+
+          newSessions.push({
+            id: sessionId, userId, tierId: tier.id, amount: sessionAmount, leverage, cash: endValue, positions: [],
+            startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString(), status: 'closed',
+            closedAt: closedAt.toISOString(), closedReason: 'auto_expiry', endValue, rawPnl, payout, excessPending,
+            initiatedByName: currentUser?.name, initiatedBySelf: false
+          })
+          newTransactions.push({
+            id: nextId(), userId, userName: owner?.name, type: 'session_settlement', amount: payout,
+            date: closedAt.toISOString(), status: 'approved', sessionId, closedReason: 'auto_expiry'
+          })
+          if (excessPending > 0) {
+            newTransactions.push({
+              id: nextId(), userId, userName: owner?.name, type: 'capped_profit_release',
+              amount: excessPending, date: closedAt.toISOString(), status: 'pending', sessionId
+            })
+          }
+          availableCash = availableCash - sessionAmount + payout
+        } else {
+          newSessions.push({
+            id: sessionId, userId, tierId: tier.id, amount: sessionAmount, leverage, cash, positions,
+            startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString(), status: 'active',
+            closedAt: null, closedReason: null, endValue: null, rawPnl: null, payout: null,
+            initiatedByName: currentUser?.name, initiatedBySelf: false
+          })
+          availableCash -= sessionAmount
+        }
+      }
+    })
+
+    setTransactions((prev) => [...newTransactions, ...prev])
+    setSessions((prev) => [...newSessions, ...prev])
+    setOrders((prev) => [...newOrders, ...prev])
+
+    return {
+      usersGenerated: userIds.length,
+      totalDeposited: newTransactions.filter((t) => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0),
+      sessionsCreated: newSessions.length,
+      sessionsClosed: newSessions.filter((s) => s.status === 'closed').length
+    }
+  }
+
+  // Cleanup counterpart to generateDemoActivity — strips
+  // transactions/sessions/orders belonging to the given user ids. Only
+  // ever called with ids AuthContext.removeDemoClients() already
+  // confirmed were isDemoGenerated, so real client data is never at risk.
+  function purgeDataForUsers(userIds) {
+    const idSet = new Set(userIds)
+    setTransactions((prev) => prev.filter((t) => !idSet.has(t.userId)))
+    setSessions((prev) => prev.filter((s) => !idSet.has(s.userId)))
+    setOrders((prev) => prev.filter((o) => !idSet.has(o.userId)))
+  }
+
   function addTransaction(type, amount) {
     setTransactions((prev) => [
       {
@@ -1142,6 +1298,8 @@ export function AppProvider({ children }) {
     setSessionDuration,
     sessionCurrentValue,
     getSessionsForUser,
+    generateDemoActivity,
+    purgeDataForUsers,
     sessionScenarios,
     applySessionScenario,
     resetSessionScenario,

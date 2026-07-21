@@ -19,6 +19,7 @@ import AdminUsers from './pages/AdminUsers.jsx'
 import AdminUserDetail from './pages/AdminUserDetail.jsx'
 import AdminScenario from './pages/AdminScenario.jsx'
 import AdminReferralCampaigns from './pages/AdminReferralCampaigns.jsx'
+import AdminGenerateClients from './pages/AdminGenerateClients.jsx'
 import Notifications from './pages/Notifications.jsx'
 import TransactionHistory from './pages/TransactionHistory.jsx'
 
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/admin/users/:id" element={<ProtectedRoute requireRole="admin"><AdminUserDetail /></ProtectedRoute>} />
             <Route path="/admin/scenario" element={<ProtectedRoute requireRole="admin"><AdminScenario /></ProtectedRoute>} />
             <Route path="/admin/referral-campaigns" element={<ProtectedRoute requireRole="admin"><AdminReferralCampaigns /></ProtectedRoute>} />
+            <Route path="/admin/generate-clients" element={<ProtectedRoute requireRole="admin"><AdminGenerateClients /></ProtectedRoute>} />
           </Routes>
         </BrowserRouter>
         </AppProvider>

@@ -75,9 +75,7 @@ export default function Login() {
           </button>
 
           <p className="demo-note">
-            Demo trader: trader@pulse.app / trader123<br />
-            Demo admin: admin@pulse.app / admin123<br /><br />
-             New here? <a href="/signup" style={{ color: 'var(--accent-bright)' }}>Create an account</a>
+            New here? <a href="/signup" style={{ color: 'var(--accent-bright)' }}>Create an account</a>
           </p>
         </form>
       </div>
