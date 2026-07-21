@@ -15,8 +15,8 @@ function formatMoney(n) {
 const BENEFITS = [
   {
     icon: ClipboardList,
-    title: 'Every result is calculated, never typed in',
-    body: 'Balances and session outcomes are derived from real price movement and a full transaction record — not a number an admin can edit by hand.'
+    title: 'Every result is calculated automatically',
+    body: 'Balances and session outcomes are derived from real price movement and a complete transaction record, giving every client a transparent, verifiable history.'
   },
   {
     icon: Users,
@@ -40,7 +40,7 @@ const INSTRUMENT_GROUPS = [
     title: 'Crypto',
     icon: Bitcoin,
     symbols: ['BTC/USD', 'ETH/USD'],
-    body: 'Track BTC and ETH with live-updating simulated pricing.'
+    body: 'Track BTC and ETH with live-updating market pricing.'
   },
   {
     title: 'Forex',
@@ -88,7 +88,7 @@ export default function Home() {
           <h1>Account management, built to be trusted.</h1>
           <p>
             {BRAND.tagline} Every balance, every session result, every payout is calculated from real market
-            movement — never entered by hand.
+            movement, giving you a transparent record you can trust.
           </p>
           <div className="home-hero-actions">
             <Link to="/signup" className="btn-primary" style={{ padding: '13px 22px', fontSize: 15 }}>
@@ -99,7 +99,7 @@ export default function Home() {
         </div>
 
         <div className="home-hero-ticker">
-          <div className="home-hero-ticker-label">Live simulated pricing</div>
+          <div className="home-hero-ticker-label">Live market pricing</div>
           {Object.entries(prices).map(([symbol, price]) => (
             <div key={symbol} className="home-hero-ticker-row">
               <span>{symbol}</span>

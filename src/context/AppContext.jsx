@@ -123,6 +123,15 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : []
   })
 
+  // Admin-defined referral bonus campaigns (e.g. "Christmas Bonus").
+  // A campaign is data, not code — unlike tiers.js (fixed, developer-
+  // edited), campaigns are created/edited by an admin at runtime, so
+  // they live here alongside transactions/sessions, not in config/.
+  const [referralCampaigns, setReferralCampaigns] = useState(() => {
+    const saved = localStorage.getItem('pulse_referral_campaigns')
+    return saved ? JSON.parse(saved) : []
+  })
+
   // Keyed by nothing — a flat list, each entry tagged with userId,
   // same pattern as orders/transactions. A session records a tier
   // choice + a starting amount, and closes into a capped payout.
@@ -145,6 +154,10 @@ export function AppProvider({ children }) {
   useEffect(() => {
     localStorage.setItem('pulse_transactions', JSON.stringify(transactions))
   }, [transactions])
+
+  useEffect(() => {
+    localStorage.setItem('pulse_referral_campaigns', JSON.stringify(referralCampaigns))
+  }, [referralCampaigns])
 
   useEffect(() => {
     localStorage.setItem('pulse_sessions', JSON.stringify(sessions))
@@ -440,6 +453,15 @@ export function AppProvider({ children }) {
   // approved transactions — deposits add, withdrawals subtract,
   // session settlements add/subtract the capped result. Never
   // hand-edited anywhere.
+  //
+  // A fee is created the moment an admin applies it, but it's only an
+  // OUTSTANDING INVOICE at that point — it does NOT touch the balance
+  // yet. It only debits once feeStatus flips to 'paid', which happens
+  // when the client's earmarked deposit (see payOutstandingFee) is
+  // approved. That approval already adds the deposit's amount via the
+  // 'deposit' branch above, so the fee debit below nets it back out —
+  // the balance only moves once, at the moment the fee is actually
+  // settled, not twice (once on charge, once on payment).
   function getAccountBalance(userId) {
     return transactions
       .filter((t) => t.userId === userId && t.status === 'approved')
@@ -448,7 +470,8 @@ export function AppProvider({ children }) {
         if (t.type === 'withdrawal') return sum - t.amount
         if (t.type === 'session_settlement') return sum + t.amount
         if (t.type === 'capped_profit_release') return sum + t.amount
-        if (t.type === 'fee') return sum - t.amount
+        if (t.type === 'referral_bonus') return sum + t.amount
+        if (t.type === 'fee' && t.feeStatus === 'paid') return sum - t.amount
         return sum
       }, 0)
   }
@@ -839,12 +862,14 @@ export function AppProvider({ children }) {
         note: note || null,
         date: new Date().toISOString(),
         status: 'approved',
-        // A fee is immediately real (it debits the balance right
-        // away), but stays "outstanding" until the client submits a
-        // deposit earmarked specifically to it — see
-        // payOutstandingFee(). Only that linked deposit being
-        // approved flips this to 'paid'; any other deposit still adds
-        // to the balance as normal, but doesn't clear the flag.
+        // A fee is recorded immediately as an outstanding invoice, but
+        // does NOT debit the balance yet (see getAccountBalance) — it
+        // stays "outstanding" until the client submits a deposit
+        // earmarked specifically to it — see payOutstandingFee().
+        // Only that linked deposit being approved flips this to
+        // 'paid', which is the moment it actually debits; any other
+        // deposit still adds to the balance as normal, but doesn't
+        // clear the flag.
         feeStatus: 'outstanding',
         executedByAdminName: currentUser?.name
       },
@@ -854,7 +879,7 @@ export function AppProvider({ children }) {
       targetUserId,
       'fee_charged',
       'Fee charged',
-      `A fee of ${formatUsd(amount)} was applied to your account${note ? `: ${note}` : '.'} Deposit that exact amount to clear it.`,
+      `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} It won't affect your balance until paid — deposit that exact amount to clear it.`,
       { amount, note }
     )
     return { ok: true }
@@ -896,6 +921,80 @@ export function AppProvider({ children }) {
       .sort((a, b) => new Date(a.date) - new Date(b.date))
   }
 
+  // ADMIN-ONLY: creates a referral bonus campaign — a bounded window
+  // (start/end date) during which a referrer earns `bonusAmount` the
+  // instant someone they referred makes their first approved deposit.
+  // Multiple campaigns can exist for history; only ones marked
+  // `active` AND currently inside their own date window ever pay out
+  // (see getActiveReferralCampaign) — ended campaigns just stay as a
+  // record, never deleted out from under past bonuses.
+  function createReferralCampaign({ name, bonusAmount, startDate, endDate, note }) {
+    if (!name?.trim()) return { error: 'Give the campaign a name.' }
+    if (!bonusAmount || bonusAmount <= 0) return { error: 'Enter a bonus amount above zero.' }
+    if (!startDate || !endDate) return { error: 'Set a start and end date.' }
+    if (new Date(endDate) < new Date(startDate)) return { error: 'End date must be on or after the start date.' }
+
+    const campaign = {
+      id: Date.now(),
+      name: name.trim(),
+      bonusAmount,
+      startDate,
+      endDate,
+      note: note?.trim() || null,
+      active: true,
+      createdAt: new Date().toISOString(),
+      createdByAdminName: currentUser?.name
+    }
+    setReferralCampaigns((prev) => [campaign, ...prev])
+    return { campaign }
+  }
+
+  // Admin can edit a campaign's terms (e.g. extend the end date,
+  // adjust the bonus) — existing bonuses already paid out under the
+  // old terms are untouched, since they're already-recorded
+  // transactions, not something this recalculates retroactively.
+  function updateReferralCampaign(id, updates) {
+    setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
+  }
+
+  // Toggle a campaign on/off without deleting it — an admin might
+  // want to pause a campaign early, or reactivate a past one.
+  function setCampaignActive(id, active) {
+    setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active } : c)))
+  }
+
+  // The campaign (if any) actually live right now — `active` AND
+  // today's date inside [startDate, endDate]. Referral bonuses only
+  // ever check against this; everything else is just history the
+  // admin can look back on.
+  function getActiveReferralCampaign() {
+    const now = new Date()
+    return (
+      referralCampaigns.find(
+        (c) => c.active && new Date(c.startDate) <= now && now <= new Date(c.endDate + 'T23:59:59')
+      ) || null
+    )
+  }
+
+  // Purely derived stats for the admin campaign list — never a
+  // separate counter that could drift from the real transactions.
+  function getCampaignStats(campaignId) {
+    const paid = transactions.filter((t) => t.type === 'referral_bonus' && t.campaignId === campaignId)
+    return { count: paid.length, totalPaid: paid.reduce((sum, t) => sum + t.amount, 0) }
+  }
+
+  // True only the FIRST time this user has ever had a deposit
+  // approved. This is the qualifying event for a referral bonus —
+  // same principle already used for tier assignment (nothing real
+  // happens at signup; a genuine funded deposit is what counts) —
+  // so a referral can't be gamed by creating an account and never
+  // depositing.
+  function isFirstApprovedDeposit(userId, excludingTransactionId) {
+    return !transactions.some(
+      (t) => t.userId === userId && t.type === 'deposit' && t.status === 'approved' && t.id !== excludingTransactionId
+    )
+  }
+
   function approveTransaction(id) {
     const tx = transactions.find((t) => t.id === id)
     setTransactions((prev) =>
@@ -907,6 +1006,46 @@ export function AppProvider({ children }) {
         return t
       })
     )
+
+    // Referral bonus check — ONLY on a deposit being approved, and
+    // ONLY on that depositor's very first approved deposit ever (see
+    // isFirstApprovedDeposit). Pays out instantly and automatically
+    // once a campaign is live — no separate approval step needed,
+    // since the qualifying deposit itself already went through one.
+    if (tx?.type === 'deposit' && !tx.payingFeeId) {
+      const depositor = users.find((u) => u.id === tx.userId)
+      const campaign = getActiveReferralCampaign()
+      const alreadyPaid = transactions.some((t) => t.type === 'referral_bonus' && t.referredUserId === tx.userId)
+      if (depositor?.referredBy && campaign && !alreadyPaid && isFirstApprovedDeposit(tx.userId, tx.id)) {
+        const referrer = users.find((u) => u.id === depositor.referredBy)
+        if (referrer) {
+          setTransactions((prev) => [
+            {
+              id: Date.now() + 1,
+              userId: referrer.id,
+              userName: referrer.name,
+              type: 'referral_bonus',
+              amount: campaign.bonusAmount,
+              status: 'approved',
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              referredUserId: depositor.id,
+              referredUserName: depositor.name,
+              date: new Date().toISOString()
+            },
+            ...prev
+          ])
+          notify(
+            referrer.id,
+            'referral_bonus',
+            'Referral bonus earned!',
+            `${depositor.name} made their first deposit — you earned a ${formatUsd(campaign.bonusAmount)} bonus from the "${campaign.name}" campaign.`,
+            { amount: campaign.bonusAmount, campaignId: campaign.id, referredUserId: depositor.id }
+          )
+        }
+      }
+    }
+
     if (tx) {
       if (tx.payingFeeId) {
         notify(
@@ -985,6 +1124,12 @@ export function AppProvider({ children }) {
     getOutstandingFees,
     approveTransaction,
     rejectTransaction,
+    referralCampaigns,
+    createReferralCampaign,
+    updateReferralCampaign,
+    setCampaignActive,
+    getActiveReferralCampaign,
+    getCampaignStats,
     accountBalance,
     getAccountBalance,
     getBalanceBreakdown,

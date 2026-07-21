@@ -166,8 +166,7 @@ export default function Transactions() {
     <Layout pageTitle="Deposit / Withdraw">
       <h1 className="page-title">Deposit / Withdraw</h1>
       <p className="page-sub">
-        Still no real money — but requests now go into a pending queue, exactly like a real broker,
-        and only move your balance once an admin approves them.
+        Deposit and withdrawal requests go into a pending queue and only move your balance once an admin approves them.
       </p>
 
       <div className="stats-grid">

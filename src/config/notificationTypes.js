@@ -23,7 +23,8 @@ export const NOTIFICATION_META = {
   capped_profit_released: { icon: Gift, colorVar: 'var(--success)' },
   fee_charged: { icon: Receipt, colorVar: 'var(--danger)' },
   fee_paid: { icon: Receipt, colorVar: 'var(--success)' },
-  admin_message: { icon: MessageSquare, colorVar: 'var(--accent-bright)' }
+  admin_message: { icon: MessageSquare, colorVar: 'var(--accent-bright)' },
+  referral_bonus: { icon: Gift, colorVar: 'var(--success)' }
 }
 
 export function getNotificationMeta(type) {

@@ -13,7 +13,8 @@ function computeBalance(transactions, userId) {
       if (t.type === 'withdrawal') return sum - t.amount
       if (t.type === 'session_settlement') return sum + t.amount
       if (t.type === 'capped_profit_release') return sum + t.amount
-      if (t.type === 'fee') return sum - t.amount
+      if (t.type === 'referral_bonus') return sum + t.amount
+      if (t.type === 'fee' && t.feeStatus === 'paid') return sum - t.amount
       return sum
     }, 0)
 }

@@ -256,7 +256,7 @@ export default function AdminUserDetail() {
           </button>
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-          Takes effect immediately — deducted from balance and recorded in this client's Transaction History. It stays marked "outstanding" until the client deposits that exact amount and you approve it — that's what clears it.
+          Recorded immediately as an outstanding invoice in this client's Transaction History, but it does not deduct from their balance yet. It only debits once the client deposits that exact amount and you approve it — that's what actually settles the fee.
         </p>
       </div>
 

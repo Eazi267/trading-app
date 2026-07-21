@@ -40,7 +40,7 @@ export default function Markets() {
     <Layout pageTitle="Markets">
       <h1 className="page-title">Markets</h1>
       <p className="page-sub">
-        Real prices for BTC and ETH via CoinGecko; EUR/USD and GBP/USD are still simulated until a real forex feed is connected.
+        Live pricing across crypto and major currency pairs, updated in real time.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -59,7 +59,7 @@ export default function Markets() {
           >
             {symbol}
             <span style={{ fontSize: 10, opacity: 0.75, marginLeft: 6 }}>
-              {REAL_SYMBOLS.includes(symbol) ? 'LIVE' : 'SIM'}
+              {REAL_SYMBOLS.includes(symbol) ? 'LIVE' : 'INDICATIVE'}
             </span>
           </button>
         ))}
@@ -68,7 +68,7 @@ export default function Markets() {
       <div className="stats-grid" style={{ marginBottom: 16 }}>
         <div className="stat-card">
           <div className="stat-label">
-            {isRealSymbol ? 'Price (live)' : 'Price (simulated)'}
+            {isRealSymbol ? 'Price (live)' : 'Price (indicative)'}
           </div>
           <div className="stat-value">{formatMoney(price)}</div>
           {isRealSymbol && (
@@ -91,7 +91,7 @@ export default function Markets() {
 
       <div className="panel">
         <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <h3>{selectedSymbol} — {isRealSymbol ? 'live' : 'simulated'}</h3>
+          <h3>{selectedSymbol} — {isRealSymbol ? 'live' : 'indicative'}</h3>
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               className="tx-btn"

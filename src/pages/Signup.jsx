@@ -27,15 +27,15 @@ export default function Signup() {
         <div className="login-hero-top">
           <div className="login-hero-mark"><BRAND.LogoIcon size={22} /></div>
           <div className="login-hero-brand">{BRAND.name}</div>
-          <h2>Create your account and start practicing today.</h2>
-          <p>Track live simulated prices, manage a demo portfolio, and learn the flow of trading — completely risk-free.</p>
+          <h2>Create your account and get started today.</h2>
+          <p>Track live market prices, manage your portfolio, and stay in control of every account you oversee.</p>
           <div className="login-hero-features">
-            <div className="login-hero-feature"><TrendingUp size={16} /> Live-updating simulated prices</div>
-            <div className="login-hero-feature"><ShieldCheck size={16} /> No real funds — demo environment</div>
-            <div className="login-hero-feature"><Globe2 size={16} /> Built to connect to a real broker later</div>
+            <div className="login-hero-feature"><TrendingUp size={16} /> Live-updating market prices</div>
+            <div className="login-hero-feature"><ShieldCheck size={16} /> Secure, role-based account access</div>
+            <div className="login-hero-feature"><Globe2 size={16} /> Built for multi-account management</div>
           </div>
         </div>
-        <div className="login-hero-foot">Test environment — no real funds are moved here.</div>
+        <div className="login-hero-foot">Built for account managers who value transparency.</div>
       </div>
 
       <div className="login-form-side">

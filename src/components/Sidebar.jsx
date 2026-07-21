@@ -29,7 +29,8 @@ const clientOnlyLinks = [
 
 const adminOnlyLinks = [
   { to: '/admin/users', label: 'Clients', icon: Users },
-  { to: '/admin/scenario', label: 'Scenario Control', icon: Sliders }
+  { to: '/admin/scenario', label: 'Scenario Control', icon: Sliders },
+  { to: '/admin/referral-campaigns', label: 'Referral Campaigns', icon: Gift }
 ]
 
 export default function Sidebar() {

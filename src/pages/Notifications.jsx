@@ -17,7 +17,7 @@ export default function Notifications() {
   return (
     <Layout pageTitle="Notifications">
       <h1 className="page-title">Notifications</h1>
-      <p className="page-sub">Every event on your account — trades, sessions, deposits, and milestones.</p>
+      <p className="page-sub">Every real event on your account — trades, sessions, deposits, and milestones.</p>
 
       <div className="panel">
         <div className="panel-head">

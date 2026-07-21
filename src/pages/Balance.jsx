@@ -46,7 +46,7 @@ export default function Balance() {
     <Layout pageTitle="Balance">
       <h1 className="page-title">Balance</h1>
       <p className="page-sub">
-        Your balance updates automatically whenever a trading session closes.
+        Your balance updates automatically as trading sessions close and transactions are processed.
       </p>
 
       <div className="stats-grid">
