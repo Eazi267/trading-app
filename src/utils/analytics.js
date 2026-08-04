@@ -96,7 +96,10 @@ export function getROI(transactions, userId) {
 // calculation getAccountBalance() does, just kept as a series
 // instead of collapsed to one final number. This is what "account
 // growth" / "balance history" actually is: a real ledger replay,
-// not a fabricated smooth line.
+// not a fabricated smooth line. Fees and fee_payment transactions
+// never move the balance (see getAccountBalance) — only a genuine
+// deposit/withdrawal/settlement/bonus, or a fee-payment's spillover
+// deposit, ever does — so plain date order is always correct here.
 export function getBalanceHistory(transactions, userId) {
   const approved = transactions
     .filter((t) => t.userId === userId && t.status === 'approved')
@@ -109,17 +112,19 @@ export function getBalanceHistory(transactions, userId) {
     else if (t.type === 'session_settlement') running += t.amount
     else if (t.type === 'capped_profit_release') running += t.amount
     else if (t.type === 'referral_bonus') running += t.amount
-    else if (t.type === 'fee' && t.feeStatus === 'paid') running -= t.amount
     return { date: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), balance: running }
   })
 }
 
-// The full account ledger — every deposit, withdrawal, fee, session
-// settlement, and capped-profit review for this client, newest
-// first, each tagged with the running balance AT THAT POINT. Only
-// approved entries move the running balance; pending/rejected ones
-// are shown with the balance as it stood before them (they haven't
-// affected the account yet, or never will).
+// The full account ledger — every deposit, withdrawal, fee,
+// fee_payment, session settlement, and capped-profit review for this
+// client, newest first, each tagged with the running balance AT THAT
+// POINT. Only approved entries that actually move money (deposits,
+// withdrawals, settlements, bonuses, and a fee-payment's spillover
+// deposit) touch the running balance — a fee and its fee_payment are
+// always balance-neutral by themselves, so there's no "effective
+// date" trick needed here; each transaction's own real timestamp is
+// already correct.
 export function getFullTransactionHistory(transactions, userId) {
   const mine = transactions
     .filter((t) => t.userId === userId)
@@ -133,7 +138,6 @@ export function getFullTransactionHistory(transactions, userId) {
       else if (t.type === 'session_settlement') running += t.amount
       else if (t.type === 'capped_profit_release') running += t.amount
       else if (t.type === 'referral_bonus') running += t.amount
-      else if (t.type === 'fee' && t.feeStatus === 'paid') running -= t.amount
     }
     return { ...t, runningBalance: running }
   })

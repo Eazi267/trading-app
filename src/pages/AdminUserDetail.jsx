@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send } from 'lucide-react'
+import { ArrowLeft, Send, Trash2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
-import { useApp } from '../context/AppContext.jsx'
+import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
 import { TIERS, ALL_TIERS, getTier } from '../config/tiers.js'
@@ -43,10 +44,12 @@ export default function AdminUserDetail() {
     prices, orders, transactions, sessions, getRecentRange, getBalanceBreakdown,
     startSession, closeSession, sessionCurrentValue,
     openSessionPosition, closeSessionPosition, setSessionLeverage, setSessionDuration, applyFee,
+    applyDiscountToFee, getOutstandingFees, deleteTransaction,
     getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
   const { users, setUserTier, setClientVip, currentUser } = useAuth()
   const { notify, getNotificationsForUser } = useNotifications()
+  const { settings } = useSettings()
 
   const [newSessionTier, setNewSessionTier] = useState(TIERS[0].id)
   const [newSessionDuration, setNewSessionDuration] = useState(TIERS[0].durationDays)
@@ -65,6 +68,16 @@ export default function AdminUserDetail() {
   const [feeAmount, setFeeAmount] = useState('')
   const [feeNote, setFeeNote] = useState('')
   const [feeError, setFeeError] = useState('')
+  const [feeDiscountEnabled, setFeeDiscountEnabled] = useState(false)
+  const [feeDiscountAmount, setFeeDiscountAmount] = useState('')
+  const [feeDiscountHours, setFeeDiscountHours] = useState('')
+  const [discountingFeeId, setDiscountingFeeId] = useState(null)
+  const [existingDiscountAmount, setExistingDiscountAmount] = useState('')
+  const [existingDiscountHours, setExistingDiscountHours] = useState('')
+  const [existingDiscountError, setExistingDiscountError] = useState('')
+  const [deletingTxId, setDeletingTxId] = useState(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteError, setDeleteError] = useState('')
   const [messageTitle, setMessageTitle] = useState('')
   const [messageBody, setMessageBody] = useState('')
   const [messageError, setMessageError] = useState('')
@@ -158,13 +171,42 @@ export default function AdminUserDetail() {
       setFeeError('Enter a fee amount above zero.')
       return
     }
-    const result = applyFee(userId, amount, feeNote.trim())
+    const discount = feeDiscountEnabled
+      ? { discountAmount: parseFloat(feeDiscountAmount), durationHours: parseFloat(feeDiscountHours) }
+      : null
+    const result = applyFee(userId, amount, feeNote.trim(), discount)
     if (result.error) {
       setFeeError(result.error)
       return
     }
     setFeeAmount('')
     setFeeNote('')
+    setFeeDiscountEnabled(false)
+    setFeeDiscountAmount('')
+    setFeeDiscountHours('')
+  }
+
+  function handleApplyDiscountToExisting(feeId) {
+    setExistingDiscountError('')
+    const result = applyDiscountToFee(feeId, parseFloat(existingDiscountAmount), parseFloat(existingDiscountHours))
+    if (result.error) {
+      setExistingDiscountError(result.error)
+      return
+    }
+    setDiscountingFeeId(null)
+    setExistingDiscountAmount('')
+    setExistingDiscountHours('')
+  }
+
+  function handleDeleteTransaction(txId) {
+    setDeleteError('')
+    const result = deleteTransaction(txId, deleteReason)
+    if (result.error) {
+      setDeleteError(result.error)
+      return
+    }
+    setDeletingTxId(null)
+    setDeleteReason('')
   }
 
   function handleSendMessage() {
@@ -255,10 +297,92 @@ export default function AdminUserDetail() {
             Charge fee
           </button>
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 20px 12px', fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={feeDiscountEnabled} onChange={(e) => setFeeDiscountEnabled(e.target.checked)} />
+          Add a temporary discount
+        </label>
+        {feeDiscountEnabled && (
+          <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              type="number"
+              value={feeDiscountAmount}
+              onChange={(e) => setFeeDiscountAmount(e.target.value)}
+              placeholder="Discount amount (USD)"
+              style={{ width: 170, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+            />
+            <input
+              type="number"
+              value={feeDiscountHours}
+              onChange={(e) => setFeeDiscountHours(e.target.value)}
+              placeholder="Lasts (hours)"
+              style={{ width: 140, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+            />
+          </div>
+        )}
         <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-          Recorded immediately as an outstanding invoice in this client's Transaction History, but it does not deduct from their balance yet. It only debits once the client deposits that exact amount and you approve it — that's what actually settles the fee.
+          Recorded immediately as an outstanding invoice in this client's Transaction History, but it does not deduct from their balance yet. It only debits once the client deposits that exact amount and you approve it — that's what actually settles the fee. A discount only lowers what's owed for the set number of hours; after that it reverts to the full amount automatically, no separate step needed.
         </p>
       </div>
+
+      {getOutstandingFees(userId).length > 0 && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head"><h3>Outstanding fees ({getOutstandingFees(userId).length})</h3></div>
+          {existingDiscountError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{existingDiscountError}</div>}
+          <table>
+            <thead><tr><th>Date</th><th>Reason</th><th>Owed now</th><th></th></tr></thead>
+            <tbody>
+              {getOutstandingFees(userId).map((fee) => {
+                const owed = getFeeOwedAmount(fee)
+                const discounted = owed < fee.amount
+                return (
+                  <tr key={fee.id}>
+                    <td>{formatDate(fee.date)}</td>
+                    <td>{fee.note || '—'}</td>
+                    <td>
+                      {discounted && <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6 }}>{formatMoney(fee.amount)}</span>}
+                      {formatMoney(owed)}
+                      {discounted && fee.discountExpiresAt && (
+                        <div style={{ fontSize: 11, color: 'var(--accent-bright)' }}>{formatTimeLeft(fee.discountExpiresAt)}</div>
+                      )}
+                    </td>
+                    <td>
+                      {discountingFeeId === fee.id ? (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            value={existingDiscountAmount}
+                            onChange={(e) => setExistingDiscountAmount(e.target.value)}
+                            placeholder="Amount off"
+                            style={{ width: 100, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                          />
+                          <input
+                            type="number"
+                            value={existingDiscountHours}
+                            onChange={(e) => setExistingDiscountHours(e.target.value)}
+                            placeholder="Hours"
+                            style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                          />
+                          <button className="tx-btn deposit" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleApplyDiscountToExisting(fee.id)}>
+                            Apply
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="tx-btn withdraw"
+                          style={{ padding: '6px 10px', fontSize: 12 }}
+                          onClick={() => { setDiscountingFeeId(fee.id); setExistingDiscountError('') }}
+                        >
+                          {discounted ? 'Update discount' : 'Add discount'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Message this client</h3></div>
@@ -357,34 +481,36 @@ export default function AdminUserDetail() {
             <span className="status-pill status-pending">Flagged — large account, needs manual review</span>
           )}
         </div>
-        <div style={{ padding: '0 20px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>VIP status:</label>
-          <select
-            value={targetUser.vipUnlocked || ''}
-            onChange={(e) => {
-              const vipTierId = e.target.value || null
-              setClientVip(userId, vipTierId)
-              const vipTier = vipTierId ? getTier(vipTierId) : null
-              notify(
-                userId,
-                'tier_changed',
-                vipTier ? `${vipTier.name} unlocked` : 'VIP access removed',
-                vipTier
-                  ? `${vipTier.name} is now available on your Sessions page.`
-                  : 'VIP tier access was removed from your account.',
-                { vipTierId }
-              )
-            }}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          >
-            <option value="">None</option>
-            <option value="mini_vip">Mini VIP ($10–$99)</option>
-            <option value="major_vip">Major VIP ($25,001+)</option>
-          </select>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Unlocking a VIP tier here adds it as a selectable option on this client's own Sessions page. You can also start a VIP session for them directly below without unlocking it.
-          </span>
-        </div>
+        {settings.showVipTiers && (
+          <div style={{ padding: '0 20px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 13, color: 'var(--text-secondary)' }}>VIP status:</label>
+            <select
+              value={targetUser.vipUnlocked || ''}
+              onChange={(e) => {
+                const vipTierId = e.target.value || null
+                setClientVip(userId, vipTierId)
+                const vipTier = vipTierId ? getTier(vipTierId) : null
+                notify(
+                  userId,
+                  'tier_changed',
+                  vipTier ? `${vipTier.name} unlocked` : 'VIP access removed',
+                  vipTier
+                    ? `${vipTier.name} is now available on your Sessions page.`
+                    : 'VIP tier access was removed from your account.',
+                  { vipTierId }
+                )
+              }}
+              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+            >
+              <option value="">None</option>
+              <option value="mini_vip">Mini VIP ($10–$99)</option>
+              <option value="major_vip">Major VIP ($25,001+)</option>
+            </select>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Unlocking a VIP tier here adds it as a selectable option on this client's own Sessions page. You can also start a VIP session for them directly below without unlocking it.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ---------- Per-session leveraged trading ---------- */}
@@ -424,7 +550,7 @@ export default function AdminUserDetail() {
                     {scenario.reset
                       ? ` Resetting (${scenario.reset.level}) — returning to real market price.`
                       : ` ${scenario.mode} · strength ${scenario.strength} · volatility ${scenario.volatility} · ${scenario.speed}x speed.`}
-                    {' '}This session is seeing a simulated price, not the real market shown above.
+                    {' '}This session's price is currently adjusted by Scenario Control, not tracking the real market feed shown above.
                   </div>
                 )}
 
@@ -599,11 +725,12 @@ export default function AdminUserDetail() {
 
       <div className="panel" style={{ marginTop: 16 }}>
         <div className="panel-head"><h3>Deposit / withdrawal history</h3></div>
+        {deleteError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{deleteError}</div>}
         {userTransactions.length === 0 ? (
           <div className="empty-state"><p>No requests yet.</p></div>
         ) : (
           <table>
-            <thead><tr><th>Type</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>
+            <thead><tr><th>Type</th><th>Amount</th><th>Date</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {userTransactions.map((t) => (
                 <tr key={t.id}>
@@ -611,11 +738,48 @@ export default function AdminUserDetail() {
                   <td>{formatMoney(t.amount)}</td>
                   <td>{formatDate(t.date)}</td>
                   <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
+                  <td>
+                    {deletingTxId === t.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={deleteReason}
+                          onChange={(e) => setDeleteReason(e.target.value)}
+                          placeholder="Reason (required)"
+                          style={{ width: 160, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                        />
+                        <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleDeleteTransaction(t.id)}>
+                          Confirm delete
+                        </button>
+                        <button
+                          className="tx-btn"
+                          style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                          onClick={() => { setDeletingTxId(null); setDeleteReason(''); setDeleteError('') }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        className="tx-btn"
+                        style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)', flex: 'none' }}
+                        onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
+                        aria-label="Delete transaction"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '12px 20px 16px' }}>
+          Deleting is for fixing genuine data errors — like a leftover duplicate from a bug — not for changing
+          real results. Every deletion requires a reason and is kept in a permanent audit log even after the
+          record itself is gone.
+        </p>
       </div>
 
       <div className="panel" style={{ marginTop: 16 }}>

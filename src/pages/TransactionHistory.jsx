@@ -13,8 +13,10 @@ function formatDate(iso) {
 }
 
 function formatType(type) {
-  if (type === 'capped_profit_release') return 'Capped profit release'
-  return type.charAt(0).toUpperCase() + type.slice(1)
+  return type
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 export default function TransactionHistory() {
@@ -26,9 +28,10 @@ export default function TransactionHistory() {
     <Layout pageTitle="Transaction History">
       <h1 className="page-title">Transaction History</h1>
       <p className="page-sub">
-        Every deposit, withdrawal, fee, session settlement, and pending-profit review on your account —
-        with a running balance, like a bank statement. Pending/rejected rows show the balance as it stood
-        before them, since they haven't affected your account.
+        Every deposit, withdrawal, fee, fee payment, session settlement, and pending-profit review on your
+        account — with a running balance, like a bank statement. A fee never affects your balance by itself;
+        only a genuine deposit, withdrawal, or the excess from an overpaid fee ever moves it. Pending/rejected
+        rows show the balance as it stood before them, since they haven't affected your account.
       </p>
 
       <div className="panel">
@@ -50,7 +53,8 @@ export default function TransactionHistory() {
             </thead>
             <tbody>
               {fullHistory.map((t) => {
-                const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release'
+                const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus'
+                const isFeePayment = t.type === 'fee_payment'
                 const signedAmount = isCredit ? t.amount : -t.amount
                 return (
                   <tr key={t.id}>
@@ -62,14 +66,20 @@ export default function TransactionHistory() {
                           ({t.feeStatus === 'paid' ? 'paid' : 'outstanding'})
                         </span>
                       )}
-                      {t.payingFeeId && (
-                        <span style={{ fontSize: 11, marginLeft: 6, color: 'var(--text-muted)' }}>
-                          (fee payment)
-                        </span>
+                      {isFeePayment && t.spilloverAmount > 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, {formatMoney(t.spilloverAmount)} spilled to your balance
+                        </div>
+                      )}
+                      {isFeePayment && t.spilloverAmount === 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Applied to Fee Balance</div>
+                      )}
+                      {t.note === 'Excess from fee payment' && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Excess from fee payment</div>
                       )}
                     </td>
-                    <td className={t.status === 'approved' ? (signedAmount >= 0 ? 'pnl-up' : 'pnl-down') : undefined}>
-                      {t.status === 'approved' ? (signedAmount >= 0 ? '+' : '') + formatMoney(signedAmount) : formatMoney(t.amount)}
+                    <td className={t.status === 'approved' && !isFeePayment ? (signedAmount >= 0 ? 'pnl-up' : 'pnl-down') : undefined}>
+                      {isFeePayment ? formatMoney(t.amount) : t.status === 'approved' ? (signedAmount >= 0 ? '+' : '') + formatMoney(signedAmount) : formatMoney(t.amount)}
                     </td>
                     <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
                     <td>{formatMoney(t.runningBalance)}</td>

@@ -18,8 +18,10 @@ function formatDate(iso) {
 }
 
 function formatType(type) {
-  if (type === 'capped_profit_release') return 'Capped profit release'
-  return type.charAt(0).toUpperCase() + type.slice(1)
+  return type
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 function StatCard({ icon: Icon, label, value, formatter }) {
@@ -97,7 +99,16 @@ function AdminTransactionsView() {
               {pending.map((t) => (
                 <tr key={t.id}>
                   <td>{t.userName}</td>
-                  <td>{formatType(t.type)}{t.payingFeeId && <span style={{ fontSize: 11, marginLeft: 6, color: 'var(--text-muted)' }}>(fee payment)</span>}</td>
+                  <td>
+                    {formatType(t.type)}
+                    {t.type === 'fee_payment' && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {t.spilloverAmount > 0
+                          ? `${formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, ${formatMoney(t.spilloverAmount)} spills over`
+                          : 'Applied to Fee Balance'}
+                      </div>
+                    )}
+                  </td>
                   <td>{formatMoney(t.amount)}</td>
                   <td>{formatDate(t.date)}</td>
                   <td>

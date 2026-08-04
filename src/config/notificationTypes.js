@@ -1,6 +1,6 @@
 import {
   Zap, TrendingUp, TrendingDown, Trophy, ArrowDownCircle, ArrowUpCircle,
-  Wallet, Award, Layers, Bell, Hourglass, Gift, Receipt, MessageSquare
+  Wallet, Award, Layers, Bell, Hourglass, Gift, Receipt, MessageSquare, Megaphone
 } from 'lucide-react'
 
 // One source of truth for how each notification type looks — icon
@@ -24,6 +24,7 @@ export const NOTIFICATION_META = {
   fee_charged: { icon: Receipt, colorVar: 'var(--danger)' },
   fee_paid: { icon: Receipt, colorVar: 'var(--success)' },
   admin_message: { icon: MessageSquare, colorVar: 'var(--accent-bright)' },
+  admin_broadcast: { icon: Megaphone, colorVar: 'var(--accent-bright)' },
   referral_bonus: { icon: Gift, colorVar: 'var(--success)' }
 }
 

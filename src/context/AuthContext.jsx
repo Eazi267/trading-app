@@ -93,8 +93,12 @@ export function AuthProvider({ children }) {
     const emailTaken = users.some((u) => u.email.toLowerCase() === email.toLowerCase())
     if (emailTaken) return { error: 'An account with that email already exists.' }
 
+    // Demo-generated accounts (see generateDemoClients) are excluded
+    // here on purpose — they exist for presentation only, and letting
+    // a real signup use one as a referrer would let a synthetic
+    // account earn a genuine referral bonus.
     const referrer = referralCodeUsed
-      ? users.find((u) => u.referralCode.toLowerCase() === referralCodeUsed.toLowerCase())
+      ? users.find((u) => u.referralCode.toLowerCase() === referralCodeUsed.toLowerCase() && !u.isDemoGenerated)
       : null
 
     const newUser = {
@@ -170,16 +174,22 @@ export function AuthProvider({ children }) {
   // Saves edits to the active session AND to a permanent per-user
   // store, so changes survive logging out and back in.
   function updateProfile(updates) {
+    const userId = currentUser.id
     setCurrentUser((prev) => {
       const next = { ...prev, ...updates }
       localStorage.setItem('pulse_current_user', JSON.stringify(next))
-
-      const profiles = loadProfiles()
-      profiles[prev.id] = { ...profiles[prev.id], ...updates }
-      localStorage.setItem('pulse_profiles', JSON.stringify(profiles))
-
       return next
     })
+
+    const profiles = loadProfiles()
+    profiles[userId] = { ...profiles[userId], ...updates }
+    localStorage.setItem('pulse_profiles', JSON.stringify(profiles))
+
+    // Also update the roster itself — AdminUsers/AdminUserDetail read
+    // directly from `users`, not from the separate profiles store.
+    // Without this, a client's own profile edits never showed up on
+    // any admin page at all (not just "not immediately" — never).
+    persistUsers(users.map((u) => (u.id === userId ? { ...u, ...updates } : u)))
   }
 
   // Verifies the current password before allowing a change — basic

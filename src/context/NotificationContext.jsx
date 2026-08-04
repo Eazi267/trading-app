@@ -51,6 +51,30 @@ export function NotificationProvider({ children }) {
     }, 5000)
   }
 
+  // Same as notify(), but for many recipients at once — a broadcast.
+  // Looping notify() per recipient would have each call read the same
+  // stale `notifications` closure and clobber the others' entries,
+  // the same stale-state issue the bulk demo-client generator works
+  // around in AppContext. This builds every recipient's entry locally
+  // and persists them in one batch instead.
+  function notifyBulk(userIds, type, title, message, meta = {}) {
+    const entries = userIds.map((userId) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${userId}`,
+      userId,
+      type,
+      title,
+      message,
+      meta,
+      read: false,
+      date: new Date().toISOString()
+    }))
+    persist([...entries, ...notifications])
+    // One confirmation toast for the admin who sent it, not one per
+    // recipient — only the sender's own browser is present to see it.
+    pushToast(type, title, `${message} (sent to ${userIds.length} client${userIds.length === 1 ? '' : 's'})`)
+    return entries
+  }
+
   function dismissToast(id) {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }
@@ -75,6 +99,7 @@ export function NotificationProvider({ children }) {
     toasts,
     dismissToast,
     notify,
+    notifyBulk,
     pushToast,
     getNotificationsForUser,
     getUnreadCount,

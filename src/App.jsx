@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { NotificationProvider } from './context/NotificationContext.jsx'
 import { AppProvider } from './context/AppContext.jsx'
+import { SettingsProvider } from './context/SettingsContext.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import Login from './pages/Login.jsx'
 import Signup from './pages/Signup.jsx'
@@ -20,14 +21,17 @@ import AdminUserDetail from './pages/AdminUserDetail.jsx'
 import AdminScenario from './pages/AdminScenario.jsx'
 import AdminReferralCampaigns from './pages/AdminReferralCampaigns.jsx'
 import AdminGenerateClients from './pages/AdminGenerateClients.jsx'
+import AdminBroadcast from './pages/AdminBroadcast.jsx'
+import AdminBusinessSettings from './pages/AdminBusinessSettings.jsx'
 import Notifications from './pages/Notifications.jsx'
 import TransactionHistory from './pages/TransactionHistory.jsx'
 
 export default function App() {
   return (
-    <AuthProvider>
-      <NotificationProvider>
-        <AppProvider>
+    <SettingsProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <AppProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -49,10 +53,13 @@ export default function App() {
             <Route path="/admin/scenario" element={<ProtectedRoute requireRole="admin"><AdminScenario /></ProtectedRoute>} />
             <Route path="/admin/referral-campaigns" element={<ProtectedRoute requireRole="admin"><AdminReferralCampaigns /></ProtectedRoute>} />
             <Route path="/admin/generate-clients" element={<ProtectedRoute requireRole="admin"><AdminGenerateClients /></ProtectedRoute>} />
+            <Route path="/admin/broadcast" element={<ProtectedRoute requireRole="admin"><AdminBroadcast /></ProtectedRoute>} />
+            <Route path="/admin/business-settings" element={<ProtectedRoute requireRole="admin"><AdminBusinessSettings /></ProtectedRoute>} />
           </Routes>
         </BrowserRouter>
         </AppProvider>
-      </NotificationProvider>
-    </AuthProvider>
+        </NotificationProvider>
+      </AuthProvider>
+    </SettingsProvider>
   )
 }

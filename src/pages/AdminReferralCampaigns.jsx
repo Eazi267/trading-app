@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Gift, Plus, Power } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -28,6 +29,17 @@ function campaignStatus(campaign) {
 
 export default function AdminReferralCampaigns() {
   const { referralCampaigns, createReferralCampaign, setCampaignActive, getActiveReferralCampaign, getCampaignStats } = useApp()
+  const { settings } = useSettings()
+
+  if (!settings.showReferrals) {
+    return (
+      <Layout pageTitle="Referral Campaigns">
+        <div className="empty-state">
+          <p>The referral program is turned off for this deployment. Turn it on in Business Settings to use this tool.</p>
+        </div>
+      </Layout>
+    )
+  }
 
   const [name, setName] = useState('')
   const [bonusAmount, setBonusAmount] = useState('')

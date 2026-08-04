@@ -6,7 +6,7 @@ import {
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { TIERS } from '../config/tiers.js'
-import { BRAND } from '../config/brand.js'
+import { useSettings } from '../context/SettingsContext.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -53,13 +53,14 @@ const INSTRUMENT_GROUPS = [
 export default function Home() {
   const { prices } = useApp()
   const { currentUser } = useAuth()
+  const { brand } = useSettings()
 
   return (
     <div className="home">
       <nav className="home-nav">
         <div className="home-nav-brand">
-          <div className="home-nav-mark"><BRAND.LogoIcon size={18} /></div>
-          {BRAND.name}
+          <div className="home-nav-mark"><brand.LogoIcon size={18} /></div>
+          {brand.name}
         </div>
         <div className="home-nav-links">
           <a href="#tiers">Tiers</a>
@@ -87,7 +88,7 @@ export default function Home() {
           <div className="home-hero-badge"><Lock size={12} /> Capped-risk trading tiers</div>
           <h1>Account management, built to be trusted.</h1>
           <p>
-            {BRAND.tagline} Every balance, every session result, every payout is calculated from real market
+            {brand.tagline} Every balance, every session result, every payout is calculated from real market
             movement, giving you a transparent record you can trust.
           </p>
           <div className="home-hero-actions">

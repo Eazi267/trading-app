@@ -8,7 +8,7 @@ export default function Watchlist() {
   return (
     <Layout pageTitle="Watchlist">
       <h1 className="page-title">Watchlist</h1>
-      <p className="page-sub">Star a symbol to track it here. Stored in this browser only.</p>
+      <p className="page-sub">Star a symbol to track it here.</p>
 
       <div className="panel">
         <div className="panel-head">
@@ -30,7 +30,8 @@ export default function Watchlist() {
                   <td>
                     <button
                       onClick={() => toggleWatchlist(symbol)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: starred ? 'var(--accent-bright)' : 'var(--text-muted)' }}
+                      className="star-toggle-btn"
+                      style={{ color: starred ? 'var(--accent-bright)' : 'var(--text-muted)' }}
                       aria-label={starred ? 'Remove from watchlist' : 'Add to watchlist'}
                     >
                       <Star size={16} fill={starred ? 'currentColor' : 'none'} />

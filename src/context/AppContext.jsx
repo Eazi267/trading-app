@@ -80,6 +80,21 @@ function computeSessionSettlement(session, currentPrices) {
   return { endValue, rawPnl, payout, excessPending }
 }
 
+// Amount actually owed on a fee RIGHT NOW — the discounted price if a
+// discount is currently active (otherwise the full amount), minus
+// whatever has already been paid toward it via the pooled Fee Balance
+// (see payFeeBalance). Computed fresh from real fields every time —
+// amount, discountAmount, discountExpiresAt, amountPaid — nothing
+// stores a separate "current owed" number that could drift out of
+// sync, so no timer/interval process is needed for the discount, and
+// no separate ledger is needed for partial payments.
+export function getFeeOwedAmount(fee) {
+  const base = fee.discountAmount > 0 && fee.discountExpiresAt && new Date(fee.discountExpiresAt) > new Date()
+    ? Math.max(0, fee.amount - fee.discountAmount)
+    : fee.amount
+  return Math.max(0, base - (fee.amountPaid || 0))
+}
+
 export function AppProvider({ children }) {
   const { currentUser, users } = useAuth()
   const { notify } = useNotifications()
@@ -123,6 +138,16 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : []
   })
 
+  // Audit trail of admin-deleted transactions — kept even after the
+  // transaction itself is gone, so there's still a record of what was
+  // removed, by whom, and why. Deletion is for fixing genuine data
+  // errors (a leftover duplicate from a fixed bug, a mistaken entry),
+  // never a way to make a balance look better by erasing real results.
+  const [deletedTransactionsLog, setDeletedTransactionsLog] = useState(() => {
+    const saved = localStorage.getItem('pulse_deleted_transactions_log')
+    return saved ? JSON.parse(saved) : []
+  })
+
   // Admin-defined referral bonus campaigns (e.g. "Christmas Bonus").
   // A campaign is data, not code — unlike tiers.js (fixed, developer-
   // edited), campaigns are created/edited by an admin at runtime, so
@@ -154,6 +179,10 @@ export function AppProvider({ children }) {
   useEffect(() => {
     localStorage.setItem('pulse_transactions', JSON.stringify(transactions))
   }, [transactions])
+
+  useEffect(() => {
+    localStorage.setItem('pulse_deleted_transactions_log', JSON.stringify(deletedTransactionsLog))
+  }, [deletedTransactionsLog])
 
   useEffect(() => {
     localStorage.setItem('pulse_referral_campaigns', JSON.stringify(referralCampaigns))
@@ -454,14 +483,17 @@ export function AppProvider({ children }) {
   // session settlements add/subtract the capped result. Never
   // hand-edited anywhere.
   //
-  // A fee is created the moment an admin applies it, but it's only an
-  // OUTSTANDING INVOICE at that point — it does NOT touch the balance
-  // yet. It only debits once feeStatus flips to 'paid', which happens
-  // when the client's earmarked deposit (see payOutstandingFee) is
-  // approved. That approval already adds the deposit's amount via the
-  // 'deposit' branch above, so the fee debit below nets it back out —
-  // the balance only moves once, at the moment the fee is actually
-  // settled, not twice (once on charge, once on payment).
+  // A fee never subtracts from the main balance, whether it's
+  // outstanding or fully paid — its "cost" isn't taken out of money
+  // the client already had, it's covered by fresh money they
+  // specifically deposit toward the Fee Balance (see payFeeBalance).
+  // That means a fee_payment transaction doesn't add to the main
+  // balance either — it's fully absorbed into the fee's amountPaid
+  // bookkeeping. Only genuine EXCESS beyond what was owed spills over
+  // as its own real 'deposit' transaction (created at approval time),
+  // which does add here like any other deposit. Net effect: paying a
+  // fee exactly leaves the main balance unchanged; overpaying credits
+  // the difference; nothing about a fee ever appears as a debit here.
   function getAccountBalance(userId) {
     return transactions
       .filter((t) => t.userId === userId && t.status === 'approved')
@@ -471,7 +503,6 @@ export function AppProvider({ children }) {
         if (t.type === 'session_settlement') return sum + t.amount
         if (t.type === 'capped_profit_release') return sum + t.amount
         if (t.type === 'referral_bonus') return sum + t.amount
-        if (t.type === 'fee' && t.feeStatus === 'paid') return sum - t.amount
         return sum
       }, 0)
   }
@@ -489,7 +520,7 @@ export function AppProvider({ children }) {
       .reduce((sum, t) => sum + t.amount, 0)
     const outstandingFees = transactions
       .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
-      .reduce((sum, t) => sum + t.amount, 0)
+      .reduce((sum, t) => sum + getFeeOwedAmount(t), 0)
     return { total, available: total - pending, pending, pendingCappedProfit, outstandingFees }
   }
 
@@ -1004,10 +1035,22 @@ export function AppProvider({ children }) {
   // not a client request, so it's auto-approved rather than sitting
   // in the pending queue. Shows up inline with deposits/withdrawals
   // in the client's transaction history as a debit.
-  function applyFee(targetUserId, amount, note) {
+  // `discount`, if provided, is { discountAmount, durationHours } — a
+  // time-limited price cut on this specific fee. Nothing about the
+  // "invoice until paid" rule changes: the fee still doesn't touch
+  // the balance until paid, this only affects what "paid in full"
+  // means while the discount window is open.
+  function applyFee(targetUserId, amount, note, discount) {
     if (!amount || amount <= 0) return { error: 'Enter a fee amount above zero.' }
+    if (discount?.discountAmount > 0) {
+      if (discount.discountAmount >= amount) return { error: 'Discount must be less than the fee amount.' }
+      if (!discount.durationHours || discount.durationHours <= 0) return { error: 'Enter how long the discount should last.' }
+    }
 
     const owner = users.find((u) => u.id === targetUserId)
+    const hasDiscount = discount?.discountAmount > 0
+    const discountExpiresAt = hasDiscount ? new Date(Date.now() + discount.durationHours * 60 * 60 * 1000).toISOString() : null
+
     setTransactions((prev) => [
       {
         id: Date.now(),
@@ -1019,62 +1062,141 @@ export function AppProvider({ children }) {
         date: new Date().toISOString(),
         status: 'approved',
         // A fee is recorded immediately as an outstanding invoice, but
-        // does NOT debit the balance yet (see getAccountBalance) — it
-        // stays "outstanding" until the client submits a deposit
-        // earmarked specifically to it — see payOutstandingFee().
-        // Only that linked deposit being approved flips this to
-        // 'paid', which is the moment it actually debits; any other
-        // deposit still adds to the balance as normal, but doesn't
-        // clear the flag.
+        // never debits the main balance directly (see
+        // getAccountBalance) — it's covered by whatever the client
+        // deposits toward their Fee Balance (see payFeeBalance), which
+        // reduces amountPaid here until it's fully covered.
         feeStatus: 'outstanding',
+        amountPaid: 0,
+        discountAmount: hasDiscount ? discount.discountAmount : null,
+        discountExpiresAt,
         executedByAdminName: currentUser?.name
       },
       ...prev
     ])
+    const owed = hasDiscount ? amount - discount.discountAmount : amount
     notify(
       targetUserId,
       'fee_charged',
       'Fee charged',
-      `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} It won't affect your balance until paid — deposit that exact amount to clear it.`,
-      { amount, note }
+      hasDiscount
+        ? `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} A discount brings it to ${formatUsd(owed)} if paid within ${discount.durationHours} hours — after that it returns to the full amount.`
+        : `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} It won't affect your balance until paid — deposit that exact amount to clear it.`,
+      { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt }
     )
     return { ok: true }
   }
 
-  // CLIENT-INITIATED: submits a deposit request for the EXACT amount
-  // of one specific outstanding fee, tagged so approving it clears
-  // that fee. Goes through the normal pending -> admin-approves flow,
-  // same as any deposit — this doesn't bypass approval, it just links
-  // the resulting deposit back to the fee it's meant to settle.
-  function payOutstandingFee(feeId) {
+  // ADMIN-ONLY: adds a time-limited discount to a fee that's already
+  // outstanding. Just two fields (amount off + an expiry timestamp) —
+  // getFeeOwedAmount() checks the expiry fresh every time it's read,
+  // so there's no background timer process; the discount simply
+  // stops applying once real time passes discountExpiresAt.
+  function applyDiscountToFee(feeId, discountAmount, durationHours) {
     const fee = transactions.find((t) => t.id === feeId && t.type === 'fee')
     if (!fee) return { error: 'Fee not found.' }
-    if (fee.feeStatus !== 'outstanding') return { error: 'This fee has already been paid.' }
-    if (fee.userId !== currentUser?.id) return { error: 'You can only pay your own fees.' }
+    if (fee.feeStatus !== 'outstanding') return { error: 'Only an outstanding fee can be discounted.' }
+    if (!discountAmount || discountAmount <= 0) return { error: 'Enter a discount amount above zero.' }
+    if (discountAmount >= fee.amount) return { error: 'Discount must be less than the fee amount.' }
+    if (!durationHours || durationHours <= 0) return { error: 'Enter how long the discount should last.' }
+
+    const discountExpiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString()
+    setTransactions((prev) => prev.map((t) => (t.id === feeId ? { ...t, discountAmount, discountExpiresAt } : t)))
+
+    const owed = fee.amount - discountAmount
+    notify(
+      fee.userId,
+      'fee_charged',
+      'Discount applied to your fee',
+      `Your outstanding ${formatUsd(fee.amount)} fee is now ${formatUsd(owed)} if paid within ${durationHours} hours — after that it returns to the full amount.`,
+      { feeId, discountAmount, discountExpiresAt }
+    )
+    return { ok: true }
+  }
+
+  // CLIENT-INITIATED: deposits ANY amount toward the Fee Balance — the
+  // pooled total of everything currently owed across all outstanding
+  // fees (oldest first). This replaces the old "pay this exact fee"
+  // model entirely:
+  //   - If the amount covers less than the full pool, it's absorbed
+  //     entirely into reducing what's owed (oldest fees first) — the
+  //     remainder stays outstanding for whatever's left.
+  //   - If it covers the whole pool with some left over, that excess
+  //     "spills" into a real, separate deposit that credits the main
+  //     balance — genuine new money that wasn't needed to cover fees.
+  // Allocation is computed and locked in HERE, at submission time —
+  // not recalculated later at approval — so a fee charged in between
+  // can't eat into money the client already committed, and a discount
+  // expiring in the meantime can't retroactively change what was owed
+  // when they acted.
+  function payFeeBalance(amount) {
+    if (!amount || amount <= 0) return { error: 'Enter an amount above zero.' }
+    const fees = getOutstandingFees(currentUser?.id)
+    if (fees.length === 0) return { error: 'No outstanding fees to pay.' }
+
+    let remaining = amount
+    const allocations = []
+    for (const fee of fees) {
+      if (remaining <= 0) break
+      const owed = getFeeOwedAmount(fee)
+      if (owed <= 0) continue
+      const applied = Math.min(remaining, owed)
+      allocations.push({ feeId: fee.id, amount: applied })
+      remaining -= applied
+    }
+    const spilloverAmount = Math.round(remaining * 100) / 100
 
     setTransactions((prev) => [
       {
         id: Date.now(),
-        userId: fee.userId,
-        userName: currentUser?.name,
-        type: 'deposit',
-        amount: fee.amount,
-        payingFeeId: fee.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        type: 'fee_payment',
+        amount,
+        feeAllocations: allocations,
+        spilloverAmount,
         date: new Date().toISOString(),
         status: 'pending'
       },
       ...prev
     ])
-    return { ok: true }
+    return { ok: true, amount, spilloverAmount }
   }
 
   // Every fee still marked outstanding for this user, oldest first —
-  // what the Balance page lists so a client can pay each one off
-  // individually with its own exact-amount deposit.
+  // this ordering is what payFeeBalance's allocation follows (oldest
+  // debt gets covered first), and what the Balance page lists so a
+  // client can see exactly what makes up their Fee Balance.
   function getOutstandingFees(userId) {
     return transactions
-      .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
+      .filter((t) => t.userId === userId && t.type === 'fee' && getFeeOwedAmount(t) > 0)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
+  }
+
+  // ADMIN-ONLY: permanently removes a transaction record. This is
+  // for fixing genuine data errors — a duplicate left over from a
+  // fixed bug, a mistaken entry — not a way to make a balance look
+  // better by erasing real results. A reason is required, and the
+  // full transaction plus who deleted it and why is kept in
+  // deletedTransactionsLog even after the live record is gone, so
+  // there's always an audit trail of what was removed.
+  function deleteTransaction(transactionId, reason) {
+    if (!reason?.trim()) return { error: 'Enter a reason for deleting this transaction.' }
+    const tx = transactions.find((t) => t.id === transactionId)
+    if (!tx) return { error: 'Transaction not found.' }
+
+    setDeletedTransactionsLog((prev) => [
+      {
+        id: Date.now(),
+        deletedTransaction: tx,
+        deletedByAdminName: currentUser?.name,
+        reason: reason.trim(),
+        date: new Date().toISOString()
+      },
+      ...prev
+    ])
+    setTransactions((prev) => prev.filter((t) => t.id !== transactionId))
+    return { ok: true }
   }
 
   // ADMIN-ONLY: creates a referral bonus campaign — a bounded window
@@ -1153,28 +1275,77 @@ export function AppProvider({ children }) {
 
   function approveTransaction(id) {
     const tx = transactions.find((t) => t.id === id)
+
+    if (tx?.type === 'fee_payment') {
+      // Apply each locked-in allocation to its fee's cumulative
+      // amountPaid; a fee whose owed amount reaches zero flips to
+      // 'paid'. The fee_payment transaction itself never touches main
+      // balance — it's entirely absorbed here.
+      setTransactions((prev) =>
+        prev.map((t) => {
+          if (t.id === id) return { ...t, status: 'approved' }
+          const allocation = tx.feeAllocations?.find((a) => a.feeId === t.id)
+          if (allocation) {
+            const newAmountPaid = (t.amountPaid || 0) + allocation.amount
+            const stillOwed = getFeeOwedAmount({ ...t, amountPaid: newAmountPaid })
+            return { ...t, amountPaid: newAmountPaid, feeStatus: stillOwed <= 0 ? 'paid' : 'outstanding' }
+          }
+          return t
+        })
+      )
+      // Genuine excess beyond what was owed becomes a real, separate
+      // deposit — new money that wasn't needed to cover fees, so it
+      // credits the main balance like any other deposit.
+      if (tx.spilloverAmount > 0) {
+        setTransactions((prev) => [
+          {
+            id: Date.now() + 1,
+            userId: tx.userId,
+            userName: tx.userName,
+            type: 'deposit',
+            amount: tx.spilloverAmount,
+            note: 'Excess from fee payment',
+            date: new Date().toISOString(),
+            status: 'approved'
+          },
+          ...prev
+        ])
+      }
+      const coveredAmount = tx.amount - tx.spilloverAmount
+      notify(
+        tx.userId,
+        'fee_paid',
+        'Fee payment approved',
+        tx.spilloverAmount > 0
+          ? `Your payment of ${formatUsd(tx.amount)} cleared your Fee Balance (${formatUsd(coveredAmount)}) and the remaining ${formatUsd(tx.spilloverAmount)} was added to your balance.`
+          : `Your payment of ${formatUsd(tx.amount)} was applied to your Fee Balance.`,
+        { transactionId: id, amount: tx.amount, spilloverAmount: tx.spilloverAmount }
+      )
+      return
+    }
+
     setTransactions((prev) =>
-      prev.map((t) => {
-        if (t.id === id) return { ...t, status: 'approved' }
-        // This deposit was earmarked to pay off a specific fee —
-        // approving the deposit is what actually clears it.
-        if (tx?.payingFeeId && t.id === tx.payingFeeId) return { ...t, feeStatus: 'paid' }
-        return t
-      })
+      prev.map((t) => (t.id === id ? { ...t, status: 'approved' } : t))
     )
 
-    // Referral bonus check — ONLY on a deposit being approved, and
-    // ONLY on that depositor's very first approved deposit ever (see
-    // isFirstApprovedDeposit). Pays out instantly and automatically
-    // once a campaign is live — no separate approval step needed,
-    // since the qualifying deposit itself already went through one.
-    if (tx?.type === 'deposit' && !tx.payingFeeId) {
+    // Referral bonus check — ONLY on a genuine deposit being approved
+    // (fee_payment is its own separate type now, so this never needs
+    // to guard against it), and ONLY on that depositor's very first
+    // approved deposit ever (see isFirstApprovedDeposit). Pays out
+    // instantly and automatically once a campaign is live — no
+    // separate approval step needed, since the qualifying deposit
+    // itself already went through one.
+    if (tx?.type === 'deposit') {
       const depositor = users.find((u) => u.id === tx.userId)
       const campaign = getActiveReferralCampaign()
       const alreadyPaid = transactions.some((t) => t.type === 'referral_bonus' && t.referredUserId === tx.userId)
       if (depositor?.referredBy && campaign && !alreadyPaid && isFirstApprovedDeposit(tx.userId, tx.id)) {
         const referrer = users.find((u) => u.id === depositor.referredBy)
-        if (referrer) {
+        // Second guard against the same thing signup() already
+        // prevents — a generated demo client should never be able to
+        // collect a real bonus, even if referredBy somehow got set
+        // some other way in the future.
+        if (referrer && !referrer.isDemoGenerated) {
           setTransactions((prev) => [
             {
               id: Date.now() + 1,
@@ -1203,15 +1374,7 @@ export function AppProvider({ children }) {
     }
 
     if (tx) {
-      if (tx.payingFeeId) {
-        notify(
-          tx.userId,
-          'fee_paid',
-          'Fee cleared',
-          `Your payment of ${formatUsd(tx.amount)} was approved and the outstanding fee is now cleared.`,
-          { transactionId: id, amount: tx.amount, feeId: tx.payingFeeId }
-        )
-      } else if (tx.type === 'capped_profit_release') {
+      if (tx.type === 'capped_profit_release') {
         notify(
           tx.userId,
           'capped_profit_released',
@@ -1245,6 +1408,14 @@ export function AppProvider({ children }) {
           `The extra ${formatUsd(tx.amount)} held above your tier cap was not approved for release.`,
           { transactionId: id, amount: tx.amount }
         )
+      } else if (tx.type === 'fee_payment') {
+        notify(
+          tx.userId,
+          'balance_update',
+          'Fee payment rejected',
+          `Your Fee Balance payment of ${formatUsd(tx.amount)} was rejected. Contact support if this is unexpected.`,
+          { transactionId: id, amount: tx.amount }
+        )
       } else {
         notify(
           tx.userId,
@@ -1276,7 +1447,10 @@ export function AppProvider({ children }) {
     transactions,
     addTransaction,
     applyFee,
-    payOutstandingFee,
+    applyDiscountToFee,
+    payFeeBalance,
+    deleteTransaction,
+    deletedTransactionsLog,
     getOutstandingFees,
     approveTransaction,
     rejectTransaction,

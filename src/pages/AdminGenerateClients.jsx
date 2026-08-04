@@ -3,6 +3,7 @@ import { Users, Sparkles, Trash2 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useApp } from '../context/AppContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -11,6 +12,17 @@ function formatMoney(n) {
 export default function AdminGenerateClients() {
   const { users, generateDemoClients, removeDemoClients } = useAuth()
   const { generateDemoActivity, purgeDataForUsers } = useApp()
+  const { settings } = useSettings()
+
+  if (!settings.demoModeEnabled) {
+    return (
+      <Layout pageTitle="Generate Demo Clients">
+        <div className="empty-state">
+          <p>Demo mode is turned off for this deployment. Turn it on in Business Settings to use this tool.</p>
+        </div>
+      </Layout>
+    )
+  }
 
   const [count, setCount] = useState(10)
   const [minDeposit, setMinDeposit] = useState(300)

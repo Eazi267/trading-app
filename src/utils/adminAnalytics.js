@@ -5,6 +5,11 @@ import { getClients } from '../config/clients.js'
 // can compute balances for every client at once without threading
 // AppContext functions through as parameters — same convention
 // utils/analytics.js already uses for getBalanceHistory().
+// Fees and fee_payment transactions never move the balance directly
+// (see AppContext.getAccountBalance) — a fee's cost is covered by
+// fresh money deposited toward the Fee Balance, not by debiting money
+// the client already had. Only a genuine spillover deposit (created
+// when a fee payment exceeds what was owed) ever adds here.
 function computeBalance(transactions, userId) {
   return transactions
     .filter((t) => t.userId === userId && t.status === 'approved')
@@ -14,7 +19,6 @@ function computeBalance(transactions, userId) {
       if (t.type === 'session_settlement') return sum + t.amount
       if (t.type === 'capped_profit_release') return sum + t.amount
       if (t.type === 'referral_bonus') return sum + t.amount
-      if (t.type === 'fee' && t.feeStatus === 'paid') return sum - t.amount
       return sum
     }, 0)
 }

@@ -3,6 +3,7 @@ import { Copy, Check, Gift, Users } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useApp } from '../context/AppContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -15,7 +16,16 @@ function formatMoney(n) {
 export default function Referral() {
   const { currentUser, getReferrals } = useAuth()
   const { transactions, getActiveReferralCampaign } = useApp()
+  const { settings } = useSettings()
   const [copied, setCopied] = useState(false)
+
+  if (!settings.showReferrals) {
+    return (
+      <Layout pageTitle="Referrals">
+        <div className="empty-state"><p>The referral program isn't available right now.</p></div>
+      </Layout>
+    )
+  }
 
   const referralLink = `${window.location.origin}/signup?ref=${currentUser.referralCode}`
   const referrals = getReferrals(currentUser.id)

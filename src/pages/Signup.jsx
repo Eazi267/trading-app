@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
-import { BRAND } from '../config/brand.js'
+import { useSettings } from '../context/SettingsContext.jsx'
 
 export default function Signup() {
   const [searchParams] = useSearchParams()
@@ -12,6 +12,7 @@ export default function Signup() {
   const [referralCodeUsed, setReferralCodeUsed] = useState(searchParams.get('ref') || '')
   const [error, setError] = useState('')
   const { signup } = useAuth()
+  const { brand } = useSettings()
   const navigate = useNavigate()
 
   function handleSubmit(e) {
@@ -25,8 +26,8 @@ export default function Signup() {
     <div className="login-split">
       <div className="login-hero">
         <div className="login-hero-top">
-          <div className="login-hero-mark"><BRAND.LogoIcon size={22} /></div>
-          <div className="login-hero-brand">{BRAND.name}</div>
+          <div className="login-hero-mark"><brand.LogoIcon size={22} /></div>
+          <div className="login-hero-brand">{brand.name}</div>
           <h2>Create your account and get started today.</h2>
           <p>Track live market prices, manage your portfolio, and stay in control of every account you oversee.</p>
           <div className="login-hero-features">
@@ -41,7 +42,7 @@ export default function Signup() {
       <div className="login-form-side">
         <form className="login-card" onSubmit={handleSubmit}>
           <h1>Create account</h1>
-          <p className="login-sub">Join {BRAND.name} in a few seconds</p>
+          <p className="login-sub">Join {brand.name} in a few seconds</p>
 
           {error && <div className="form-error">{error}</div>}
 

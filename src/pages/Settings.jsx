@@ -68,7 +68,7 @@ export default function Settings() {
   return (
     <Layout pageTitle="Settings">
       <h1 className="page-title">Settings</h1>
-      <p className="page-sub">Update your profile — saved to this browser, persists across sessions.</p>
+      <p className="page-sub">Update your profile — changes are saved and reflected everywhere right away.</p>
 
       <div className="panel" style={{ maxWidth: 480 }}>
         <div className="panel-head">

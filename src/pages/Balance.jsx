@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { PiggyBank, Lock, Unlock, Receipt } from 'lucide-react'
+import { PiggyBank, Lock, Unlock, Receipt, Tag } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
-import { useApp } from '../context/AppContext.jsx'
+import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getTier } from '../config/tiers.js'
 import AdminBalanceView from './AdminBalanceView.jsx'
@@ -14,9 +15,25 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+// A short, human "time left" string for a discount's countdown —
+// recomputed on every render from the real discountExpiresAt
+// timestamp, not a ticking timer, so it's always accurate whenever
+// the page is open or revisited.
+function formatTimeLeft(iso) {
+  const ms = new Date(iso).getTime() - Date.now()
+  if (ms <= 0) return null
+  const hours = Math.floor(ms / (60 * 60 * 1000))
+  const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000))
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24)
+    return `${days}d ${hours % 24}h left`
+  }
+  return `${hours}h ${minutes}m left`
+}
+
 export default function Balance() {
   const { currentUser } = useAuth()
-  const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees, payOutstandingFee } = useApp()
+  const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees, payFeeBalance } = useApp()
 
   if (currentUser.role === 'admin') {
     return (
@@ -30,16 +47,26 @@ export default function Balance() {
   const mySessions = getSessionsForUser(currentUser.id)
   const outstandingFeeList = getOutstandingFees(currentUser.id)
 
-  // A fee already has a pending payment request sitting in the
-  // approval queue if there's a pending deposit tagged with its id —
-  // checked from real data, not local state, so this stays correct
-  // even after navigating away and back (local state would forget).
-  function hasPendingPayment(feeId) {
-    return transactions.some((t) => t.payingFeeId === feeId && t.status === 'pending')
-  }
+  const [payAmount, setPayAmount] = useState('')
+  const [payError, setPayError] = useState('')
+  const [paySuccess, setPaySuccess] = useState(null)
 
-  function handlePayFee(feeId) {
-    payOutstandingFee(feeId)
+  // A Fee Balance payment already sitting in the approval queue —
+  // checked from real pending-transaction data, not local state, so
+  // this stays correct even after navigating away and back.
+  const hasPendingFeePayment = transactions.some((t) => t.type === 'fee_payment' && t.status === 'pending')
+
+  function handlePayFeeBalance() {
+    setPayError('')
+    setPaySuccess(null)
+    const amount = parseFloat(payAmount)
+    const result = payFeeBalance(amount)
+    if (result.error) {
+      setPayError(result.error)
+      return
+    }
+    setPaySuccess(result)
+    setPayAmount('')
   }
 
   return (
@@ -70,7 +97,7 @@ export default function Balance() {
         )}
         {outstandingFees > 0 && (
           <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
-            <div className="stat-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Outstanding fees</div>
+            <div className="stat-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Fee balance</div>
             <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
           </div>
         )}
@@ -90,34 +117,74 @@ export default function Balance() {
 
       {outstandingFeeList.length > 0 && (
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
-          <div className="panel-head"><h3>Outstanding fees</h3></div>
+          <div className="panel-head"><h3>Fee Balance — {formatMoney(outstandingFees)} owed</h3></div>
           <p style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '0 20px', marginTop: -6, marginBottom: 12 }}>
-            Each fee stays outstanding until you deposit its exact amount — that specific deposit is what clears it, once an admin approves it.
+            Fees are separate from your main balance — they don't affect what you can trade or withdraw.
+            Deposit any amount toward your Fee Balance below: it's applied to your oldest fees first, any
+            leftover after everything's covered goes to your main balance, and if it's not enough your Fee
+            Balance simply stays outstanding for whatever's left.
           </p>
           <table>
-            <thead><tr><th>Date</th><th>Reason</th><th>Amount</th><th>Action</th></tr></thead>
+            <thead><tr><th>Date</th><th>Reason</th><th>Owed</th></tr></thead>
             <tbody>
-              {outstandingFeeList.map((fee) => (
-                <tr key={fee.id}>
-                  <td>{formatDate(fee.date)}</td>
-                  <td>{fee.note || '—'}</td>
-                  <td className="pnl-down">-{formatMoney(fee.amount)}</td>
-                  <td>
-                    <button
-                      className="tx-btn deposit"
-                      style={{ padding: '6px 12px', fontSize: 12 }}
-                      onClick={() => handlePayFee(fee.id)}
-                      disabled={hasPendingPayment(fee.id)}
-                    >
-                      {hasPendingPayment(fee.id) ? 'Awaiting approval' : `Pay ${formatMoney(fee.amount)}`}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {outstandingFeeList.map((fee) => {
+                const owed = getFeeOwedAmount(fee)
+                const discounted = owed < fee.amount - (fee.amountPaid || 0)
+                const timeLeft = fee.discountExpiresAt ? formatTimeLeft(fee.discountExpiresAt) : null
+                return (
+                  <tr key={fee.id}>
+                    <td>{formatDate(fee.date)}</td>
+                    <td>{fee.note || '—'}</td>
+                    <td className="pnl-down">
+                      {discounted ? (
+                        <>
+                          <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6 }}>{formatMoney(fee.amount - (fee.amountPaid || 0))}</span>
+                          {formatMoney(owed)}
+                          {timeLeft && (
+                            <div style={{ fontSize: 11, color: 'var(--accent-bright)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                              <Tag size={11} /> Discount — {timeLeft}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>-{formatMoney(owed)}</>
+                      )}
+                      {fee.amountPaid > 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatMoney(fee.amountPaid)} already paid</div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '12px 20px 16px' }}>
-            Paying submits a deposit request for that exact amount — it needs admin approval, same as any deposit, before the fee clears.
+          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="number"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              placeholder="Amount to deposit"
+              style={{ width: 160, padding: '9px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+            />
+            <button
+              className="tx-btn deposit"
+              style={{ padding: '9px 16px', fontSize: 13, flex: 'none' }}
+              onClick={handlePayFeeBalance}
+              disabled={hasPendingFeePayment}
+            >
+              {hasPendingFeePayment ? 'Awaiting approval' : 'Deposit toward fees'}
+            </button>
+          </div>
+          {payError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{payError}</div>}
+          {paySuccess && (
+            <div style={{ margin: '0 20px 16px', fontSize: 12.5, color: 'var(--success)' }}>
+              Submitted — {paySuccess.spilloverAmount > 0
+                ? `${formatMoney(paySuccess.amount - paySuccess.spilloverAmount)} will clear your Fee Balance and ${formatMoney(paySuccess.spilloverAmount)} will go to your main balance once approved.`
+                : 'this will apply to your Fee Balance once approved.'}
+            </div>
+          )}
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
+            Submitting needs admin approval, same as any deposit, before it actually clears anything.
           </p>
         </div>
       )}
