@@ -1,4 +1,5 @@
 import { createContext, useContext, useState } from 'react'
+import { useAudit } from './AuditContext.jsx'
 
 const AuthContext = createContext(null)
 
@@ -62,6 +63,7 @@ function demoEmailFor(name, existingUsers) {
 }
 
 export function AuthProvider({ children }) {
+  const { logAudit } = useAudit()
   const [users, setUsers] = useState(loadUsers)
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('pulse_current_user')
@@ -123,6 +125,7 @@ export function AuthProvider({ children }) {
   // Admin can assign/change a client's tier directly (e.g. after
   // manually reviewing a flagged large account).
   function setUserTier(userId, tierId) {
+    const target = users.find((u) => u.id === userId)
     const nextUsers = users.map((u) =>
       u.id === userId ? { ...u, tier: tierId, flaggedForReview: false } : u
     )
@@ -132,6 +135,13 @@ export function AuthProvider({ children }) {
       setCurrentUser(next)
       localStorage.setItem('pulse_current_user', JSON.stringify(next))
     }
+    logAudit({
+      action: 'tier_changed',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target?.name ?? null,
+      details: { tierId }
+    })
   }
 
   // Admin-only: unlocks a hidden VIP tier for self-service on the
@@ -140,6 +150,7 @@ export function AuthProvider({ children }) {
   // tier CARD they're allowed to pick, it doesn't remove the standard
   // three. Set to null to revoke access again.
   function setClientVip(userId, vipTierId) {
+    const target = users.find((u) => u.id === userId)
     const nextUsers = users.map((u) => (u.id === userId ? { ...u, vipUnlocked: vipTierId } : u))
     persistUsers(nextUsers)
     if (currentUser?.id === userId) {
@@ -147,6 +158,13 @@ export function AuthProvider({ children }) {
       setCurrentUser(next)
       localStorage.setItem('pulse_current_user', JSON.stringify(next))
     }
+    logAudit({
+      action: vipTierId ? 'vip_unlocked' : 'vip_revoked',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target?.name ?? null,
+      details: { vipTierId }
+    })
   }
 
   // Marks an account for manual admin review (e.g. a real deposit
@@ -160,6 +178,13 @@ export function AuthProvider({ children }) {
       setCurrentUser(next)
       localStorage.setItem('pulse_current_user', JSON.stringify(next))
     }
+    logAudit({
+      action: 'flagged_for_review',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: currentUser?.name ?? null,
+      details: {}
+    })
   }
 
   function getFlaggedUsers() {
@@ -190,6 +215,17 @@ export function AuthProvider({ children }) {
     // Without this, a client's own profile edits never showed up on
     // any admin page at all (not just "not immediately" — never).
     persistUsers(users.map((u) => (u.id === userId ? { ...u, ...updates } : u)))
+
+    // Logged regardless of who made the edit (the client themself, or
+    // an admin editing on their behalf) — actorId tells the two apart
+    // when the viewer needs to filter for one or the other.
+    logAudit({
+      action: 'profile_updated',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: currentUser?.name ?? null,
+      details: { updatedFields: Object.keys(updates) }
+    })
   }
 
   // Verifies the current password before allowing a change — basic
@@ -255,6 +291,11 @@ export function AuthProvider({ children }) {
       created.push(newUser)
     }
     persistUsers(working)
+    logAudit({
+      action: 'demo_clients_generated',
+      actor: currentUser,
+      details: { count: created.length }
+    })
     return { users: created }
   }
 
@@ -265,6 +306,11 @@ export function AuthProvider({ children }) {
   function removeDemoClients() {
     const removedIds = users.filter((u) => u.isDemoGenerated).map((u) => u.id)
     persistUsers(users.filter((u) => !u.isDemoGenerated))
+    logAudit({
+      action: 'demo_clients_removed',
+      actor: currentUser,
+      details: { count: removedIds.length }
+    })
     return removedIds
   }
 

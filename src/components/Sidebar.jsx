@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2 } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 
@@ -75,7 +75,10 @@ function adminSections(settings) {
     },
     {
       label: 'Business',
-      links: [{ to: '/admin/business-settings', label: 'Business Settings', icon: Building2 }]
+      links: [
+        { to: '/admin/business-settings', label: 'Business Settings', icon: Building2 },
+        { to: '/admin/audit-log', label: 'Audit Log', icon: ClipboardList }
+      ]
     },
     {
       label: 'Account',

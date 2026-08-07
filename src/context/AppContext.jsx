@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
+import { useAudit } from './AuditContext.jsx'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
@@ -97,6 +98,7 @@ export function getFeeOwedAmount(fee) {
 
 export function AppProvider({ children }) {
   const { currentUser, users } = useAuth()
+  const { logAudit } = useAudit()
   const { notify } = useNotifications()
   const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
@@ -138,16 +140,6 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : []
   })
 
-  // Audit trail of admin-deleted transactions — kept even after the
-  // transaction itself is gone, so there's still a record of what was
-  // removed, by whom, and why. Deletion is for fixing genuine data
-  // errors (a leftover duplicate from a fixed bug, a mistaken entry),
-  // never a way to make a balance look better by erasing real results.
-  const [deletedTransactionsLog, setDeletedTransactionsLog] = useState(() => {
-    const saved = localStorage.getItem('pulse_deleted_transactions_log')
-    return saved ? JSON.parse(saved) : []
-  })
-
   // Admin-defined referral bonus campaigns (e.g. "Christmas Bonus").
   // A campaign is data, not code — unlike tiers.js (fixed, developer-
   // edited), campaigns are created/edited by an admin at runtime, so
@@ -179,10 +171,6 @@ export function AppProvider({ children }) {
   useEffect(() => {
     localStorage.setItem('pulse_transactions', JSON.stringify(transactions))
   }, [transactions])
-
-  useEffect(() => {
-    localStorage.setItem('pulse_deleted_transactions_log', JSON.stringify(deletedTransactionsLog))
-  }, [deletedTransactionsLog])
 
   useEffect(() => {
     localStorage.setItem('pulse_referral_campaigns', JSON.stringify(referralCampaigns))
@@ -1075,6 +1063,13 @@ export function AppProvider({ children }) {
       ...prev
     ])
     const owed = hasDiscount ? amount - discount.discountAmount : amount
+    logAudit({
+      action: 'fee_charged',
+      actor: currentUser,
+      targetUserId,
+      targetUserName: owner?.name ?? null,
+      details: { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt }
+    })
     notify(
       targetUserId,
       'fee_charged',
@@ -1104,6 +1099,13 @@ export function AppProvider({ children }) {
     setTransactions((prev) => prev.map((t) => (t.id === feeId ? { ...t, discountAmount, discountExpiresAt } : t)))
 
     const owed = fee.amount - discountAmount
+    logAudit({
+      action: 'fee_discount_applied',
+      actor: currentUser,
+      targetUserId: fee.userId,
+      targetUserName: fee.userName ?? null,
+      details: { feeId, discountAmount, discountExpiresAt }
+    })
     notify(
       fee.userId,
       'fee_charged',
@@ -1177,24 +1179,22 @@ export function AppProvider({ children }) {
   // for fixing genuine data errors — a duplicate left over from a
   // fixed bug, a mistaken entry — not a way to make a balance look
   // better by erasing real results. A reason is required, and the
-  // full transaction plus who deleted it and why is kept in
-  // deletedTransactionsLog even after the live record is gone, so
-  // there's always an audit trail of what was removed.
+  // full transaction is kept inside the audit log entry's `details`
+  // even after the live record is gone, so there's always a record
+  // of exactly what was removed, by whom, and why.
   function deleteTransaction(transactionId, reason) {
     if (!reason?.trim()) return { error: 'Enter a reason for deleting this transaction.' }
     const tx = transactions.find((t) => t.id === transactionId)
     if (!tx) return { error: 'Transaction not found.' }
 
-    setDeletedTransactionsLog((prev) => [
-      {
-        id: Date.now(),
-        deletedTransaction: tx,
-        deletedByAdminName: currentUser?.name,
-        reason: reason.trim(),
-        date: new Date().toISOString()
-      },
-      ...prev
-    ])
+    const targetUser = users.find((u) => u.id === tx.userId)
+    logAudit({
+      action: 'transaction_deleted',
+      actor: currentUser,
+      targetUserId: tx.userId,
+      targetUserName: targetUser?.name ?? tx.userName ?? null,
+      details: { reason: reason.trim(), deletedTransaction: tx }
+    })
     setTransactions((prev) => prev.filter((t) => t.id !== transactionId))
     return { ok: true }
   }
@@ -1224,6 +1224,11 @@ export function AppProvider({ children }) {
       createdByAdminName: currentUser?.name
     }
     setReferralCampaigns((prev) => [campaign, ...prev])
+    logAudit({
+      action: 'referral_campaign_created',
+      actor: currentUser,
+      details: { campaignId: campaign.id, name: campaign.name, bonusAmount, startDate, endDate }
+    })
     return { campaign }
   }
 
@@ -1233,12 +1238,22 @@ export function AppProvider({ children }) {
   // transactions, not something this recalculates retroactively.
   function updateReferralCampaign(id, updates) {
     setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
+    logAudit({
+      action: 'referral_campaign_updated',
+      actor: currentUser,
+      details: { campaignId: id, updatedFields: Object.keys(updates) }
+    })
   }
 
   // Toggle a campaign on/off without deleting it — an admin might
   // want to pause a campaign early, or reactivate a past one.
   function setCampaignActive(id, active) {
     setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active } : c)))
+    logAudit({
+      action: active ? 'referral_campaign_activated' : 'referral_campaign_deactivated',
+      actor: currentUser,
+      details: { campaignId: id }
+    })
   }
 
   // The campaign (if any) actually live right now — `active` AND
@@ -1450,7 +1465,6 @@ export function AppProvider({ children }) {
     applyDiscountToFee,
     payFeeBalance,
     deleteTransaction,
-    deletedTransactionsLog,
     getOutstandingFees,
     approveTransaction,
     rejectTransaction,
