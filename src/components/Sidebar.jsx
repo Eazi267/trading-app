@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, Star, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList, ShieldCheck, Mail } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 
@@ -10,7 +10,7 @@ import { useSettings } from '../context/SettingsContext.jsx'
 // is purely about ordering, not duplicating routes.
 // Built as functions of `settings` so a feature toggle (Business
 // Settings) can hide a whole nav entry without touching routes.
-function clientSections(settings) {
+function clientSections(settings, currentUser) {
   return [
     {
       label: null, // top-level, no section header
@@ -22,9 +22,8 @@ function clientSections(settings) {
     {
       label: 'Trading',
       links: [
-        { to: '/sessions', label: 'Sessions', icon: ListChecks },
-        { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-        { to: '/watchlist', label: 'Watchlist', icon: Star }
+        { to: '/sessions', label: 'Investments', icon: ListChecks },
+        { to: '/analytics', label: 'Analytics', icon: BarChart3 }
       ]
     },
     {
@@ -40,6 +39,7 @@ function clientSections(settings) {
       label: 'Account',
       links: [
         { to: '/notifications', label: 'Notifications', icon: Bell },
+        ...(settings.kycEnabled || currentUser?.kycRequired ? [{ to: '/kyc', label: 'Verification', icon: ShieldCheck }] : []),
         { to: '/settings', label: 'Settings', icon: Settings }
       ]
     }
@@ -77,7 +77,8 @@ function adminSections(settings) {
       label: 'Business',
       links: [
         { to: '/admin/business-settings', label: 'Business Settings', icon: Building2 },
-        { to: '/admin/audit-log', label: 'Audit Log', icon: ClipboardList }
+        { to: '/admin/audit-log', label: 'Audit Log', icon: ClipboardList },
+        { to: '/admin/email-outbox', label: 'Email Outbox', icon: Mail }
       ]
     },
     {
@@ -94,7 +95,7 @@ export default function Sidebar() {
   const { currentUser } = useAuth()
   const { settings, brand } = useSettings()
   const isAdmin = currentUser?.role === 'admin'
-  const sections = isAdmin ? adminSections(settings) : clientSections(settings)
+  const sections = isAdmin ? adminSections(settings) : clientSections(settings, currentUser)
 
   return (
     <aside className="sidebar">

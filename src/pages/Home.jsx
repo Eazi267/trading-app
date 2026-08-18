@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, ShieldCheck, Users, ClipboardList, TrendingUp,
-  Bitcoin, DollarSign, LineChart as LineChartIcon, Layers, Lock
+  Bitcoin, DollarSign, LineChart as LineChartIcon, Layers, Lock,
+  CheckCircle2, Building2, Mail, Phone, Sprout, Gem, Crown
 } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -17,6 +18,11 @@ const BENEFITS = [
     icon: ClipboardList,
     title: 'Every result is calculated automatically',
     body: 'Balances and session outcomes are derived from real price movement and a complete transaction record, giving every client a transparent, verifiable history.'
+  },
+  {
+    icon: CheckCircle2,
+    title: 'Every result is certified by a person',
+    body: 'A session closing is only the first step — an account manager reviews and certifies the result before it ever touches your balance. Nothing posts automatically and unchecked.'
   },
   {
     icon: Users,
@@ -53,13 +59,19 @@ const INSTRUMENT_GROUPS = [
 export default function Home() {
   const { prices } = useApp()
   const { currentUser } = useAuth()
-  const { brand } = useSettings()
+  const { settings, brand } = useSettings()
 
   return (
     <div className="home">
       <nav className="home-nav">
         <div className="home-nav-brand">
-          <div className="home-nav-mark"><brand.LogoIcon size={18} /></div>
+          <div className="home-nav-mark">
+            {brand.logoImageDataUrl ? (
+              <img src={brand.logoImageDataUrl} alt={brand.name} style={{ width: 18, height: 18, objectFit: 'contain' }} />
+            ) : (
+              <brand.LogoIcon size={18} />
+            )}
+          </div>
           {brand.name}
         </div>
         <div className="home-nav-links">
@@ -86,10 +98,10 @@ export default function Home() {
       <header className="home-hero">
         <div className="home-hero-copy">
           <div className="home-hero-badge"><Lock size={12} /> Capped-risk trading tiers</div>
-          <h1>Account management, built to be trusted.</h1>
+          <h1>Your portfolio, managed in the open.</h1>
           <p>
-            {brand.tagline} Every balance, every session result, every payout is calculated from real market
-            movement, giving you a transparent record you can trust.
+            {brand.tagline} Every balance, every session result, every payout traces back to a real transaction
+            record and a human sign-off — not a number someone typed in.
           </p>
           <div className="home-hero-actions">
             <Link to="/signup" className="btn-primary" style={{ padding: '13px 22px', fontSize: 15 }}>
@@ -109,6 +121,22 @@ export default function Home() {
           ))}
         </div>
       </header>
+
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px 28px',
+        padding: '18px 24px', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+        fontSize: 12.5, color: 'var(--text-muted)'
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ShieldCheck size={14} /> Deposits reviewed before they affect your balance</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} /> Session results certified by a manager, not auto-posted</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><ClipboardList size={14} /> Full audit log of every account action</span>
+        {settings.companyEmail && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} /> {settings.companyEmail}</span>
+        )}
+        {settings.companyPhone && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} /> {settings.companyPhone}</span>
+        )}
+      </div>
 
       <section className="home-section">
         <div className="home-section-head">
@@ -132,18 +160,21 @@ export default function Home() {
           <p>Every tier caps the maximum payout on a gain. Losses are never capped — real risk stays real.</p>
         </div>
         <div className="tier-preview-grid" style={{ maxWidth: 920, margin: '0 auto' }}>
-          {TIERS.map((tier) => (
-            <div key={tier.id} className="tier-preview-card" style={{ padding: '20px 18px' }}>
-              <div className="tier-preview-head" style={{ fontSize: 15, marginBottom: 8 }}>
-                <strong>{tier.name}</strong>
+          {TIERS.map((tier, i) => {
+            const TierIcon = [Sprout, TrendingUp, Gem][i] || Crown
+            return (
+              <div key={tier.id} className="tier-preview-card">
+                <div className="tier-preview-head">
+                  <div className="icon-badge"><TierIcon size={16} /></div>
+                  <strong>{tier.name}</strong>
+                </div>
+                <p>{tier.description}</p>
+                <div className="tier-preview-payout">{tier.maxPayoutMultiplier * 100}%</div>
+                <div className="tier-preview-payout-label">Max payout of session amount</div>
+                <div className="tier-preview-range">{formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}</div>
               </div>
-              <p style={{ fontSize: 13 }}>{tier.description}</p>
-              <div className="tier-preview-range" style={{ fontSize: 13.5 }}>
-                {formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}
-              </div>
-              <div className="tier-preview-cap">Max payout: {tier.maxPayoutMultiplier * 100}% of session amount</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
         <p className="home-tiers-footnote">
           Larger accounts are set up individually — reach out after signing up and we'll configure it directly.
@@ -208,12 +239,41 @@ export default function Home() {
         </div>
       </section>
 
+      {settings.helpQA.length > 0 && (
+        <section className="home-section" id="faq">
+          <div className="home-section-head">
+            <h2>Common questions</h2>
+          </div>
+          <div style={{ maxWidth: 680, margin: '0 auto' }}>
+            {settings.helpQA.slice(0, 4).map((qa) => (
+              <div key={qa.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--border)' }}>
+                <h3 style={{ fontSize: 14.5, marginBottom: 6 }}>{qa.question}</h3>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>{qa.answer}</p>
+              </div>
+            ))}
+          </div>
+          <p style={{ textAlign: 'center', marginTop: 20 }}>
+            <Link to="/help" style={{ color: 'var(--accent-bright)', fontSize: 13.5 }}>See all help articles →</Link>
+          </p>
+        </section>
+      )}
+
       <footer className="home-footer">
         <div className="home-footer-icon"><Layers size={22} /></div>
         <h2>Ready to get started?</h2>
         <Link to="/signup" className="btn-primary" style={{ padding: '13px 24px', fontSize: 15, margin: '0 auto' }}>
           Create your account <ArrowRight size={16} />
         </Link>
+        <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginTop: 20, fontSize: 12.5, flexWrap: 'wrap' }}>
+          <Link to="/about" style={{ color: 'var(--text-muted)' }}>About Us</Link>
+          <Link to="/privacy" style={{ color: 'var(--text-muted)' }}>Privacy Policy</Link>
+          <Link to="/help" style={{ color: 'var(--text-muted)' }}>Help</Link>
+        </div>
+        {settings.companyAddress && (
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Building2 size={12} /> {settings.companyAddress}
+          </p>
+        )}
       </footer>
     </div>
   )

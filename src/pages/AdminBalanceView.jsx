@@ -87,7 +87,7 @@ export default function AdminBalanceView() {
             <tbody>
               {balances.map((b) => (
                 <tr key={b.user.id}>
-                  <td>{b.user.name}</td>
+                  <td><Link to={`/admin/users/${b.user.id}`} style={{ color: 'inherit', fontWeight: 600 }}>{b.user.name}</Link></td>
                   <td>{getTier(b.user.tier)?.name || 'None'}</td>
                   <td>{formatMoney(b.total)}</td>
                   <td>{formatMoney(b.available)}</td>

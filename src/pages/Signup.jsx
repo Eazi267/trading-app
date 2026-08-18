@@ -3,12 +3,14 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
+import { COUNTRIES } from '../config/currencies.js'
 
 export default function Signup() {
   const [searchParams] = useSearchParams()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [country, setCountry] = useState(COUNTRIES[0])
   const [referralCodeUsed, setReferralCodeUsed] = useState(searchParams.get('ref') || '')
   const [error, setError] = useState('')
   const { signup } = useAuth()
@@ -17,7 +19,7 @@ export default function Signup() {
 
   function handleSubmit(e) {
     e.preventDefault()
-    const result = signup({ name, email, password, referralCodeUsed })
+    const result = signup({ name, email, password, referralCodeUsed, country })
     if (result.error) setError(result.error)
     else navigate('/dashboard')
   }
@@ -62,6 +64,14 @@ export default function Signup() {
           <div className="field-input-wrap">
             <Lock size={16} />
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
+          </div>
+
+          <label>Country</label>
+          <div className="field-input-wrap">
+            <Globe2 size={16} />
+            <select value={country} onChange={(e) => setCountry(e.target.value)}>
+              {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
 
           <label>Referral code (optional)</label>

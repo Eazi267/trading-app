@@ -112,7 +112,7 @@ export function getBalanceHistory(transactions, userId) {
     else if (t.type === 'session_settlement') running += t.amount
     else if (t.type === 'capped_profit_release') running += t.amount
     else if (t.type === 'referral_bonus') running += t.amount
-    return { date: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), balance: running }
+    else if (t.type === 'signup_bonus') running += t.amount
   })
 }
 
@@ -138,6 +138,7 @@ export function getFullTransactionHistory(transactions, userId) {
       else if (t.type === 'session_settlement') running += t.amount
       else if (t.type === 'capped_profit_release') running += t.amount
       else if (t.type === 'referral_bonus') running += t.amount
+      else if (t.type === 'signup_bonus') running += t.amount
     }
     return { ...t, runningBalance: running }
   })

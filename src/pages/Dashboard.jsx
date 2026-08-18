@@ -74,11 +74,11 @@ export default function Dashboard() {
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--accent-dark)' }}>
           <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <strong style={{ display: 'block', marginBottom: 4 }}>Set up your first trading session</strong>
+              <strong style={{ display: 'block', marginBottom: 4 }}>Set up your first investment</strong>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 {available > 0
                   ? 'Choose a tier and commit part of your balance to start.'
-                  : 'Deposit first, then choose a tier to start a session.'}
+                  : 'Deposit first, then choose a tier to start investing.'}
               </span>
             </div>
             <Link
@@ -86,7 +86,7 @@ export default function Dashboard() {
               className="btn-primary"
               style={{ padding: '10px 16px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              {available > 0 ? 'Choose a session' : 'Deposit funds'} <ArrowRight size={14} />
+              {available > 0 ? 'Choose an investment' : 'Deposit funds'} <ArrowRight size={14} />
             </Link>
           </div>
         </div>
@@ -185,7 +185,7 @@ export default function Dashboard() {
         <div className="panel-head">
           <h3>Open positions</h3>
           <Link to="/sessions" style={{ fontSize: 12.5, color: 'var(--accent-bright)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            Manage sessions <ArrowRight size={12} />
+            Manage investments <ArrowRight size={12} />
           </Link>
         </div>
         {openPositions.length === 0 ? (

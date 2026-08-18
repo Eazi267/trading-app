@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { PiggyBank, Lock, Unlock, Receipt, Tag } from 'lucide-react'
+import { PiggyBank, Lock, Unlock, Receipt, Tag, Clock, Clock3, TrendingUp, TrendingDown, X as XIcon } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 import { getTier } from '../config/tiers.js'
+import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
 import AdminBalanceView from './AdminBalanceView.jsx'
 
 function formatMoney(n) {
@@ -34,6 +36,7 @@ function formatTimeLeft(iso) {
 export default function Balance() {
   const { currentUser } = useAuth()
   const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees, payFeeBalance } = useApp()
+  const { settings } = useSettings()
 
   if (currentUser.role === 'admin') {
     return (
@@ -43,7 +46,8 @@ export default function Balance() {
     )
   }
 
-  const { total, available, pending, pendingCappedProfit, outstandingFees } = getBalanceBreakdown(currentUser.id)
+  const { total, available, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees } = getBalanceBreakdown(currentUser.id)
+  const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const outstandingFeeList = getOutstandingFees(currentUser.id)
 
@@ -73,13 +77,16 @@ export default function Balance() {
     <Layout pageTitle="Balance">
       <h1 className="page-title">Balance</h1>
       <p className="page-sub">
-        Your balance updates automatically as trading sessions close and transactions are processed.
+        Your balance updates automatically as investments close and transactions are processed.
       </p>
 
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-label"><PiggyBank size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Total balance</div>
           <div className="stat-value">{formatMoney(total)}</div>
+          {displayCurrency.code !== 'USD' && (
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(total, displayCurrency.code)}</div>
+          )}
         </div>
         <div className="stat-card">
           <div className="stat-label"><Unlock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Available</div>
@@ -89,10 +96,12 @@ export default function Balance() {
           <div className="stat-label"><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Pending in sessions</div>
           <div className="stat-value">{formatMoney(pending)}</div>
         </div>
-        {pendingCappedProfit > 0 && (
+        {sessionBalance !== 0 && (
           <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
-            <div className="stat-label">Pending profit review</div>
-            <div className="stat-value">{formatMoney(pendingCappedProfit)}</div>
+            <div className="stat-label"><Clock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Session balance (awaiting certification)</div>
+            <div className={'stat-value ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
+              {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
+            </div>
           </div>
         )}
         {outstandingFees > 0 && (
@@ -103,9 +112,17 @@ export default function Balance() {
         )}
       </div>
 
+      {pendingSessionSettlements !== 0 && (
+        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
+          A recent session closed with a result of {pendingSessionSettlements >= 0 ? '+' : ''}{formatMoney(pendingSessionSettlements)}. It's held for admin certification before it's added to or deducted from your main balance — this applies to both profit and loss results.
+        </p>
+      )}
+
       {pendingCappedProfit > 0 && (
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
-          A recent session outperformed its tier's payout cap. The extra {formatMoney(pendingCappedProfit)} is held for admin review before it's added to your available balance.
+          A recent session outperformed its tier's payout cap. The extra {formatMoney(pendingCappedProfit)} is held until
+          your account manager applies a release fee for it and you pay it in full — check Outstanding Fees below,
+          or contact your account manager if you don't see one yet.
         </p>
       )}
 
@@ -191,49 +208,61 @@ export default function Balance() {
 
       <div className="panel">
         <div className="panel-head">
-          <h3>Session history</h3>
+          <h3>Investment history</h3>
           <Link to="/sessions" className="btn-primary" style={{ padding: '8px 14px', fontSize: 13 }}>
-            Start a session
+            Start an investment
           </Link>
         </div>
         {mySessions.length === 0 ? (
           <div className="empty-state"><p>No sessions yet — start one to see it here.</p></div>
         ) : (
-          <table>
-            <thead>
-              <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th></tr>
-            </thead>
-            <tbody>
-              {mySessions.map((s) => {
-                const tier = getTier(s.tierId)
-                const liveValue = s.status === 'active' ? sessionCurrentValue(s) : s.endValue
-                const livePnl = s.status === 'active' ? liveValue - s.amount : s.rawPnl
-                const wasCapped = s.status === 'closed' && s.payout < s.rawPnl
-                return (
-                  <tr key={s.id}>
-                    <td>{tier?.name || s.tierId}</td>
-                    <td>{formatMoney(s.amount)}</td>
-                    <td>{s.leverage}x</td>
-                    <td>{formatDate(s.startedAt)}</td>
-                    <td><span className={'status-pill status-' + (s.status === 'active' ? 'pending' : 'approved')}>{s.status}</span></td>
-                    <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
-                      {s.status === 'active'
-                        ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
-                        : <>
-                            {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
-                            {wasCapped && (
-                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} pending review)
-                              </span>
-                            )}
-                          </>
-                      }
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {mySessions.map((s) => {
+              const tier = getTier(s.tierId)
+              const isAwaiting = s.status === 'awaiting_start'
+              const isCancelled = s.status === 'cancelled'
+              const liveValue = s.status === 'active' ? sessionCurrentValue(s) : s.endValue
+              const livePnl = s.status === 'active' ? liveValue - s.amount : s.rawPnl
+              const wasCapped = s.status === 'closed' && s.payout < s.rawPnl
+              const settlementTx = s.status === 'closed'
+                ? transactions.find((t) => t.sessionId === s.id && t.type === 'session_settlement')
+                : null
+              const awaitingCertification = settlementTx?.status === 'pending'
+              const isProfitLike = !isAwaiting && !isCancelled && (s.status === 'active' ? livePnl >= 0 : s.payout >= 0)
+              const accentClass = isAwaiting || isCancelled || awaitingCertification
+                ? 'entity-card-accent-pending'
+                : isProfitLike ? 'entity-card-accent-profit' : 'entity-card-accent-loss'
+              return (
+                <div key={s.id} className={'entity-card ' + accentClass}>
+                  <div className="icon-badge">
+                    {isCancelled ? <XIcon size={17} /> : isAwaiting ? <Clock3 size={17} /> : isProfitLike ? <TrendingUp size={17} /> : <TrendingDown size={17} />}
+                  </div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">{tier?.name || s.tierId} · {formatMoney(s.amount)}</div>
+                    <div className="entity-card-meta">
+                      <span>{isAwaiting || isCancelled ? `Committed ${formatDate(s.committedAt)}` : formatDate(s.startedAt)}</span>
+                      <span className={'status-pill status-' + (s.status === 'closed' ? 'approved' : s.status === 'cancelled' ? 'rejected' : 'pending')}>
+                        {isAwaiting ? 'awaiting start' : s.status}
+                      </span>
+                      {!isAwaiting && !isCancelled && <span>{s.leverage}x leverage</span>}
+                      {awaitingCertification && <span style={{ color: 'var(--accent-bright)' }}>Awaiting certification</span>}
+                      {wasCapped && <span>Tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} pending review</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, flex: 'none' }} className={isAwaiting || isCancelled ? undefined : (isProfitLike ? 'pnl-up' : 'pnl-down')}>
+                    {isCancelled
+                      ? <span style={{ color: 'var(--text-muted)', fontFamily: 'inherit', fontSize: 12.5 }}>Released</span>
+                      : isAwaiting
+                      ? <span style={{ color: 'var(--text-muted)', fontFamily: 'inherit', fontSize: 12.5 }}>{s.durationDays}d pending</span>
+                      : s.status === 'active'
+                      ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)}</>
+                      : <>{s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}</>
+                    }
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </Layout>

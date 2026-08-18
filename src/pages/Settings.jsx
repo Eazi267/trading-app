@@ -2,8 +2,7 @@ import { useState, useRef } from 'react'
 import { Camera, Lock } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
-
-const COUNTRIES = ['Nigeria', 'United States', 'United Kingdom', 'Canada', 'South Africa', 'Ghana', 'Kenya', 'Other']
+import { CURRENCIES, COUNTRY_CURRENCY, COUNTRIES } from '../config/currencies.js'
 
 const inputStyle = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
@@ -19,6 +18,10 @@ export default function Settings() {
     email: currentUser.email || '',
     phone: currentUser.phone || '',
     country: currentUser.country || 'Nigeria',
+    // Defaults to whatever the client's country maps to, but is a
+    // free choice from here on — someone living abroad from their
+    // home country isn't stuck with the wrong equivalent currency.
+    preferredCurrency: currentUser.preferredCurrency || COUNTRY_CURRENCY[currentUser.country || 'Nigeria'] || 'USD',
     avatar: currentUser.avatar || ''
   })
   const [saved, setSaved] = useState(false)
@@ -28,7 +31,17 @@ export default function Settings() {
   const [pwSaved, setPwSaved] = useState(false)
 
   function handleChange(field, value) {
-    setForm((f) => ({ ...f, [field]: value }))
+    setForm((f) => {
+      const next = { ...f, [field]: value }
+      // Changing country re-suggests a currency, but only if the
+      // person hasn't already made an explicit currency choice this
+      // session — don't fight a deliberate override.
+      if (field === 'country' && !f._currencyTouched) {
+        next.preferredCurrency = COUNTRY_CURRENCY[value] || next.preferredCurrency
+      }
+      if (field === 'preferredCurrency') next._currencyTouched = true
+      return next
+    })
     setSaved(false)
   }
 
@@ -41,7 +54,8 @@ export default function Settings() {
   }
 
   function handleSave() {
-    updateProfile(form)
+    const { _currencyTouched, ...profileFields } = form
+    updateProfile(profileFields)
     setSaved(true)
   }
 
@@ -111,6 +125,15 @@ export default function Settings() {
           <select value={form.country} onChange={(e) => handleChange('country', e.target.value)} style={inputStyle}>
             {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
+
+          <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>Display currency</label>
+          <select value={form.preferredCurrency} onChange={(e) => handleChange('preferredCurrency', e.target.value)} style={inputStyle}>
+            {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+          </select>
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+            Your balance is always tracked in USD — this only controls the approximate equivalent shown next to
+            deposit/withdrawal amounts.
+          </p>
 
           <button className="btn-primary" style={{ marginTop: 18, width: '100%' }} onClick={handleSave}>
             Save changes

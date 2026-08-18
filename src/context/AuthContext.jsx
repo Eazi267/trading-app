@@ -1,5 +1,8 @@
 import { createContext, useContext, useState } from 'react'
 import { useAudit } from './AuditContext.jsx'
+import { useEmail, fillTemplate } from './EmailContext.jsx'
+import { useSettings } from './SettingsContext.jsx'
+import { COUNTRY_CURRENCY } from '../config/currencies.js'
 
 const AuthContext = createContext(null)
 
@@ -64,6 +67,8 @@ function demoEmailFor(name, existingUsers) {
 
 export function AuthProvider({ children }) {
   const { logAudit } = useAudit()
+  const { sendEmail } = useEmail()
+  const { settings } = useSettings()
   const [users, setUsers] = useState(loadUsers)
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('pulse_current_user')
@@ -91,7 +96,7 @@ export function AuthProvider({ children }) {
   // No tier is assigned at signup anymore — a client picks a tier for
   // real once they've actually deposited and start a session (see
   // AppContext.startSession). This just creates the account.
-  function signup({ name, email, password, referralCodeUsed }) {
+  function signup({ name, email, password, referralCodeUsed, country }) {
     const emailTaken = users.some((u) => u.email.toLowerCase() === email.toLowerCase())
     if (emailTaken) return { error: 'An account with that email already exists.' }
 
@@ -113,12 +118,26 @@ export function AuthProvider({ children }) {
       referredBy: referrer ? referrer.id : null,
       createdAt: new Date().toISOString(),
       tier: null,
-      flaggedForReview: false
+      flaggedForReview: false,
+      country: country || null,
+      // Set once, at signup, so the deposit/withdrawal equivalent
+      // display is correct from a client's very first visit — not
+      // just after they happen to open Settings. Still fully
+      // overridable there afterward.
+      preferredCurrency: country ? COUNTRY_CURRENCY[country] || 'USD' : null
     }
 
     persistUsers([...users, newUser])
     setCurrentUser(newUser)
     localStorage.setItem('pulse_current_user', JSON.stringify(newUser))
+
+    sendEmail({
+      to: email,
+      subject: fillTemplate(settings.welcomeEmailSubject, { name }),
+      body: fillTemplate(settings.welcomeEmailBody, { name }),
+      category: 'welcome'
+    }, settings.emailSendingEnabled)
+
     return { user: newUser }
   }
 
@@ -314,8 +333,90 @@ export function AuthProvider({ children }) {
     return removedIds
   }
 
+  // Client submits (or resubmits, after a rejection) their document.
+  // Stored as a `kyc` object directly on the user's profile — same
+  // storage mechanism as avatar (a data URL from FileReader), no new
+  // persistence layer needed. A resubmission overwrites the previous
+  // one entirely and goes back to 'pending' — no history of past
+  // rejected images is kept once replaced, since there's no reason
+  // to retain a document a client was told to redo.
+  function submitKycDocument({ documentType, frontImageDataUrl, backImageDataUrl }) {
+    const userId = currentUser.id
+    const kyc = {
+      documentType,
+      frontImageDataUrl,
+      backImageDataUrl: backImageDataUrl || null,
+      status: 'pending',
+      submittedAt: new Date().toISOString(),
+      reviewedAt: null,
+      reviewedByName: null,
+      reviewNote: null
+    }
+    updateProfile({ kyc })
+    logAudit({
+      action: 'kyc_submitted',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: currentUser.name,
+      details: { documentType }
+    })
+  }
+
+  // ADMIN-ONLY: approves or rejects a client's submitted KYC
+  // document. A rejection requires a note so the client knows what
+  // to fix before resubmitting.
+  function reviewKycSubmission(userId, approved, note) {
+    const target = users.find((u) => u.id === userId)
+    if (!target?.kyc) return { error: 'No KYC submission found for this client.' }
+    if (!approved && !note?.trim()) return { error: 'Enter a reason for rejecting this document.' }
+
+    const nextKyc = {
+      ...target.kyc,
+      status: approved ? 'verified' : 'rejected',
+      reviewedAt: new Date().toISOString(),
+      reviewedByName: currentUser?.name,
+      reviewNote: approved ? null : note.trim()
+    }
+    persistUsers(users.map((u) => (u.id === userId ? { ...u, kyc: nextKyc } : u)))
+    if (currentUser?.id === userId) {
+      const next = { ...currentUser, kyc: nextKyc }
+      setCurrentUser(next)
+      localStorage.setItem('pulse_current_user', JSON.stringify(next))
+    }
+    logAudit({
+      action: approved ? 'kyc_approved' : 'kyc_rejected',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target.name,
+      details: approved ? {} : { reason: note.trim() }
+    })
+    return { ok: true }
+  }
+
+  // ADMIN-ONLY: flags a single client as requiring KYC verification
+  // even when the sitewide toggle is off. Independent switch — a
+  // client can be individually required regardless of the global
+  // setting, for the case of "everyone else is fine, but THIS
+  // account looks like it needs a closer look."
+  function setKycRequired(userId, required) {
+    const target = users.find((u) => u.id === userId)
+    persistUsers(users.map((u) => (u.id === userId ? { ...u, kycRequired: required } : u)))
+    if (currentUser?.id === userId) {
+      const next = { ...currentUser, kycRequired: required }
+      setCurrentUser(next)
+      localStorage.setItem('pulse_current_user', JSON.stringify(next))
+    }
+    logAudit({
+      action: required ? 'kyc_individually_required' : 'kyc_individual_requirement_removed',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target?.name,
+      details: {}
+    })
+  }
+
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients, submitKycDocument, reviewKycSubmission, setKycRequired }}>
       {children}
     </AuthContext.Provider>
   )

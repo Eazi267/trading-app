@@ -117,19 +117,23 @@ export default function AdminDashboardView() {
         {balances.length === 0 ? (
           <div className="empty-state"><p>No clients yet.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Tier</th><th>Total balance</th><th>Available</th></tr></thead>
-            <tbody>
-              {balances.slice(0, 6).map((b) => (
-                <tr key={b.user.id}>
-                  <td>{b.user.name}</td>
-                  <td>{getTier(b.user.tier)?.name || 'None'}</td>
-                  <td>{formatMoney(b.total)}</td>
-                  <td>{formatMoney(b.available)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {balances.slice(0, 6).map((b) => (
+              <Link key={b.user.id} to={`/admin/users/${b.user.id}`} className="entity-card" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
+                <div className="icon-badge" style={{ fontSize: 12, fontWeight: 700 }}>
+                  {(b.user.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{b.user.name}</div>
+                  <div className="entity-card-meta">
+                    <span>{getTier(b.user.tier)?.name || 'No tier'}</span>
+                    <span>Available: {formatMoney(b.available)}</span>
+                  </div>
+                </div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, flex: 'none' }}>{formatMoney(b.total)}</div>
+              </Link>
+            ))}
+          </div>
         )}
       </div>
 
@@ -138,18 +142,20 @@ export default function AdminDashboardView() {
         {recentActivity.length === 0 ? (
           <div className="empty-state"><p>Nothing yet.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Event</th><th>Date</th></tr></thead>
-            <tbody>
-              {recentActivity.map((event) => (
-                <tr key={`${event.kind}-${event.id}`}>
-                  <td>{event.userName || users.find((u) => u.id === event.userId)?.name || `User #${event.userId}`}</td>
-                  <td>{activityLabel(event)}</td>
-                  <td>{formatDate(event.date)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {recentActivity.map((event) => (
+              <Link key={`${event.kind}-${event.id}`} to={`/admin/users/${event.userId}`} className="entity-card" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
+                <div className="icon-badge"><Activity size={17} /></div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{event.userName || users.find((u) => u.id === event.userId)?.name || `User #${event.userId}`}</div>
+                  <div className="entity-card-meta">
+                    <span>{activityLabel(event)}</span>
+                    <span>{formatDate(event.date)}</span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         )}
       </div>
     </>

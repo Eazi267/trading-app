@@ -1,5 +1,5 @@
 import Layout from '../components/Layout.jsx'
-import { Inbox } from 'lucide-react'
+import { Inbox, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getFullTransactionHistory } from '../utils/analytics.js'
@@ -17,6 +17,16 @@ function formatType(type) {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function TypeIcon({ type }) {
+  if (type === 'deposit') return <ArrowDownToLine size={17} />
+  if (type === 'withdrawal') return <ArrowUpFromLine size={17} />
+  if (type === 'session_settlement' || type === 'capped_profit_release') return <TrendingUp size={17} />
+  if (type === 'fee' || type === 'fee_payment') return <Receipt size={17} />
+  if (type === 'fee_discount') return <Percent size={17} />
+  if (type === 'referral_bonus' || type === 'signup_bonus') return <Gift size={17} />
+  return <Receipt size={17} />
 }
 
 export default function TransactionHistory() {
@@ -41,53 +51,49 @@ export default function TransactionHistory() {
             <p>Nothing yet — deposits, withdrawals, and session results will show up here.</p>
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Balance after</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fullHistory.map((t) => {
-                const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus'
-                const isFeePayment = t.type === 'fee_payment'
-                const signedAmount = isCredit ? t.amount : -t.amount
-                return (
-                  <tr key={t.id}>
-                    <td>{formatDate(t.date)}</td>
-                    <td>
+          <div style={{ padding: 16 }}>
+            {fullHistory.map((t) => {
+              const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus' || t.type === 'signup_bonus'
+              const isFeePayment = t.type === 'fee_payment'
+              const signedAmount = isCredit ? t.amount : -t.amount
+              const accentClass = t.status !== 'approved'
+                ? 'entity-card-accent-pending'
+                : isFeePayment ? '' : (signedAmount >= 0 ? 'entity-card-accent-profit' : 'entity-card-accent-loss')
+              return (
+                <div key={t.id} className={'entity-card ' + accentClass}>
+                  <div className="icon-badge"><TypeIcon type={t.type} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">
                       {formatType(t.type)}
                       {t.type === 'fee' && (
                         <span style={{ fontSize: 11, marginLeft: 6, color: t.feeStatus === 'paid' ? 'var(--success)' : 'var(--danger)' }}>
                           ({t.feeStatus === 'paid' ? 'paid' : 'outstanding'})
                         </span>
                       )}
+                    </div>
+                    <div className="entity-card-meta">
+                      <span>{formatDate(t.date)}</span>
+                      <span>Balance after: {formatMoney(t.runningBalance)}</span>
                       {isFeePayment && t.spilloverAmount > 0 && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, {formatMoney(t.spilloverAmount)} spilled to your balance
-                        </div>
+                        <span>{formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, {formatMoney(t.spilloverAmount)} spilled to your balance</span>
                       )}
-                      {isFeePayment && t.spilloverAmount === 0 && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Applied to Fee Balance</div>
-                      )}
-                      {t.note === 'Excess from fee payment' && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Excess from fee payment</div>
-                      )}
-                    </td>
-                    <td className={t.status === 'approved' && !isFeePayment ? (signedAmount >= 0 ? 'pnl-up' : 'pnl-down') : undefined}>
+                      {isFeePayment && t.spilloverAmount === 0 && <span>Applied to Fee Balance</span>}
+                      {t.note === 'Excess from fee payment' && <span>Excess from fee payment</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flex: 'none' }}>
+                    <div
+                      className={t.status === 'approved' && !isFeePayment ? (signedAmount >= 0 ? 'pnl-up' : 'pnl-down') : undefined}
+                      style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16 }}
+                    >
                       {isFeePayment ? formatMoney(t.amount) : t.status === 'approved' ? (signedAmount >= 0 ? '+' : '') + formatMoney(signedAmount) : formatMoney(t.amount)}
-                    </td>
-                    <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
-                    <td>{formatMoney(t.runningBalance)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    </div>
+                    <span className={'status-pill status-' + t.status}>{t.status}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </Layout>

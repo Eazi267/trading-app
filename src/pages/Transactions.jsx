@@ -5,9 +5,11 @@ import { ArrowDownCircle, ArrowUpCircle, Inbox, Check, X, Clock, Hourglass } fro
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 import { useCountUp } from '../hooks/useCountUp.js'
 import { LARGE_ACCOUNT_THRESHOLD } from '../config/tiers.js'
 import { getPendingRequestsSummary, getDepositWithdrawTrend } from '../utils/adminAnalytics.js'
+import { resolveDisplayCurrency, formatCurrency, CURRENCIES } from '../config/currencies.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -36,7 +38,7 @@ function StatCard({ icon: Icon, label, value, formatter }) {
 }
 
 function AdminTransactionsView() {
-  const { transactions, approveTransaction, rejectTransaction } = useApp()
+  const { transactions, approveTransaction, rejectTransaction, isSessionUnlocked } = useApp()
   const pending = transactions.filter((t) => t.status === 'pending')
   const resolved = transactions.filter((t) => t.status !== 'pending').slice(0, 15)
   const summary = getPendingRequestsSummary(transactions)
@@ -96,29 +98,41 @@ function AdminTransactionsView() {
           <table>
             <thead><tr><th>Client</th><th>Type</th><th>Amount</th><th>Date</th><th>Action</th></tr></thead>
             <tbody>
-              {pending.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.userName}</td>
-                  <td>
-                    {formatType(t.type)}
-                    {t.type === 'fee_payment' && (
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {t.spilloverAmount > 0
-                          ? `${formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, ${formatMoney(t.spilloverAmount)} spills over`
-                          : 'Applied to Fee Balance'}
+              {pending.map((t) => {
+                const isLockedExcess = t.type === 'capped_profit_release' && !isSessionUnlocked(t.sessionId)
+                return (
+                  <tr key={t.id}>
+                    <td>{t.userName}</td>
+                    <td>
+                      {formatType(t.type)}
+                      {t.type === 'fee_payment' && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {t.spilloverAmount > 0
+                            ? `${formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, ${formatMoney(t.spilloverAmount)} spills over`
+                            : 'Applied to Fee Balance'}
+                        </div>
+                      )}
+                      {isLockedExcess && (
+                        <div style={{ fontSize: 11, color: 'var(--accent-bright)' }}>Needs a paid unlock fee before release</div>
+                      )}
+                    </td>
+                    <td>{formatMoney(t.amount)}</td>
+                    <td>{formatDate(t.date)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {isLockedExcess ? (
+                          <Link to={`/admin/users/${t.userId}`} className="tx-btn" style={{ padding: '5px 9px', fontSize: 11.5, textDecoration: 'none' }}>
+                            Add fee
+                          </Link>
+                        ) : (
+                          <button className="icon-btn" onClick={() => approveTransaction(t.id)} aria-label="Approve"><Check size={15} /></button>
+                        )}
+                        <button className="icon-btn" onClick={() => rejectTransaction(t.id)} aria-label="Reject"><X size={15} /></button>
                       </div>
-                    )}
-                  </td>
-                  <td>{formatMoney(t.amount)}</td>
-                  <td>{formatDate(t.date)}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button className="icon-btn" onClick={() => approveTransaction(t.id)} aria-label="Approve"><Check size={15} /></button>
-                      <button className="icon-btn" onClick={() => rejectTransaction(t.id)} aria-label="Reject"><X size={15} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -151,7 +165,11 @@ function AdminTransactionsView() {
 export default function Transactions() {
   const { transactions, addTransaction, accountBalance } = useApp()
   const { currentUser, flagForReview } = useAuth()
+  const { settings } = useSettings()
   const [amount, setAmount] = useState('')
+  const [formError, setFormError] = useState('')
+  const defaultCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
+  const [equivCurrency, setEquivCurrency] = useState(defaultCurrency.code)
 
   if (currentUser.role === 'admin') {
     return (
@@ -165,8 +183,14 @@ export default function Transactions() {
 
   function handleSubmit(type) {
     const value = parseFloat(amount)
-    if (!value || value <= 0) return
-    addTransaction(type, value)
+    if (!value || value <= 0) return setFormError('Enter an amount greater than zero.')
+    const min = type === 'deposit' ? settings.depositMin : settings.withdrawalMin
+    const max = type === 'deposit' ? settings.depositMax : settings.withdrawalMax
+    if (min && value < min) return setFormError(`Minimum ${type} is ${formatMoney(min)}.`)
+    if (max && value > max) return setFormError(`Maximum ${type} is ${formatMoney(max)}.`)
+    setFormError('')
+    const result = addTransaction(type, value)
+    if (result?.error) return setFormError(result.error)
     if (type === 'deposit' && value >= LARGE_ACCOUNT_THRESHOLD) {
       flagForReview(currentUser.id)
     }
@@ -196,14 +220,40 @@ export default function Transactions() {
           <input
             type="number"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => { setAmount(e.target.value); setFormError('') }}
             placeholder="0.00"
             style={{
               width: '100%', padding: '10px 12px', borderRadius: 8,
               border: '1px solid var(--border)', background: 'var(--bg)',
-              color: 'var(--text)', marginBottom: 14, fontSize: 14
+              color: 'var(--text)', marginBottom: 8, fontSize: 14
             }}
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {amount && parseFloat(amount) > 0 && equivCurrency !== 'USD'
+                ? `≈ ${formatCurrency(parseFloat(amount), equivCurrency)}`
+                : 'Show equivalent in'}
+            </span>
+            <select
+              value={equivCurrency}
+              onChange={(e) => setEquivCurrency(e.target.value)}
+              style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-muted)', fontSize: 11.5 }}
+            >
+              {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+            </select>
+            <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>(approximate, USD is the real balance)</span>
+          </div>
+          {formError && <div className="form-error" style={{ margin: '-8px 0 14px' }}>{formError}</div>}
+          {(settings.kycEnabled || currentUser.kycRequired) && currentUser.kyc?.status !== 'verified' && (
+            <p style={{ fontSize: 12, color: 'var(--accent-bright)', margin: '-8px 0 14px' }}>
+              Withdrawals require identity verification. <Link to="/kyc" style={{ color: 'inherit', textDecoration: 'underline' }}>Verify your identity</Link> first.
+            </p>
+          )}
+          {(settings.depositInstructions || settings.withdrawalInstructions) && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-8px 0 14px' }}>
+              {settings.depositInstructions}{settings.depositInstructions && settings.withdrawalInstructions ? ' ' : ''}{settings.withdrawalInstructions}
+            </p>
+          )}
           {parseFloat(amount) >= LARGE_ACCOUNT_THRESHOLD && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-8px 0 14px' }}>
               Deposits this size are set up personally — your account will be flagged for your account manager to reach out.

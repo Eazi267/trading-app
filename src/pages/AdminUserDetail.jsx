@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Trash2 } from 'lucide-react'
+import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import CollapsiblePanel, { useShowMore } from '../components/CollapsiblePanel.jsx'
 import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -42,12 +43,12 @@ export default function AdminUserDetail() {
   const navigate = useNavigate()
   const {
     prices, orders, transactions, sessions, getRecentRange, getBalanceBreakdown,
-    startSession, closeSession, sessionCurrentValue,
+    startSession, beginAwaitingSession, cancelAwaitingSession, closeSession, sessionCurrentValue, isSessionUnlocked,
     openSessionPosition, closeSessionPosition, setSessionLeverage, setSessionDuration, applyFee,
     applyDiscountToFee, getOutstandingFees, deleteTransaction,
     getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
-  const { users, setUserTier, setClientVip, currentUser } = useAuth()
+  const { users, setUserTier, setClientVip, currentUser, reviewKycSubmission, setKycRequired } = useAuth()
   const { notify, getNotificationsForUser } = useNotifications()
   const { settings } = useSettings()
 
@@ -67,6 +68,7 @@ export default function AdminUserDetail() {
   const [durationError, setDurationError] = useState('')
   const [feeAmount, setFeeAmount] = useState('')
   const [feeNote, setFeeNote] = useState('')
+  const [feeLinkedSessionId, setFeeLinkedSessionId] = useState('')
   const [feeError, setFeeError] = useState('')
   const [feeDiscountEnabled, setFeeDiscountEnabled] = useState(false)
   const [feeDiscountAmount, setFeeDiscountAmount] = useState('')
@@ -76,6 +78,7 @@ export default function AdminUserDetail() {
   const [existingDiscountHours, setExistingDiscountHours] = useState('')
   const [existingDiscountError, setExistingDiscountError] = useState('')
   const [deletingTxId, setDeletingTxId] = useState(null)
+  const [kycRejectReason, setKycRejectReason] = useState('')
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [messageTitle, setMessageTitle] = useState('')
@@ -87,6 +90,9 @@ export default function AdminUserDetail() {
   const userOrders = orders.filter((o) => o.userId === userId)
   const userTransactions = transactions.filter((t) => t.userId === userId)
   const userSessions = sessions.filter((s) => s.userId === userId)
+  const ordersShowMore = useShowMore(userOrders.length)
+  const transactionsShowMore = useShowMore(userTransactions.length)
+  const sessionsShowMore = useShowMore(userSessions.length)
   const activeSessions = userSessions.filter((s) => s.status === 'active')
 
   const selectedSession = activeSessions.find((s) => s.id === selectedSessionId) || activeSessions[0] || null
@@ -174,13 +180,14 @@ export default function AdminUserDetail() {
     const discount = feeDiscountEnabled
       ? { discountAmount: parseFloat(feeDiscountAmount), durationHours: parseFloat(feeDiscountHours) }
       : null
-    const result = applyFee(userId, amount, feeNote.trim(), discount)
+    const result = applyFee(userId, amount, feeNote.trim(), discount, feeLinkedSessionId ? Number(feeLinkedSessionId) : null)
     if (result.error) {
       setFeeError(result.error)
       return
     }
     setFeeAmount('')
     setFeeNote('')
+    setFeeLinkedSessionId('')
     setFeeDiscountEnabled(false)
     setFeeDiscountAmount('')
     setFeeDiscountHours('')
@@ -242,7 +249,7 @@ export default function AdminUserDetail() {
         <div className="panel-head"><h3>Client balance</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
           {(() => {
-            const { total, available, pending, pendingCappedProfit, outstandingFees } = getBalanceBreakdown(userId)
+            const { total, available, pending, sessionBalance, outstandingFees } = getBalanceBreakdown(userId)
             return (
               <>
                 <div className="stat-card">
@@ -257,10 +264,12 @@ export default function AdminUserDetail() {
                   <div className="stat-label">Committed to active sessions</div>
                   <div className="stat-value">{formatMoney(pending)}</div>
                 </div>
-                {pendingCappedProfit > 0 && (
+                {sessionBalance !== 0 && (
                   <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
-                    <div className="stat-label">Pending profit review</div>
-                    <div className="stat-value">{formatMoney(pendingCappedProfit)}</div>
+                    <div className="stat-label">Session balance (awaiting certification)</div>
+                    <div className={'stat-value ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
+                      {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
+                    </div>
                   </div>
                 )}
                 {outstandingFees > 0 && (
@@ -297,6 +306,36 @@ export default function AdminUserDetail() {
             Charge fee
           </button>
         </div>
+        {(() => {
+          const lockedCappedSessions = userSessions.filter((s) =>
+            s.status === 'closed' &&
+            transactions.some((t) => t.type === 'capped_profit_release' && t.sessionId === s.id && t.status === 'pending') &&
+            !isSessionUnlocked(s.id)
+          )
+          if (lockedCappedSessions.length === 0) return null
+          return (
+            <div style={{ padding: '0 20px 14px' }}>
+              <label style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Link to a capped session (optional — required to unlock its extra profit above the tier cap)
+                <select
+                  value={feeLinkedSessionId}
+                  onChange={(e) => setFeeLinkedSessionId(e.target.value)}
+                  style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                >
+                  <option value="">No link — general fee</option>
+                  {lockedCappedSessions.map((s) => {
+                    const excess = transactions.find((t) => t.type === 'capped_profit_release' && t.sessionId === s.id && t.status === 'pending')
+                    return (
+                      <option key={s.id} value={s.id}>
+                        Session from {formatDate(s.closedAt)} — {formatMoney(excess?.amount || 0)} locked above cap
+                      </option>
+                    )
+                  })}
+                </select>
+              </label>
+            </div>
+          )
+        })()}
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 20px 12px', fontSize: 13, cursor: 'pointer' }}>
           <input type="checkbox" checked={feeDiscountEnabled} onChange={(e) => setFeeDiscountEnabled(e.target.checked)} />
           Add a temporary discount
@@ -323,6 +362,84 @@ export default function AdminUserDetail() {
           Recorded immediately as an outstanding invoice in this client's Transaction History, but it does not deduct from their balance yet. It only debits once the client deposits that exact amount and you approve it — that's what actually settles the fee. A discount only lowers what's owed for the set number of hours; after that it reverts to the full amount automatically, no separate step needed.
         </p>
       </div>
+
+      {(settings.kycEnabled || targetUser?.kycRequired || targetUser?.kyc) && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head"><h3>Identity verification</h3></div>
+          <div style={{ padding: '16px 20px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+              <input
+                type="checkbox"
+                checked={!!targetUser?.kycRequired}
+                onChange={(e) => setKycRequired(userId, e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <strong style={{ fontSize: 13.5 }}>Require verification for this client</strong>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {settings.kycEnabled
+                    ? 'Verification is already required sitewide — this only matters if that gets turned off later.'
+                    : 'Verification is off sitewide, but this client specifically will still be required to verify before withdrawing.'}
+                </div>
+              </span>
+            </label>
+
+            {!targetUser?.kyc ? (
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>No document submitted yet.</p>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                  <span className={'status-pill status-' + (targetUser.kyc.status === 'verified' ? 'approved' : targetUser.kyc.status === 'rejected' ? 'rejected' : 'pending')}>
+                    {targetUser.kyc.status}
+                  </span>
+                  <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                    {targetUser.kyc.documentType === 'passport' ? 'Passport' : 'National ID'} · submitted {formatDate(targetUser.kyc.submittedAt)}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Front</div>
+                    <img src={targetUser.kyc.frontImageDataUrl} alt="Document front" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
+                  </div>
+                  {targetUser.kyc.backImageDataUrl && (
+                    <div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Back</div>
+                      <img src={targetUser.kyc.backImageDataUrl} alt="Document back" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
+                    </div>
+                  )}
+                </div>
+
+                {targetUser.kyc.status === 'pending' ? (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => reviewKycSubmission(userId, true)}>
+                      Approve
+                    </button>
+                    <input
+                      type="text"
+                      value={kycRejectReason}
+                      onChange={(e) => setKycRejectReason(e.target.value)}
+                      placeholder="Reason for rejection"
+                      style={{ flex: '1 1 180px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                    />
+                    <button
+                      className="tx-btn withdraw"
+                      style={{ padding: '8px 14px', fontSize: 13 }}
+                      onClick={() => { const r = reviewKycSubmission(userId, false, kycRejectReason); if (!r.error) setKycRejectReason('') }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                ) : targetUser.kyc.status === 'rejected' ? (
+                  <p style={{ fontSize: 12.5, color: 'var(--danger)', margin: 0 }}>Rejected — reason given: {targetUser.kyc.reviewNote}</p>
+                ) : (
+                  <p style={{ fontSize: 12.5, color: 'var(--success)', margin: 0 }}>Verified by {targetUser.kyc.reviewedByName} on {formatDate(targetUser.kyc.reviewedAt)}</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {getOutstandingFees(userId).length > 0 && (
         <div className="panel" style={{ marginBottom: 16 }}>
@@ -693,97 +810,108 @@ export default function AdminUserDetail() {
       </div>
 
       {/* ---------- Trade history (legacy buy/sell + new open/close position, same audit log) ---------- */}
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head"><h3>Trade history</h3></div>
+      <CollapsiblePanel title="Trade history" count={userOrders.length} style={{ marginTop: 16 }}>
         {userOrders.length === 0 ? (
           <div className="empty-state"><p>No trades yet.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Type</th><th>Symbol</th><th>Detail</th><th>Price</th><th>P&amp;L</th><th>Executed by</th><th>Date</th></tr></thead>
-            <tbody>
-              {userOrders.map((o) => (
-                <tr key={o.id}>
-                  <td style={{ textTransform: 'capitalize' }}>{o.type.replace('_', ' ')}</td>
-                  <td>{o.symbol}</td>
-                  <td>
-                    {o.units != null
-                      ? `${o.units.toFixed(4)} units`
-                      : `${formatMoney(o.marginAmount)} @ ${o.leverage}x`}
-                  </td>
-                  <td>{formatMoney(o.price)}</td>
-                  <td className={o.pnl != null ? (o.pnl >= 0 ? 'pnl-up' : 'pnl-down') : undefined}>
-                    {o.pnl != null ? (o.pnl >= 0 ? '+' : '') + formatMoney(o.pnl) : '—'}
-                  </td>
-                  <td>{o.executedByAdminName || '—'}</td>
-                  <td>{formatDate(o.date)}</td>
-                </tr>
+          <>
+            <div style={{ padding: 16 }}>
+              {userOrders.slice(0, ordersShowMore.limit).map((o) => (
+                <div key={o.id} className={'entity-card' + (o.pnl != null ? (o.pnl >= 0 ? ' entity-card-accent-profit' : ' entity-card-accent-loss') : '')}>
+                  <div className="icon-badge">{o.pnl != null ? (o.pnl >= 0 ? <TrendingUp size={17} /> : <TrendingDown size={17} />) : <Repeat size={17} />}</div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title" style={{ textTransform: 'capitalize' }}>{o.type.replace('_', ' ')} · {o.symbol}</div>
+                    <div className="entity-card-meta">
+                      <span>{o.units != null ? `${o.units.toFixed(4)} units` : `${formatMoney(o.marginAmount)} @ ${o.leverage}x`}</span>
+                      <span>@ {formatMoney(o.price)}</span>
+                      <span>{o.executedByAdminName ? `By ${o.executedByAdminName}` : 'By client'}</span>
+                      <span>{formatDate(o.date)}</span>
+                    </div>
+                  </div>
+                  {o.pnl != null && (
+                    <div className={o.pnl >= 0 ? 'pnl-up' : 'pnl-down'} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, flex: 'none' }}>
+                      {o.pnl >= 0 ? '+' : ''}{formatMoney(o.pnl)}
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+            {ordersShowMore.hasMore && (
+              <div style={{ padding: '0 20px 16px' }}>
+                <button className="tx-btn" style={{ padding: '7px 14px', fontSize: 12.5 }} onClick={ordersShowMore.showMore}>
+                  Show more ({userOrders.length - ordersShowMore.limit} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </CollapsiblePanel>
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head"><h3>Deposit / withdrawal history</h3></div>
+      <CollapsiblePanel title="Deposit / withdrawal history" count={userTransactions.length} style={{ marginTop: 16 }}>
         {deleteError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{deleteError}</div>}
         {userTransactions.length === 0 ? (
           <div className="empty-state"><p>No requests yet.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Type</th><th>Amount</th><th>Date</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {userTransactions.map((t) => (
-                <tr key={t.id}>
-                  <td style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')}</td>
-                  <td>{formatMoney(t.amount)}</td>
-                  <td>{formatDate(t.date)}</td>
-                  <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
-                  <td>
-                    {deletingTxId === t.id ? (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input
-                          type="text"
-                          value={deleteReason}
-                          onChange={(e) => setDeleteReason(e.target.value)}
-                          placeholder="Reason (required)"
-                          style={{ width: 160, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
-                        />
-                        <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleDeleteTransaction(t.id)}>
-                          Confirm delete
-                        </button>
-                        <button
-                          className="tx-btn"
-                          style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-                          onClick={() => { setDeletingTxId(null); setDeleteReason(''); setDeleteError('') }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        className="tx-btn"
-                        style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)', flex: 'none' }}
-                        onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
-                        aria-label="Delete transaction"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {userTransactions.slice(0, transactionsShowMore.limit).map((t) => (
+              <div key={t.id} className="entity-card">
+                <div className="icon-badge">{t.type === 'deposit' ? <ArrowDownToLine size={17} /> : <ArrowUpFromLine size={17} />}</div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title" style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')} · {formatMoney(t.amount)}</div>
+                  <div className="entity-card-meta">
+                    <span>{formatDate(t.date)}</span>
+                    <span className={'status-pill status-' + t.status}>{t.status}</span>
+                  </div>
+                </div>
+                {deletingTxId === t.id ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 'none' }}>
+                    <input
+                      type="text"
+                      value={deleteReason}
+                      onChange={(e) => setDeleteReason(e.target.value)}
+                      placeholder="Reason (required)"
+                      style={{ width: 150, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                    />
+                    <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleDeleteTransaction(t.id)}>
+                      Confirm
+                    </button>
+                    <button
+                      className="tx-btn"
+                      style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                      onClick={() => { setDeletingTxId(null); setDeleteReason(''); setDeleteError('') }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="tx-btn"
+                    style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)', flex: 'none' }}
+                    onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
+                    aria-label="Delete transaction"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {transactionsShowMore.hasMore && (
+          <div style={{ padding: '0 20px 16px' }}>
+            <button className="tx-btn" style={{ padding: '7px 14px', fontSize: 12.5 }} onClick={transactionsShowMore.showMore}>
+              Show more ({userTransactions.length - transactionsShowMore.limit} remaining)
+            </button>
+          </div>
         )}
         <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '12px 20px 16px' }}>
           Deleting is for fixing genuine data errors — like a leftover duplicate from a bug — not for changing
           real results. Every deletion requires a reason and is kept in a permanent audit log even after the
           record itself is gone.
         </p>
-      </div>
+      </CollapsiblePanel>
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head"><h3>Trading sessions</h3></div>
+      <CollapsiblePanel title="Trading sessions" count={userSessions.length} defaultOpen style={{ marginTop: 16 }}>
 
         {sessionError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{sessionError}</div>}
 
@@ -829,56 +957,80 @@ export default function AdminUserDetail() {
         {userSessions.length === 0 ? (
           <div className="empty-state"><p>No sessions yet.</p></div>
         ) : (
-          <table>
-            <thead>
-              <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th><th>Action</th></tr>
-            </thead>
-            <tbody>
-              {userSessions.map((s) => {
-                const tier = getTier(s.tierId)
-                const liveValue = s.status === 'active' ? sessionCurrentValue(s) : s.endValue
-                const livePnl = s.status === 'active' ? liveValue - s.amount : s.rawPnl
-                const wasCapped = s.status === 'closed' && s.payout < s.rawPnl
-                return (
-                  <tr key={s.id}>
-                    <td>{tier?.name || s.tierId}</td>
-                    <td>{formatMoney(s.amount)}</td>
-                    <td>{s.leverage}x</td>
-                    <td>{formatDate(s.startedAt)}</td>
-                    <td>
-                      <span className={'status-pill status-' + (s.status === 'active' ? 'pending' : 'approved')}>{s.status}</span>
-                      {s.status === 'active' && (
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{formatTimeLeft(s.expiresAt)}</span>
-                      )}
-                    </td>
-                    <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
-                      {s.status === 'active'
-                        ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
-                        : <>
-                            {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
-                            {wasCapped && (
-                              <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
-                                {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} pending review)
-                              </span>
-                            )}
-                            {s.closedReason === 'expired' && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (auto-expired)</span>}
-                          </>
-                      }
-                    </td>
-                    <td>
-                      {s.status === 'active' && (
-                        <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => closeSession(s.id)}>
-                          Close session
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <>
+            <table>
+              <thead>
+                <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th><th>Action</th></tr>
+              </thead>
+              <tbody>
+                {userSessions.slice(0, sessionsShowMore.limit).map((s) => {
+                  const tier = getTier(s.tierId)
+                  const isAwaiting = s.status === 'awaiting_start'
+                  const liveValue = s.status === 'active' ? sessionCurrentValue(s) : s.endValue
+                  const livePnl = s.status === 'active' ? liveValue - s.amount : s.rawPnl
+                  const wasCapped = s.status === 'closed' && s.payout < s.rawPnl
+                  return (
+                    <tr key={s.id}>
+                      <td>{tier?.name || s.tierId}</td>
+                      <td>{formatMoney(s.amount)}</td>
+                      <td>{isAwaiting ? '—' : `${s.leverage}x`}</td>
+                      <td>{isAwaiting ? `Committed ${formatDate(s.committedAt)}` : formatDate(s.startedAt)}</td>
+                      <td>
+                        <span className={'status-pill status-' + (s.status === 'active' || s.status === 'awaiting_start' ? 'pending' : s.status === 'cancelled' ? 'rejected' : 'approved')}>
+                          {isAwaiting ? 'awaiting start' : s.status}
+                        </span>
+                        {s.status === 'active' && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{formatTimeLeft(s.expiresAt)}</span>
+                        )}
+                      </td>
+                      <td className={isAwaiting ? undefined : (livePnl >= 0 ? 'pnl-up' : 'pnl-down')}>
+                        {isAwaiting
+                          ? <span style={{ color: 'var(--text-muted)' }}>{s.durationDays}-day session once started</span>
+                          : s.status === 'active'
+                          ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
+                          : <>
+                              {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
+                              {wasCapped && (
+                                <span style={{ color: isSessionUnlocked(s.id) ? 'var(--success)' : 'var(--text-muted)', fontSize: 11 }}>
+                                  {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} {isSessionUnlocked(s.id) ? 'unlocked, ready to certify' : 'locked until fee paid'})
+                                </span>
+                              )}
+                              {s.closedReason === 'expired' && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (auto-expired)</span>}
+                            </>
+                        }
+                      </td>
+                      <td>
+                        {s.status === 'active' && (
+                          <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => closeSession(s.id)}>
+                            Close session
+                          </button>
+                        )}
+                        {isAwaiting && (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="tx-btn deposit" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => beginAwaitingSession(s.id)}>
+                              Begin session
+                            </button>
+                            <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => cancelAwaitingSession(s.id)}>
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {sessionsShowMore.hasMore && (
+              <div style={{ padding: '14px 20px' }}>
+                <button className="tx-btn" style={{ padding: '7px 14px', fontSize: 12.5 }} onClick={sessionsShowMore.showMore}>
+                  Show more ({userSessions.length - sessionsShowMore.limit} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </CollapsiblePanel>
 
     </Layout>
   )

@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useAudit } from './AuditContext.jsx'
+import { useEmail } from './EmailContext.jsx'
+import { useSettings } from './SettingsContext.jsx'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
@@ -99,6 +101,8 @@ export function getFeeOwedAmount(fee) {
 export function AppProvider({ children }) {
   const { currentUser, users } = useAuth()
   const { logAudit } = useAudit()
+  const { sendEmail } = useEmail()
+  const { settings } = useSettings()
   const { notify } = useNotifications()
   const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
@@ -294,7 +298,7 @@ export function AppProvider({ children }) {
                 type: 'session_settlement',
                 amount: payout,
                 date: new Date().toISOString(),
-                status: 'approved',
+                status: 'pending',
                 sessionId: session.id,
                 closedReason: 'expired'
               },
@@ -316,7 +320,7 @@ export function AppProvider({ children }) {
               session.userId,
               payout >= 0 ? 'session_settled_profit' : 'session_settled_loss',
               payout >= 0 ? 'Session ended in profit' : 'Session ended in a loss',
-              `Your session timer ran out. Result: ${payout >= 0 ? '+' : ''}$${payout.toFixed(2)}.`,
+              `Your session timer ran out. Result: ${payout >= 0 ? '+' : ''}$${payout.toFixed(2)} — pending admin certification before it's added to your balance.`,
               { sessionId: session.id, payout }
             )
             if (excessPending > 0) {
@@ -482,6 +486,47 @@ export function AppProvider({ children }) {
   // which does add here like any other deposit. Net effect: paying a
   // fee exactly leaves the main balance unchanged; overpaying credits
   // the difference; nothing about a fee ever appears as a debit here.
+  // Grants a one-time signup bonus, as a real transaction, to every
+  // real (non-demo) client who doesn't have one yet — fires whenever
+  // the roster changes (i.e. right after a signup) or when an admin
+  // turns the toggle on, so it also catches anyone who signed up
+  // while it was off. Idempotent by construction: it checks for an
+  // existing signup_bonus transaction before creating one, so this
+  // can safely re-run on every render without ever double-granting.
+  // Deliberately NOT an editable balance field or an unlimited
+  // faucet — one grant per real client, admin-capped amount, exactly
+  // the same shape as the existing referral bonus.
+  useEffect(() => {
+    if (!settings.signupBonusEnabled || !settings.signupBonusAmount || settings.signupBonusAmount <= 0) return
+    const ungranted = users.filter(
+      (u) => u.role !== 'admin' && !u.isDemoGenerated &&
+        !transactions.some((t) => t.userId === u.id && t.type === 'signup_bonus')
+    )
+    if (ungranted.length === 0) return
+    setTransactions((prev) => [
+      ...ungranted.map((u) => ({
+        id: Date.now() + Math.random(),
+        userId: u.id,
+        userName: u.name,
+        type: 'signup_bonus',
+        amount: settings.signupBonusAmount,
+        note: 'Signup bonus',
+        date: new Date().toISOString(),
+        status: 'approved'
+      })),
+      ...prev
+    ])
+    ungranted.forEach((u) => {
+      logAudit({
+        action: 'signup_bonus_granted',
+        actor: null,
+        targetUserId: u.id,
+        targetUserName: u.name,
+        details: { amount: settings.signupBonusAmount }
+      })
+    })
+  }, [users, transactions, settings.signupBonusEnabled, settings.signupBonusAmount])
+
   function getAccountBalance(userId) {
     return transactions
       .filter((t) => t.userId === userId && t.status === 'approved')
@@ -491,25 +536,35 @@ export function AppProvider({ children }) {
         if (t.type === 'session_settlement') return sum + t.amount
         if (t.type === 'capped_profit_release') return sum + t.amount
         if (t.type === 'referral_bonus') return sum + t.amount
+        if (t.type === 'signup_bonus') return sum + t.amount
         return sum
       }, 0)
   }
 
-  // total = real balance. pending = capital currently locked in
-  // active sessions. available = total - pending, the only amount
-  // a client can withdraw or commit to a new session.
+  // total = real (certified) balance. pending = capital currently
+  // locked in active sessions. sessionBalance = money from CLOSED
+  // sessions/trades that's real and computed, but not yet certified
+  // by an admin — it sits outside `total` until certifyTransaction()
+  // moves it over, same mechanism for a profit or a loss. available
+  // is what a client can actually withdraw or commit to a new
+  // session — deliberately does NOT include sessionBalance, since
+  // that money isn't confirmed yet.
   function getBalanceBreakdown(userId) {
     const total = getAccountBalance(userId)
     const pending = sessions
-      .filter((s) => s.userId === userId && s.status === 'active')
+      .filter((s) => s.userId === userId && (s.status === 'active' || s.status === 'awaiting_start'))
       .reduce((sum, s) => sum + s.amount, 0)
+    const pendingSessionSettlements = transactions
+      .filter((t) => t.userId === userId && t.type === 'session_settlement' && t.status === 'pending')
+      .reduce((sum, t) => sum + t.amount, 0)
     const pendingCappedProfit = transactions
       .filter((t) => t.userId === userId && t.type === 'capped_profit_release' && t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0)
+    const sessionBalance = pendingSessionSettlements + pendingCappedProfit
     const outstandingFees = transactions
       .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
       .reduce((sum, t) => sum + getFeeOwedAmount(t), 0)
-    return { total, available: total - pending, pending, pendingCappedProfit, outstandingFees }
+    return { total, available: total - pending, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees }
   }
 
   // Starts a new trading session for a client at a given tier.
@@ -536,20 +591,29 @@ export function AppProvider({ children }) {
     // leverage — pick a preset within bounds, or fall back to the
     // tier's default if nothing was specified.
     const resolvedDuration = clampDuration(tierId, durationDays || tier.durationDays)
-    const startedAt = new Date()
-    const expiresAt = new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
+
+    // Managed mode only applies when the client is committing to
+    // their own session — an admin starting one on a client's behalf
+    // (from AdminUserDetail) always goes straight to active, since
+    // the admin IS the human sign-off this mode exists to require.
+    const isManaged = settings.investmentMode === 'managed' && currentUser?.id === targetUserId
+    const committedAt = new Date()
+    const startedAt = isManaged ? null : committedAt
+    const expiresAt = isManaged ? null : new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
 
     const session = {
       id: Date.now(),
       userId: targetUserId,
       tierId,
       amount,
+      durationDays: resolvedDuration,
       leverage: tier.defaultLeverage,
       cash: amount,
       positions: [],
-      startedAt: startedAt.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      status: 'active',
+      committedAt: committedAt.toISOString(),
+      startedAt: startedAt ? startedAt.toISOString() : null,
+      expiresAt: expiresAt ? expiresAt.toISOString() : null,
+      status: isManaged ? 'awaiting_start' : 'active',
       closedAt: null,
       closedReason: null,
       endValue: null,
@@ -559,7 +623,95 @@ export function AppProvider({ children }) {
       initiatedBySelf: currentUser?.id === targetUserId
     }
     setSessions((prev) => [session, ...prev])
+
+    if (isManaged) {
+      logAudit({
+        action: 'session_committed_awaiting_start',
+        actor: currentUser,
+        targetUserId,
+        targetUserName: currentUser?.name,
+        details: { tierId, amount }
+      })
+      notify(
+        targetUserId,
+        'session_awaiting_start',
+        'Investment committed — awaiting start',
+        `Your ${formatUsd(amount)} commitment to ${tier.name} is reserved and no longer available, but the session won't begin until your account manager starts it.`,
+        { tierId, amount }
+      )
+    }
+
     return { session }
+  }
+
+  // ADMIN-ONLY: begins a session that a client committed to under
+  // Managed investment mode — starts the timer now, for the
+  // duration the client originally chose. This is the "admin says
+  // so" step: funds were already moved out of the client's main
+  // balance the moment they committed, this just starts the clock.
+  // Cancels a commitment that's still awaiting admin start — the
+  // committed amount was never touched otherwise (managed mode
+  // doesn't create any transaction, it just marks the session's
+  // status), so canceling is simply flipping status to 'cancelled'.
+  // getBalanceBreakdown's `pending` calc only counts 'active' and
+  // 'awaiting_start' sessions, so a cancelled one immediately stops
+  // being held and the amount is available again — no refund
+  // transaction needed since nothing was ever debited in the first
+  // place, only reserved.
+  function cancelAwaitingSession(sessionId) {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session || session.status !== 'awaiting_start') return { error: 'Session is not awaiting start.' }
+
+    setSessions((prev) => prev.map((s) => (
+      s.id === sessionId ? { ...s, status: 'cancelled', closedAt: new Date().toISOString() } : s
+    )))
+
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_commitment_cancelled',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, amount: session.amount }
+    })
+    if (currentUser?.role === 'admin' && currentUser.id !== session.userId) {
+      notify(
+        session.userId,
+        'session_cancelled',
+        'Investment commitment cancelled',
+        `Your ${formatUsd(session.amount)} commitment was cancelled by your account manager and is available again.`,
+        { sessionId }
+      )
+    }
+    return { ok: true }
+  }
+
+  function beginAwaitingSession(sessionId) {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session || session.status !== 'awaiting_start') return { error: 'Session is not awaiting start.' }
+
+    const startedAt = new Date()
+    const expiresAt = new Date(startedAt.getTime() + session.durationDays * 24 * 60 * 60 * 1000)
+    setSessions((prev) => prev.map((s) => (
+      s.id === sessionId ? { ...s, status: 'active', startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString() } : s
+    )))
+
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_started_by_admin',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, amount: session.amount }
+    })
+    notify(
+      session.userId,
+      'session_started',
+      'Your investment has started',
+      `Your ${formatUsd(session.amount)} commitment is now active and running for ${session.durationDays} day${session.durationDays === 1 ? '' : 's'}.`,
+      { sessionId }
+    )
+    return { ok: true }
   }
 
   // A session's live value = its uncommitted cash, plus the current
@@ -798,7 +950,7 @@ export function AppProvider({ children }) {
         type: 'session_settlement',
         amount: payout,
         date: new Date().toISOString(),
-        status: 'approved',
+        status: 'pending',
         sessionId,
         closedReason: 'manual'
       },
@@ -820,7 +972,7 @@ export function AppProvider({ children }) {
       session.userId,
       payout >= 0 ? 'session_settled_profit' : 'session_settled_loss',
       payout >= 0 ? 'Session closed in profit' : 'Session closed at a loss',
-      `Result: ${payout >= 0 ? '+' : ''}${formatUsd(payout)}${payout < rawPnl ? ' (capped by tier)' : ''}.`,
+      `Result: ${payout >= 0 ? '+' : ''}${formatUsd(payout)}${payout < rawPnl ? ' (capped by tier)' : ''} — pending admin certification before it's added to your balance.`,
       { sessionId, payout, rawPnl }
     )
     if (excessPending > 0) {
@@ -1003,7 +1155,16 @@ export function AppProvider({ children }) {
     setOrders((prev) => prev.filter((o) => !idSet.has(o.userId)))
   }
 
+  // Client-initiated only — always targets currentUser, never called
+  // on someone else's behalf (admin actions use their own dedicated
+  // functions like applyFee). That makes this the one correct place
+  // to gate a withdrawal on KYC status: nothing admin-initiated ever
+  // passes through here, so this can never accidentally block a
+  // legitimate admin action.
   function addTransaction(type, amount) {
+    if (type === 'withdrawal' && (settings.kycEnabled || currentUser?.kycRequired) && currentUser?.kyc?.status !== 'verified') {
+      return { error: 'Identity verification is required before you can withdraw. Submit your document on the Verification page.' }
+    }
     setTransactions((prev) => [
       {
         id: Date.now(),
@@ -1016,6 +1177,7 @@ export function AppProvider({ children }) {
       },
       ...prev
     ])
+    return { ok: true }
   }
 
   // ADMIN-ONLY: charges a client a fee, immediately — this is
@@ -1028,7 +1190,12 @@ export function AppProvider({ children }) {
   // "invoice until paid" rule changes: the fee still doesn't touch
   // the balance until paid, this only affects what "paid in full"
   // means while the discount window is open.
-  function applyFee(targetUserId, amount, note, discount) {
+  // linkedSessionId ties this fee to a specific capped session's
+  // pending excess profit — once a fee linked this way is fully
+  // paid, that session's capped_profit_release becomes approvable
+  // for the FULL amount, not just the tier-capped portion. See
+  // isSessionUnlocked() and approveTransaction()'s guard below.
+  function applyFee(targetUserId, amount, note, discount, linkedSessionId = null) {
     if (!amount || amount <= 0) return { error: 'Enter a fee amount above zero.' }
     if (discount?.discountAmount > 0) {
       if (discount.discountAmount >= amount) return { error: 'Discount must be less than the fee amount.' }
@@ -1058,6 +1225,7 @@ export function AppProvider({ children }) {
         amountPaid: 0,
         discountAmount: hasDiscount ? discount.discountAmount : null,
         discountExpiresAt,
+        linkedSessionId: linkedSessionId || null,
         executedByAdminName: currentUser?.name
       },
       ...prev
@@ -1068,7 +1236,7 @@ export function AppProvider({ children }) {
       actor: currentUser,
       targetUserId,
       targetUserName: owner?.name ?? null,
-      details: { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt }
+      details: { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt, linkedSessionId: linkedSessionId || null }
     })
     notify(
       targetUserId,
@@ -1076,10 +1244,21 @@ export function AppProvider({ children }) {
       'Fee charged',
       hasDiscount
         ? `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} A discount brings it to ${formatUsd(owed)} if paid within ${discount.durationHours} hours — after that it returns to the full amount.`
+        : linkedSessionId
+        ? `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} Paying it in full unlocks the extra profit above your tier cap on that session.`
         : `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} It won't affect your balance until paid — deposit that exact amount to clear it.`,
       { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt }
     )
     return { ok: true }
+  }
+
+  // Whether a capped session's excess profit is clear to release —
+  // true when at least one fee tied to this session (via
+  // linkedSessionId) has been fully paid. A session with no linked
+  // fee at all is simply never unlockable this way; the tier-capped
+  // amount can still be certified normally, just not the excess.
+  function isSessionUnlocked(sessionId) {
+    return transactions.some((t) => t.type === 'fee' && t.linkedSessionId === sessionId && t.feeStatus === 'paid')
   }
 
   // ADMIN-ONLY: adds a time-limited discount to a fee that's already
@@ -1291,6 +1470,10 @@ export function AppProvider({ children }) {
   function approveTransaction(id) {
     const tx = transactions.find((t) => t.id === id)
 
+    if (tx?.type === 'capped_profit_release' && !isSessionUnlocked(tx.sessionId)) {
+      return { error: 'This client must pay a linked unlock fee before the extra profit above their tier cap can be released. Apply one from their account page.' }
+    }
+
     if (tx?.type === 'fee_payment') {
       // Apply each locked-in allocation to its fee's cumulative
       // amountPaid; a fee whose owed amount reaches zero flips to
@@ -1397,6 +1580,14 @@ export function AppProvider({ children }) {
           `The extra ${formatUsd(tx.amount)} held above your tier cap was approved and added to your balance.`,
           { transactionId: id, amount: tx.amount }
         )
+      } else if (tx.type === 'session_settlement') {
+        notify(
+          tx.userId,
+          'session_settlement_certified',
+          tx.amount >= 0 ? 'Session profit certified' : 'Session loss certified',
+          `Your session result of ${tx.amount >= 0 ? '+' : ''}${formatUsd(tx.amount)} was certified and moved to your main balance.`,
+          { transactionId: id, amount: tx.amount, sessionId: tx.sessionId }
+        )
       } else {
         notify(
           tx.userId,
@@ -1405,6 +1596,15 @@ export function AppProvider({ children }) {
           `Your ${tx.type} of ${formatUsd(tx.amount)} was approved.`,
           { transactionId: id, amount: tx.amount }
         )
+        if (tx.type === 'deposit' || tx.type === 'withdrawal') {
+          const owner = users.find((u) => u.id === tx.userId)
+          sendEmail({
+            to: owner?.email,
+            subject: tx.type === 'deposit' ? 'Your deposit was approved' : 'Your withdrawal was approved',
+            body: `Hi ${owner?.name || ''},\n\nYour ${tx.type} of ${formatUsd(tx.amount)} has been approved and reflected in your account.\n\nThanks.`,
+            category: tx.type
+          }, settings.emailSendingEnabled)
+        }
       }
     }
   }
@@ -1422,6 +1622,14 @@ export function AppProvider({ children }) {
           'Pending profit not released',
           `The extra ${formatUsd(tx.amount)} held above your tier cap was not approved for release.`,
           { transactionId: id, amount: tx.amount }
+        )
+      } else if (tx.type === 'session_settlement') {
+        notify(
+          tx.userId,
+          'balance_update',
+          'Session result not certified',
+          `Your session result of ${tx.amount >= 0 ? '+' : ''}${formatUsd(tx.amount)} was not certified and wasn't added to your balance. Contact support if this is unexpected.`,
+          { transactionId: id, amount: tx.amount, sessionId: tx.sessionId }
         )
       } else if (tx.type === 'fee_payment') {
         notify(
@@ -1462,6 +1670,7 @@ export function AppProvider({ children }) {
     transactions,
     addTransaction,
     applyFee,
+    isSessionUnlocked,
     applyDiscountToFee,
     payFeeBalance,
     deleteTransaction,
@@ -1479,6 +1688,8 @@ export function AppProvider({ children }) {
     getBalanceBreakdown,
     sessions,
     startSession,
+    beginAwaitingSession,
+    cancelAwaitingSession,
     closeSession,
     openSessionPosition,
     closeSessionPosition,

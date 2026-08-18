@@ -89,18 +89,22 @@ export default function Referral() {
         {referrals.length === 0 ? (
           <div className="empty-state"><p>No one has signed up with your code yet.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Joined</th></tr></thead>
-            <tbody>
-              {referrals.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name}</td>
-                  <td>{r.email}</td>
-                  <td>{formatDate(r.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {referrals.map((r) => (
+              <div key={r.id} className="entity-card">
+                <div className="icon-badge" style={{ fontSize: 12, fontWeight: 700 }}>
+                  {(r.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{r.name}</div>
+                  <div className="entity-card-meta">
+                    <span>{r.email}</span>
+                    <span>Joined {formatDate(r.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
       <div className="panel" style={{ marginTop: 16 }}>
@@ -110,19 +114,23 @@ export default function Referral() {
         {earnedBonuses.length === 0 ? (
           <div className="empty-state"><p>No referral bonuses yet — they're credited automatically once someone you refer makes their first deposit during a live campaign.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Campaign</th><th>Referred client</th><th>Amount</th><th>Date</th></tr></thead>
-            <tbody>
-              {earnedBonuses.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.campaignName}</td>
-                  <td>{b.referredUserName}</td>
-                  <td className="pnl-up">+{formatMoney(b.amount)}</td>
-                  <td>{formatDate(b.date)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {earnedBonuses.map((b) => (
+              <div key={b.id} className="entity-card entity-card-accent-profit">
+                <div className="icon-badge"><Gift size={17} /></div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{b.campaignName}</div>
+                  <div className="entity-card-meta">
+                    <span>Referred {b.referredUserName}</span>
+                    <span>{formatDate(b.date)}</span>
+                  </div>
+                </div>
+                <div className="pnl-up" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, flex: 'none' }}>
+                  +{formatMoney(b.amount)}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </Layout>

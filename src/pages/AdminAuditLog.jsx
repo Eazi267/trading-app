@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ClipboardList } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAudit } from '../context/AuditContext.jsx'
 
@@ -52,6 +53,23 @@ function DetailChips({ details }) {
   )
 }
 
+const ACTION_ICONS = {
+  transaction_deleted: Trash2,
+  profile_updated: UserCog,
+  fee_charged: Receipt,
+  fee_discount_applied: Percent,
+  tier_changed: Star,
+  vip_unlocked: Star,
+  vip_revoked: Star,
+  flagged_for_review: Flag,
+  demo_clients_generated: Users2,
+  demo_clients_removed: Users2
+}
+function iconFor(action) {
+  if (action.startsWith('referral_campaign')) return Gift
+  return ACTION_ICONS[action] || ClipboardList
+}
+
 export default function AdminAuditLog() {
   const { auditLog } = useAudit()
   const [actionFilter, setActionFilter] = useState('all')
@@ -88,13 +106,16 @@ export default function AdminAuditLog() {
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div style={{ padding: '14px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            type="text"
-            placeholder="Search by admin, client, or action…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: '1 1 220px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          />
+          <div style={{ position: 'relative', flex: '1 1 220px' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search by admin, client, or action…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+            />
+          </div>
           <select
             value={actionFilter}
             onChange={(e) => setActionFilter(e.target.value)}
@@ -117,22 +138,27 @@ export default function AdminAuditLog() {
             No audit entries match this filter.
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr><th>When</th><th>Action</th><th>By</th><th>Client</th><th>Details</th></tr>
-            </thead>
-            <tbody>
-              {filtered.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 12.5 }}>{formatDate(e.timestamp)}</td>
-                  <td>{formatAction(e.action)}</td>
-                  <td>{e.actorName}</td>
-                  <td>{e.targetUserName || '—'}</td>
-                  <td><DetailChips details={e.details} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }}>
+            {filtered.map((e) => {
+              const Icon = iconFor(e.action)
+              return (
+                <div key={e.id} className="entity-card">
+                  <div className="icon-badge"><Icon size={17} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">{formatAction(e.action)}</div>
+                    <div className="entity-card-meta">
+                      <span>{formatDate(e.timestamp)}</span>
+                      <span>By {e.actorName}</span>
+                      {e.targetUserName && (
+                        <span>Client: <Link to={`/admin/users/${e.targetUserId}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{e.targetUserName}</Link></span>
+                      )}
+                    </div>
+                    <DetailChips details={e.details} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </Layout>

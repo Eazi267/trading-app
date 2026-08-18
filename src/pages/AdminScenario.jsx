@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { FastForward, Activity } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -72,7 +74,7 @@ function ToggleGroup({ options, value, onChange, getLabel = (o) => o.label, getV
 export default function AdminScenario() {
   const {
     sessions, sessionScenarios, applySessionScenario, resetSessionScenario,
-    fastForwardSession, fastForwardAllSessions, sessionCurrentValue, getEffectivePricesForSession
+    fastForwardSession, fastForwardAllSessions, sessionCurrentValue
   } = useApp()
   const { users } = useAuth()
 
@@ -84,6 +86,7 @@ export default function AdminScenario() {
   const [draft, setDraft] = useState({ mode: 'neutral', strength: 1, volatility: 1, speed: 1 })
   const [fastForwardHours, setFastForwardHours] = useState({})
   const [bulkHours, setBulkHours] = useState('')
+  const [showBulkInput, setShowBulkInput] = useState(false)
 
   function updateDraft(overrides) {
     setDraft((prev) => ({ ...prev, ...overrides }))
@@ -116,6 +119,7 @@ export default function AdminScenario() {
     if (!hours || hours <= 0) return
     fastForwardAllSessions(hours)
     setBulkHours('')
+    setShowBulkInput(false)
   }
 
   return (
@@ -249,24 +253,52 @@ export default function AdminScenario() {
         </>
       )}
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head"><h3>All active sessions — at a glance</h3></div>
+      {/* Merged: previously two separate tables ("at a glance" +
+          "fast-forward") duplicating the same client/tier columns.
+          One card list now covers both — status at a glance AND the
+          fast-forward control live on the same row. */}
+      <div className="panel">
+        <div className="panel-head">
+          <h3>All active sessions ({activeSessions.length})</h3>
+          {activeSessions.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {showBulkInput && (
+                <input
+                  type="number"
+                  value={bulkHours}
+                  onChange={(e) => setBulkHours(e.target.value)}
+                  placeholder="Hours"
+                  autoFocus
+                  style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                />
+              )}
+              <button
+                className="tx-btn withdraw"
+                style={{ padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => (showBulkInput ? handleBulkFastForward() : setShowBulkInput(true))}
+              >
+                <FastForward size={13} /> {showBulkInput ? 'Confirm' : 'Fast-forward all'}
+              </button>
+            </div>
+          )}
+        </div>
         {activeSessions.length === 0 ? (
           <div className="empty-state"><p>No active sessions right now.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Tier</th><th>Amount</th><th>Status</th></tr></thead>
-            <tbody>
-              {activeSessions.map((s) => {
-                const owner = users.find((u) => u.id === s.userId)
-                const tier = getTier(s.tierId)
-                const scenario = sessionScenarios[s.id]
-                return (
-                  <tr key={s.id}>
-                    <td>{owner?.name || `User #${s.userId}`}</td>
-                    <td>{tier?.name || s.tierId}</td>
-                    <td>{formatMoney(s.amount)}</td>
-                    <td>
+          <div style={{ padding: 16 }}>
+            {activeSessions.map((s) => {
+              const owner = users.find((u) => u.id === s.userId)
+              const tier = getTier(s.tierId)
+              const scenario = sessionScenarios[s.id]
+              return (
+                <div key={s.id} className={'entity-card' + (s.id === selectedSession?.id ? ' entity-card-accent-pending' : '')}>
+                  <div className="icon-badge"><Activity size={17} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">
+                      <Link to={`/admin/users/${s.userId}`} style={{ color: 'inherit', fontWeight: 600 }}>{owner?.name || `User #${s.userId}`}</Link> · {tier?.name || s.tierId} · {formatMoney(s.amount)}
+                    </div>
+                    <div className="entity-card-meta">
+                      <span>{formatTimeLeft(s.expiresAt)}</span>
                       {!scenario ? (
                         <span className="status-pill status-approved">Normal</span>
                       ) : scenario.reset ? (
@@ -274,66 +306,29 @@ export default function AdminScenario() {
                       ) : (
                         <span className="status-pill status-pending">{scenario.mode}, {scenario.strength}/3</span>
                       )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head"><h3>Fast-forward all active sessions</h3></div>
-        <div style={{ padding: '16px 20px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="number"
-            value={bulkHours}
-            onChange={(e) => setBulkHours(e.target.value)}
-            placeholder="Hours"
-            style={{ width: 100, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          />
-          <button className="tx-btn withdraw" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleBulkFastForward}>
-            Apply to all {activeSessions.length} active session{activeSessions.length === 1 ? '' : 's'}
-          </button>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head"><h3>Fast-forward one session</h3></div>
-        {activeSessions.length === 0 ? (
-          <div className="empty-state"><p>No active sessions to fast-forward right now.</p></div>
-        ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Tier</th><th>Time left</th><th>Fast-forward by</th></tr></thead>
-            <tbody>
-              {activeSessions.map((s) => {
-                const owner = users.find((u) => u.id === s.userId)
-                const tier = getTier(s.tierId)
-                return (
-                  <tr key={s.id}>
-                    <td>{owner?.name || `User #${s.userId}`}</td>
-                    <td>{tier?.name || s.tierId}</td>
-                    <td>{formatTimeLeft(s.expiresAt)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <input
-                          type="number"
-                          value={fastForwardHours[s.id] || ''}
-                          onChange={(e) => setFastForwardHours((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                          placeholder="Hours"
-                          style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
-                        />
-                        <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleFastForward(s.id)}>
-                          Apply
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+                    {selectedSession?.id !== s.id && (
+                      <button className="tx-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setSelectedSessionId(s.id)}>
+                        Control
+                      </button>
+                    )}
+                    <input
+                      type="number"
+                      value={fastForwardHours[s.id] || ''}
+                      onChange={(e) => setFastForwardHours((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                      placeholder="Hrs"
+                      style={{ width: 56, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
+                    />
+                    <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleFastForward(s.id)}>
+                      FF
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </Layout>
