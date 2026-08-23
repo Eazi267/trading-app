@@ -68,9 +68,40 @@ const DEFAULT_SETTINGS = {
   depositMin: 10,
   depositMax: 100000,
   depositInstructions: '',
+
+  // Which payment method a client can indicate they used — metadata
+  // only, for the admin's own reconciliation. Deliberately does NOT
+  // pair with any displayed wallet address or bank account on the
+  // platform: real payment coordination happens through the
+  // account manager's own channels, off-platform. Showing a
+  // company-controlled receiving address here would recreate the
+  // exact "send funds to this address, we'll manually credit you"
+  // mechanic this project has avoided from day one — a deposit is
+  // approved the same way regardless of method, based on the
+  // admin's own verification outside this app, not on anything this
+  // app can confirm.
+  depositMethods: { usdt: true, btc: true, bank: true },
   withdrawalMin: 10,
   withdrawalMax: 100000,
   withdrawalInstructions: '',
+
+  // Which withdrawal methods a client can choose from. Bank requires
+  // enhanced verification (see user.kycEnhanced) regardless of this
+  // toggle — turning bank on here just makes it a choice; the
+  // enhanced-KYC check still gates any individual client from
+  // actually using it. Crypto methods don't move real crypto (no
+  // broker/exchange integration exists) — a client just provides
+  // their destination address, and the admin fulfills manually off
+  // platform, same as every other withdrawal.
+  withdrawalMethods: { usdt: true, btc: true, bank: false },
+
+  // Automatic blockchain verification — OFF by default, and turning
+  // it on doesn't make deposits actually verify yet (see
+  // src/services/blockchainVerification.js for why). This just
+  // records the intent + provider details so the switch is real
+  // infrastructure the moment a backend exists, not a UI mockup.
+  blockchainVerificationEnabled: false,
+  blockchainProviderName: '',
 
   // Email sending — OFF by default. This is a genuine kill switch,
   // not a provider selector: some buyers already run a separate

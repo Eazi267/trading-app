@@ -16,15 +16,18 @@ function readAsDataUrl(file) {
 }
 
 export default function KycVerification() {
-  const { currentUser, submitKycDocument } = useAuth()
+  const { currentUser, submitKycDocument, submitEnhancedKyc } = useAuth()
   const { settings } = useSettings()
   const acceptedTypes = settings.kycAcceptedDocumentTypes.length ? settings.kycAcceptedDocumentTypes : ['passport', 'id']
   const [documentType, setDocumentType] = useState(acceptedTypes[0])
   const [frontImage, setFrontImage] = useState(null)
   const [backImage, setBackImage] = useState(null)
   const [error, setError] = useState('')
+  const [enhancedImage, setEnhancedImage] = useState(null)
+  const [enhancedError, setEnhancedError] = useState('')
 
   const kyc = currentUser.kyc
+  const kycEnhanced = currentUser.kycEnhanced
   // Passports don't have a meaningful "back" — that's true regardless
   // of the admin's kycRequireBackSide setting, which only ever
   // applies to two-sided documents like a national ID.
@@ -40,7 +43,16 @@ export default function KycVerification() {
     setBackImage(null)
   }
 
-  if (!settings.kycEnabled && !currentUser.kycRequired) {
+  async function handleSubmitEnhanced() {
+    setEnhancedError('')
+    if (!enhancedImage) return setEnhancedError('Upload a proof of address document.')
+    const result = submitEnhancedKyc({ frontImageDataUrl: enhancedImage })
+    if (result.error) return setEnhancedError(result.error)
+    setEnhancedImage(null)
+  }
+
+  const bankAvailable = settings.withdrawalMethods?.bank
+  if (!settings.kycEnabled && !currentUser.kycRequired && !bankAvailable) {
     return (
       <Layout pageTitle="Verification">
         <h1 className="page-title">Verification</h1>
@@ -119,6 +131,56 @@ export default function KycVerification() {
             <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }} onClick={handleSubmit}>
               <Upload size={14} /> Submit for review
             </button>
+          </div>
+        </div>
+      )}
+
+      {bankAvailable && kyc?.status === 'verified' && (
+        <div className="panel" style={{ maxWidth: 520, marginTop: 16 }}>
+          <div className="panel-head"><h3><ShieldCheck size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Enhanced verification</h3></div>
+          <div style={{ padding: '16px 20px' }}>
+            <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 0 }}>
+              Required only if you want to withdraw to a bank account. Upload a proof of address — a recent
+              utility bill or bank statement showing your name and address.
+            </p>
+
+            {kycEnhanced ? (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: kycEnhanced.status === 'rejected' ? 16 : 0 }}>
+                <div className="icon-badge" style={
+                  kycEnhanced.status === 'verified' ? { background: 'var(--success-bg)', color: 'var(--success)' }
+                  : kycEnhanced.status === 'rejected' ? { background: 'var(--danger-bg)', color: 'var(--danger)' }
+                  : {}
+                }>
+                  {kycEnhanced.status === 'verified' ? <CheckCircle2 size={18} /> : kycEnhanced.status === 'rejected' ? <XCircle size={18} /> : <Clock3 size={18} />}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14.5, textTransform: 'capitalize' }}>{kycEnhanced.status}</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                    Submitted {new Date(kycEnhanced.submittedAt).toLocaleDateString()}
+                  </div>
+                  {kycEnhanced.status === 'rejected' && kycEnhanced.reviewNote && (
+                    <div style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 6 }}>Reason: {kycEnhanced.reviewNote}</div>
+                  )}
+                  {kycEnhanced.status === 'verified' && (
+                    <div style={{ fontSize: 12.5, color: 'var(--success)', marginTop: 6 }}>Verified by {kycEnhanced.reviewedByName}</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {(!kycEnhanced || kycEnhanced.status === 'rejected') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: kycEnhanced ? 0 : 4 }}>
+                <label style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                  Proof of address
+                  <input type="file" accept="image/*" onChange={async (e) => setEnhancedImage(e.target.files[0] ? await readAsDataUrl(e.target.files[0]) : null)} style={{ display: 'block', marginTop: 4, fontSize: 12.5 }} />
+                </label>
+                {enhancedImage && <img src={enhancedImage} alt="Proof of address preview" style={{ maxWidth: 220, borderRadius: 8, border: '1px solid var(--border)' }} />}
+                {enhancedError && <div className="form-error">{enhancedError}</div>}
+                <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }} onClick={handleSubmitEnhanced}>
+                  <Upload size={14} /> Submit for review
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

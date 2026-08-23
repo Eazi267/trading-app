@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext.jsx'
 import { useAudit } from './AuditContext.jsx'
 import { useEmail } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
+import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
@@ -1161,9 +1162,46 @@ export function AppProvider({ children }) {
   // to gate a withdrawal on KYC status: nothing admin-initiated ever
   // passes through here, so this can never accidentally block a
   // legitimate admin action.
-  function addTransaction(type, amount) {
+  function addTransaction(type, amount, details = {}) {
     if (type === 'withdrawal' && (settings.kycEnabled || currentUser?.kycRequired) && currentUser?.kyc?.status !== 'verified') {
       return { error: 'Identity verification is required before you can withdraw. Submit your document on the Verification page.' }
+    }
+    // A fee locks withdrawals until it's cleared — deliberately
+    // checked against getOutstandingFees (owed > 0), not a boolean
+    // flag, so a partial Fee Balance payment doesn't quietly unlock
+    // things early: it stays locked until the full amount is paid.
+    if (type === 'withdrawal' && getOutstandingFees(currentUser?.id).length > 0) {
+      return { error: 'You have an outstanding fee. Clear it from your Fee Balance before withdrawing.' }
+    }
+    if (type === 'withdrawal') {
+      const { withdrawalMethod, destinationAddress } = details
+      if (!withdrawalMethod || !settings.withdrawalMethods[withdrawalMethod]) {
+        return { error: 'Choose a withdrawal method.' }
+      }
+      if (withdrawalMethod === 'bank' && currentUser?.kycEnhanced?.status !== 'verified') {
+        return { error: 'Bank withdrawal requires enhanced verification. Submit it on the Verification page.' }
+      }
+      if ((withdrawalMethod === 'usdt' || withdrawalMethod === 'btc') && !destinationAddress?.trim()) {
+        return { error: 'Enter the wallet address to send funds to.' }
+      }
+    }
+    if (type === 'deposit') {
+      const { depositMethod } = details
+      if (!depositMethod || !settings.depositMethods[depositMethod]) {
+        return { error: 'Choose a deposit method.' }
+      }
+    }
+    // Crypto deposits get an honest verification status attached —
+    // 'manual' when the toggle is off (current default: every
+    // deposit is reviewed by a person, same as today), or whatever
+    // requestDepositVerification() actually returns when it's on.
+    // Right now that's always 'unavailable' — see that file for why
+    // — so this never claims a check happened that didn't.
+    let verification = null
+    if (type === 'deposit' && details.depositMethod !== 'bank') {
+      verification = settings.blockchainVerificationEnabled
+        ? requestDepositVerification({ method: details.depositMethod, chain: details.depositChain, amount })
+        : { status: 'manual', reason: null }
     }
     setTransactions((prev) => [
       {
@@ -1173,7 +1211,19 @@ export function AppProvider({ children }) {
         type,
         amount,
         date: new Date().toISOString(),
-        status: 'pending'
+        status: 'pending',
+        ...(type === 'withdrawal' ? {
+          withdrawalMethod: details.withdrawalMethod,
+          withdrawalChain: details.withdrawalChain || null,
+          destinationAddress: details.destinationAddress?.trim() || null
+        } : {}),
+        ...(type === 'deposit' ? {
+          depositMethod: details.depositMethod,
+          depositChain: details.depositChain || null,
+          depositReference: details.depositReference?.trim() || null,
+          verificationStatus: verification?.status || null,
+          verificationNote: verification?.reason || null
+        } : {})
       },
       ...prev
     ])

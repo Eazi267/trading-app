@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList, ShieldCheck, Mail } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList, ShieldCheck, Mail, TrendingUp } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 
@@ -60,6 +60,7 @@ function adminSections(settings) {
       label: 'Clients',
       links: [
         { to: '/admin/users', label: 'Clients', icon: Users },
+        { to: '/admin/trading', label: 'Trading Console', icon: TrendingUp },
         ...(settings.demoModeEnabled ? [{ to: '/admin/generate-clients', label: 'Generate Demo Clients', icon: Sparkles }] : []),
         { to: '/admin/broadcast', label: 'Broadcast Message', icon: Megaphone },
         { to: '/admin/scenario', label: 'Scenario Control', icon: Sliders },

@@ -393,6 +393,66 @@ export function AuthProvider({ children }) {
     return { ok: true }
   }
 
+  // Enhanced tier — a second, higher-bar verification step gating
+  // bank withdrawal specifically (see settings.withdrawalMethods).
+  // Deliberately requires basic KYC to already be verified: enhanced
+  // verification is meant to add proof of address on top of a
+  // confirmed identity, not substitute for one.
+  function submitEnhancedKyc({ frontImageDataUrl }) {
+    const userId = currentUser.id
+    if (currentUser.kyc?.status !== 'verified') {
+      return { error: 'Complete basic identity verification first.' }
+    }
+    const kycEnhanced = {
+      documentType: 'proof_of_address',
+      frontImageDataUrl,
+      backImageDataUrl: null,
+      status: 'pending',
+      submittedAt: new Date().toISOString(),
+      reviewedAt: null,
+      reviewedByName: null,
+      reviewNote: null
+    }
+    updateProfile({ kycEnhanced })
+    logAudit({
+      action: 'kyc_enhanced_submitted',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: currentUser.name,
+      details: {}
+    })
+    return { ok: true }
+  }
+
+  // ADMIN-ONLY: approves or rejects a client's enhanced verification.
+  function reviewEnhancedKyc(userId, approved, note) {
+    const target = users.find((u) => u.id === userId)
+    if (!target?.kycEnhanced) return { error: 'No enhanced verification submission found for this client.' }
+    if (!approved && !note?.trim()) return { error: 'Enter a reason for rejecting this document.' }
+
+    const next = {
+      ...target.kycEnhanced,
+      status: approved ? 'verified' : 'rejected',
+      reviewedAt: new Date().toISOString(),
+      reviewedByName: currentUser?.name,
+      reviewNote: approved ? null : note.trim()
+    }
+    persistUsers(users.map((u) => (u.id === userId ? { ...u, kycEnhanced: next } : u)))
+    if (currentUser?.id === userId) {
+      const nextUser = { ...currentUser, kycEnhanced: next }
+      setCurrentUser(nextUser)
+      localStorage.setItem('pulse_current_user', JSON.stringify(nextUser))
+    }
+    logAudit({
+      action: approved ? 'kyc_enhanced_approved' : 'kyc_enhanced_rejected',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target.name,
+      details: approved ? {} : { reason: note.trim() }
+    })
+    return { ok: true }
+  }
+
   // ADMIN-ONLY: flags a single client as requiring KYC verification
   // even when the sitewide toggle is off. Independent switch — a
   // client can be individually required regardless of the global
@@ -416,7 +476,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients, submitKycDocument, reviewKycSubmission, setKycRequired }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients, submitKycDocument, reviewKycSubmission, setKycRequired, submitEnhancedKyc, reviewEnhancedKyc }}>
       {children}
     </AuthContext.Provider>
   )

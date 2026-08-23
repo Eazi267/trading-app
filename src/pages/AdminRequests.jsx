@@ -18,6 +18,8 @@ function formatType(type) {
   return type.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
+const METHOD_LABELS = { usdt: 'USDT', btc: 'BTC', bank: 'Bank' }
+
 // A distinct icon per request type — the whole point of a card
 // layout over a table is that the type is recognizable at a glance,
 // not just readable as text.
@@ -34,6 +36,7 @@ export default function AdminRequests() {
   const pending = transactions.filter((t) => t.status === 'pending')
   const awaitingSessions = sessions.filter((s) => s.status === 'awaiting_start')
   const pendingKyc = users.filter((u) => u.kyc?.status === 'pending')
+  const pendingEnhancedKyc = users.filter((u) => u.kycEnhanced?.status === 'pending')
   const resolved = transactions.filter((t) => t.status !== 'pending').slice(0, 10)
 
   return (
@@ -43,15 +46,30 @@ export default function AdminRequests() {
 
       <div className="panel">
         <div className="panel-head">
-          <h3>Awaiting action ({pending.length + awaitingSessions.length + pendingKyc.length})</h3>
+          <h3>Awaiting action ({pending.length + awaitingSessions.length + pendingKyc.length + pendingEnhancedKyc.length})</h3>
         </div>
-        {pending.length === 0 && awaitingSessions.length === 0 && pendingKyc.length === 0 ? (
+        {pending.length === 0 && awaitingSessions.length === 0 && pendingKyc.length === 0 && pendingEnhancedKyc.length === 0 ? (
           <div className="empty-state">
             <Inbox size={20} />
             <p>Nothing pending right now.</p>
           </div>
         ) : (
           <div style={{ padding: 16 }}>
+            {pendingEnhancedKyc.map((u) => (
+              <div key={'kyc-enhanced-' + u.id} className="entity-card entity-card-accent-pending">
+                <div className="icon-badge"><ShieldCheck size={18} /></div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title"><Link to={`/admin/users/${u.id}`} style={{ color: 'inherit', fontWeight: 600 }}>{u.name}</Link> · Enhanced verification</div>
+                  <div className="entity-card-meta">
+                    <span>Proof of address</span>
+                    <span>Submitted {formatDate(u.kycEnhanced.submittedAt)}</span>
+                  </div>
+                </div>
+                <Link to={`/admin/users/${u.id}`} className="tx-btn deposit" style={{ padding: '7px 12px', fontSize: 12.5, flex: 'none', textDecoration: 'none' }}>
+                  Review
+                </Link>
+              </div>
+            ))}
             {pendingKyc.map((u) => (
               <div key={'kyc-' + u.id} className="entity-card entity-card-accent-pending">
                 <div className="icon-badge"><ShieldCheck size={18} /></div>
@@ -102,6 +120,15 @@ export default function AdminRequests() {
                     </div>
                     <div className="entity-card-meta">
                       <span>{formatDate(t.date)}</span>
+                      {t.type === 'withdrawal' && t.withdrawalMethod && (
+                        <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
+                      )}
+                      {t.type === 'deposit' && t.depositMethod && (
+                        <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
+                      )}
+                      {t.type === 'deposit' && t.verificationStatus === 'unavailable' && (
+                        <span style={{ color: 'var(--text-muted)' }}>Blockchain verification: not connected — review manually</span>
+                      )}
                       {isLockedExcess && <span style={{ color: 'var(--accent-bright)' }}>Needs a paid unlock fee before release</span>}
                     </div>
                   </div>

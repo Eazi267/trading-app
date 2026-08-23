@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Image, Info, Gift, DollarSign, ArrowDownToLine, ArrowUpFromLine, Mail,
-  HelpCircle, FileText, Shield, Palette, Settings as SettingsIcon, ChevronRight, RotateCcw
+  HelpCircle, FileText, Shield, Palette, Settings as SettingsIcon, ChevronRight, RotateCcw, ShieldCheck
 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import Modal from '../components/Modal.jsx'
@@ -112,6 +112,10 @@ export default function AdminBusinessSettings() {
   })
   const [emailSaved, flashEmail] = useSavedFlag()
 
+  // --- Blockchain verification ---
+  const [blockchainProviderName, setBlockchainProviderName] = useState(settings.blockchainProviderName)
+  const [blockchainSaved, flashBlockchain] = useSavedFlag()
+
   // --- Help Q&A ---
   const [qaQuestion, setQaQuestion] = useState('')
   const [qaAnswer, setQaAnswer] = useState('')
@@ -138,6 +142,7 @@ export default function AdminBusinessSettings() {
     { key: 'deposit', icon: ArrowDownToLine, label: 'Deposit setup' },
     { key: 'withdrawal', icon: ArrowUpFromLine, label: 'Withdrawal setup' },
     { key: 'email', icon: Mail, label: 'Email settings' },
+    { key: 'blockchain', icon: ShieldCheck, label: 'Blockchain verification' },
     { key: 'help', icon: HelpCircle, label: 'Edit help page' },
     { key: 'privacy', icon: Shield, label: 'Change privacy policy' },
     { key: 'about', icon: FileText, label: 'Edit about us page' },
@@ -285,6 +290,29 @@ export default function AdminBusinessSettings() {
 
       {/* ---------- Deposit setup ---------- */}
       <Modal open={openModal === 'deposit'} onClose={() => setOpenModal(null)} title="Deposit setup">
+        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>Payment methods clients can indicate</div>
+          {[
+            { id: 'usdt', label: 'USDT' },
+            { id: 'btc', label: 'BTC' },
+            { id: 'bank', label: 'Bank Transfer' }
+          ].map((m) => (
+            <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!settings.depositMethods[m.id]}
+                onChange={(e) => updateSettings({ depositMethods: { ...settings.depositMethods, [m.id]: e.target.checked } })}
+              />
+              <span style={{ fontSize: 13.5 }}>{m.label}</span>
+            </label>
+          ))}
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+            This is metadata only, for your own reconciliation — no wallet address or bank account is shown to
+            clients on the platform. Coordinate actual payment details through your own channels, then approve
+            the deposit here once received.
+          </p>
+        </div>
+
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ ...labelStyle, flex: 1 }}>
             Minimum deposit
@@ -307,6 +335,32 @@ export default function AdminBusinessSettings() {
 
       {/* ---------- Withdrawal setup ---------- */}
       <Modal open={openModal === 'withdrawal'} onClose={() => setOpenModal(null)} title="Withdrawal setup">
+        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>Payout methods clients can choose from</div>
+          {[
+            { id: 'usdt', label: 'USDT' },
+            { id: 'btc', label: 'BTC' },
+            { id: 'bank', label: 'Bank Account', note: 'Requires enhanced verification (proof of address) from the client, on top of basic ID.' }
+          ].map((m) => (
+            <label key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!settings.withdrawalMethods[m.id]}
+                onChange={(e) => updateSettings({ withdrawalMethods: { ...settings.withdrawalMethods, [m.id]: e.target.checked } })}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <strong style={{ fontSize: 13.5 }}>{m.label}</strong>
+                {m.note && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{m.note}</div>}
+              </span>
+            </label>
+          ))}
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+            Crypto methods don't move real crypto — the client provides a destination address and you fulfill it
+            manually, same as every other withdrawal on this platform.
+          </p>
+        </div>
+
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ ...labelStyle, flex: 1 }}>
             Minimum withdrawal
@@ -370,6 +424,50 @@ export default function AdminBusinessSettings() {
         </label>
         <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>Use {'{{name}}'} to insert the client's name.</p>
         <ModalSaveButton onClick={() => { updateSettings(emailCfg); flashEmail() }} saved={emailSaved} />
+      </Modal>
+
+      {/* ---------- Blockchain verification ---------- */}
+      <Modal
+        open={openModal === 'blockchain'}
+        onClose={() => setOpenModal(null)}
+        title="Blockchain verification"
+        description="No deposit is verified automatically yet — this is stored and ready for when a real provider is connected."
+      >
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={settings.blockchainVerificationEnabled}
+            onChange={(e) => updateSettings({ blockchainVerificationEnabled: e.target.checked })}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            <strong style={{ fontSize: 13.5 }}>Automatic verification enabled</strong>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Off by default. Turning this on does not make deposits verify automatically today — it just marks
+              crypto deposits with a clear "no provider connected" status instead of leaving that blank, so
+              nothing is silently skipped once a provider is wired in.
+            </div>
+          </span>
+        </label>
+
+        <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '14px 0 16px', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          Real verification needs a backend to hold a payment processor's API key (Coinbase Commerce, NOWPayments,
+          BitPay, or similar) and a real, uniquely-generated receiving address per deposit. This platform
+          deliberately never displays a receiving address on its own — that pattern only becomes trustworthy with
+          a real processor confirming it, not before.
+        </p>
+
+        <label style={labelStyle}>
+          Provider name (for your reference)
+          <input
+            type="text"
+            placeholder="e.g. Coinbase Commerce"
+            value={blockchainProviderName}
+            onChange={(e) => setBlockchainProviderName(e.target.value)}
+            style={inputStyle}
+          />
+        </label>
+        <ModalSaveButton onClick={() => { updateSettings({ blockchainProviderName }); flashBlockchain() }} saved={blockchainSaved} />
       </Modal>
 
       {/* ---------- Help page ---------- */}

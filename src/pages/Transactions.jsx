@@ -10,10 +10,13 @@ import { useCountUp } from '../hooks/useCountUp.js'
 import { LARGE_ACCOUNT_THRESHOLD } from '../config/tiers.js'
 import { getPendingRequestsSummary, getDepositWithdrawTrend } from '../utils/adminAnalytics.js'
 import { resolveDisplayCurrency, formatCurrency, CURRENCIES } from '../config/currencies.js'
+import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
+
+
 
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -115,6 +118,16 @@ function AdminTransactionsView() {
                       {isLockedExcess && (
                         <div style={{ fontSize: 11, color: 'var(--accent-bright)' }}>Needs a paid unlock fee before release</div>
                       )}
+                      {t.type === 'withdrawal' && t.withdrawalMethod && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}
+                        </div>
+                      )}
+                      {t.type === 'deposit' && t.depositMethod && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}
+                        </div>
+                      )}
                     </td>
                     <td>{formatMoney(t.amount)}</td>
                     <td>{formatDate(t.date)}</td>
@@ -163,13 +176,21 @@ function AdminTransactionsView() {
 }
 
 export default function Transactions() {
-  const { transactions, addTransaction, accountBalance } = useApp()
+  const { transactions, addTransaction, accountBalance, getOutstandingFees } = useApp()
   const { currentUser, flagForReview } = useAuth()
   const { settings } = useSettings()
   const [amount, setAmount] = useState('')
   const [formError, setFormError] = useState('')
   const defaultCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const [equivCurrency, setEquivCurrency] = useState(defaultCurrency.code)
+  const enabledWithdrawalMethods = Object.entries(settings.withdrawalMethods).filter(([, on]) => on).map(([key]) => key)
+  const [withdrawalMethod, setWithdrawalMethod] = useState(enabledWithdrawalMethods[0] || '')
+  const [destinationAddress, setDestinationAddress] = useState('')
+  const [withdrawalChain, setWithdrawalChain] = useState(CRYPTO_CHAINS[enabledWithdrawalMethods[0]]?.[0] || '')
+  const enabledDepositMethods = Object.entries(settings.depositMethods).filter(([, on]) => on).map(([key]) => key)
+  const [depositMethod, setDepositMethod] = useState(enabledDepositMethods[0] || '')
+  const [depositReference, setDepositReference] = useState('')
+  const [depositChain, setDepositChain] = useState(CRYPTO_CHAINS[enabledDepositMethods[0]]?.[0] || '')
 
   if (currentUser.role === 'admin') {
     return (
@@ -189,12 +210,20 @@ export default function Transactions() {
     if (min && value < min) return setFormError(`Minimum ${type} is ${formatMoney(min)}.`)
     if (max && value > max) return setFormError(`Maximum ${type} is ${formatMoney(max)}.`)
     setFormError('')
-    const result = addTransaction(type, value)
+    const result = addTransaction(
+      type,
+      value,
+      type === 'withdrawal'
+        ? { withdrawalMethod, destinationAddress, withdrawalChain: CRYPTO_CHAINS[withdrawalMethod] ? withdrawalChain : null }
+        : { depositMethod, depositReference, depositChain: CRYPTO_CHAINS[depositMethod] ? depositChain : null }
+    )
     if (result?.error) return setFormError(result.error)
     if (type === 'deposit' && value >= LARGE_ACCOUNT_THRESHOLD) {
       flagForReview(currentUser.id)
     }
     setAmount('')
+    setDestinationAddress('')
+    setDepositReference('')
   }
 
   return (
@@ -249,6 +278,11 @@ export default function Transactions() {
               Withdrawals require identity verification. <Link to="/kyc" style={{ color: 'inherit', textDecoration: 'underline' }}>Verify your identity</Link> first.
             </p>
           )}
+          {getOutstandingFees(currentUser.id).length > 0 && (
+            <p style={{ fontSize: 12, color: 'var(--accent-bright)', margin: '-8px 0 14px' }}>
+              You have an outstanding fee. <Link to="/balance" style={{ color: 'inherit', textDecoration: 'underline' }}>Clear it from your Fee Balance</Link> before withdrawing.
+            </p>
+          )}
           {(settings.depositInstructions || settings.withdrawalInstructions) && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '-8px 0 14px' }}>
               {settings.depositInstructions}{settings.depositInstructions && settings.withdrawalInstructions ? ' ' : ''}{settings.withdrawalInstructions}
@@ -259,6 +293,112 @@ export default function Transactions() {
               Deposits this size are set up personally — your account will be flagged for your account manager to reach out.
             </p>
           )}
+
+          {enabledDepositMethods.length > 0 && (
+            <div style={{ marginBottom: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                For deposits — how you're sending funds
+              </label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                {enabledDepositMethods.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { setDepositMethod(m); setDepositChain(CRYPTO_CHAINS[m]?.[0] || '') }}
+                    className="tx-btn"
+                    style={{
+                      padding: '6px 12px', fontSize: 12.5,
+                      background: depositMethod === m ? 'var(--accent)' : 'var(--bg)',
+                      color: depositMethod === m ? '#fff' : 'var(--text)',
+                      border: '1px solid var(--border)'
+                    }}
+                  >
+                    {METHOD_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+              {CRYPTO_CHAINS[depositMethod] && (
+                <select
+                  value={depositChain}
+                  onChange={(e) => setDepositChain(e.target.value)}
+                  style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                >
+                  {CRYPTO_CHAINS[depositMethod].map((chain) => (
+                    <option key={chain} value={chain}>{chain}</option>
+                  ))}
+                </select>
+              )}
+              <input
+                type="text"
+                value={depositReference}
+                onChange={(e) => setDepositReference(e.target.value)}
+                placeholder="Reference or note (optional)"
+                style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+              />
+              <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '6px 0 0' }}>
+                Coordinate where to send funds with your account manager directly — this just records how you paid.
+              </p>
+            </div>
+          )}
+
+          {enabledWithdrawalMethods.length > 0 && (
+            <div style={{ marginBottom: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+              <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                For withdrawals — payout method
+              </label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                {enabledWithdrawalMethods.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { setWithdrawalMethod(m); setWithdrawalChain(CRYPTO_CHAINS[m]?.[0] || '') }}
+                    className="tx-btn"
+                    style={{
+                      padding: '6px 12px', fontSize: 12.5,
+                      background: withdrawalMethod === m ? 'var(--accent)' : 'var(--bg)',
+                      color: withdrawalMethod === m ? '#fff' : 'var(--text)',
+                      border: '1px solid var(--border)'
+                    }}
+                  >
+                    {METHOD_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+              {withdrawalMethod === 'bank' && currentUser.kycEnhanced?.status !== 'verified' ? (
+                <p style={{ fontSize: 12, color: 'var(--accent-bright)', margin: 0 }}>
+                  Bank withdrawal needs enhanced verification.{' '}
+                  <Link to="/kyc" style={{ color: 'inherit', textDecoration: 'underline' }}>Submit it</Link> first.
+                </p>
+              ) : (
+                <>
+                  {CRYPTO_CHAINS[withdrawalMethod] && (
+                    <select
+                      value={withdrawalChain}
+                      onChange={(e) => setWithdrawalChain(e.target.value)}
+                      style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                    >
+                      {CRYPTO_CHAINS[withdrawalMethod].map((chain) => (
+                        <option key={chain} value={chain}>{chain}</option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    type="text"
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    placeholder={withdrawalMethod === 'bank' ? 'Account number, bank name' : 'Wallet address'}
+                    style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                  />
+                  {CRYPTO_CHAINS[withdrawalMethod] && (
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
+                      Double-check the address matches the {withdrawalChain} network — funds sent to the wrong network can't be recovered.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="tx-btn deposit" onClick={() => handleSubmit('deposit')}>
               <ArrowDownCircle size={16} /> Deposit

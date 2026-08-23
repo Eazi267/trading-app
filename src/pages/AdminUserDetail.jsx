@@ -13,6 +13,8 @@ function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
+const METHOD_LABELS = { usdt: 'USDT', btc: 'BTC', bank: 'Bank' }
+
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
@@ -48,7 +50,7 @@ export default function AdminUserDetail() {
     applyDiscountToFee, getOutstandingFees, deleteTransaction,
     getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
-  const { users, setUserTier, setClientVip, currentUser, reviewKycSubmission, setKycRequired } = useAuth()
+  const { users, setUserTier, setClientVip, currentUser, reviewKycSubmission, setKycRequired, reviewEnhancedKyc } = useAuth()
   const { notify, getNotificationsForUser } = useNotifications()
   const { settings } = useSettings()
 
@@ -79,6 +81,7 @@ export default function AdminUserDetail() {
   const [existingDiscountError, setExistingDiscountError] = useState('')
   const [deletingTxId, setDeletingTxId] = useState(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
+  const [enhancedRejectReason, setEnhancedRejectReason] = useState('')
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [messageTitle, setMessageTitle] = useState('')
@@ -363,11 +366,10 @@ export default function AdminUserDetail() {
         </p>
       </div>
 
-      {(settings.kycEnabled || targetUser?.kycRequired || targetUser?.kyc) && (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-head"><h3>Identity verification</h3></div>
-          <div style={{ padding: '16px 20px' }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Identity verification</h3></div>
+        <div style={{ padding: '16px 20px' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
               <input
                 type="checkbox"
                 checked={!!targetUser?.kycRequired}
@@ -439,11 +441,60 @@ export default function AdminUserDetail() {
             )}
           </div>
         </div>
+
+      {targetUser?.kycEnhanced && (
+        <div className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head"><h3>Enhanced verification (proof of address)</h3></div>
+          <div style={{ padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <span className={'status-pill status-' + (targetUser.kycEnhanced.status === 'verified' ? 'approved' : targetUser.kycEnhanced.status === 'rejected' ? 'rejected' : 'pending')}>
+                {targetUser.kycEnhanced.status}
+              </span>
+              <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                submitted {formatDate(targetUser.kycEnhanced.submittedAt)}
+              </span>
+            </div>
+
+            <img src={targetUser.kycEnhanced.frontImageDataUrl} alt="Proof of address" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)', marginBottom: 14, display: 'block' }} />
+
+            {targetUser.kycEnhanced.status === 'pending' ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => reviewEnhancedKyc(userId, true)}>
+                  Approve
+                </button>
+                <input
+                  type="text"
+                  value={enhancedRejectReason}
+                  onChange={(e) => setEnhancedRejectReason(e.target.value)}
+                  placeholder="Reason for rejection"
+                  style={{ flex: '1 1 180px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                />
+                <button
+                  className="tx-btn withdraw"
+                  style={{ padding: '8px 14px', fontSize: 13 }}
+                  onClick={() => { const r = reviewEnhancedKyc(userId, false, enhancedRejectReason); if (!r.error) setEnhancedRejectReason('') }}
+                >
+                  Reject
+                </button>
+              </div>
+            ) : targetUser.kycEnhanced.status === 'rejected' ? (
+              <p style={{ fontSize: 12.5, color: 'var(--danger)', margin: 0 }}>Rejected — reason given: {targetUser.kycEnhanced.reviewNote}</p>
+            ) : (
+              <p style={{ fontSize: 12.5, color: 'var(--success)', margin: 0 }}>Verified by {targetUser.kycEnhanced.reviewedByName}</p>
+            )}
+          </div>
+        </div>
       )}
 
       {getOutstandingFees(userId).length > 0 && (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-head"><h3>Outstanding fees ({getOutstandingFees(userId).length})</h3></div>
+        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
+          <div className="panel-head">
+            <h3>Outstanding fees ({getOutstandingFees(userId).length})</h3>
+            <span className="status-pill status-rejected">Withdrawals locked</span>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px', marginTop: -6, marginBottom: 12 }}>
+            This client can't withdraw until every fee below is fully paid through their Fee Balance.
+          </p>
           {existingDiscountError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{existingDiscountError}</div>}
           <table>
             <thead><tr><th>Date</th><th>Reason</th><th>Owed now</th><th></th></tr></thead>
@@ -860,6 +911,12 @@ export default function AdminUserDetail() {
                   <div className="entity-card-title" style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')} · {formatMoney(t.amount)}</div>
                   <div className="entity-card-meta">
                     <span>{formatDate(t.date)}</span>
+                    {t.type === 'withdrawal' && t.withdrawalMethod && (
+                      <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
+                    )}
+                    {t.type === 'deposit' && t.depositMethod && (
+                      <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
+                    )}
                     <span className={'status-pill status-' + t.status}>{t.status}</span>
                   </div>
                 </div>
