@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FastForward, Activity } from 'lucide-react'
+import { FastForward, Activity, Bitcoin, Coins, Landmark, Gem, RotateCcw } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -27,6 +27,13 @@ function formatResetTimeLeft(reset) {
   const seconds = Math.ceil(remainingMs / 1000)
   if (seconds >= 60) return `${Math.ceil(seconds / 60)}m left`
   return `${seconds}s left`
+}
+
+function symbolIcon(symbol) {
+  if (symbol.startsWith('BTC')) return Bitcoin
+  if (symbol.startsWith('ETH')) return Coins
+  if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) return Gem
+  return Landmark
 }
 
 const MODES = [
@@ -73,15 +80,17 @@ function ToggleGroup({ options, value, onChange, getLabel = (o) => o.label, getV
 
 export default function AdminScenario() {
   const {
-    sessions, sessionScenarios, applySessionScenario, resetSessionScenario,
+    sessions, prices, sessionScenarios, applySessionScenario, resetSessionScenario, resetAllSessionScenarios,
     fastForwardSession, fastForwardAllSessions, sessionCurrentValue
   } = useApp()
   const { users } = useAuth()
 
+  const symbols = Object.keys(prices)
   const activeSessions = sessions.filter((s) => s.status === 'active')
   const [selectedSessionId, setSelectedSessionId] = useState(activeSessions[0]?.id || null)
   const selectedSession = activeSessions.find((s) => s.id === selectedSessionId) || activeSessions[0] || null
-  const selectedScenario = selectedSession ? sessionScenarios[selectedSession.id] : null
+  const [selectedSymbol, setSelectedSymbol] = useState(symbols[0])
+  const selectedSymbolScenario = selectedSession ? sessionScenarios[selectedSession.id]?.[selectedSymbol] : null
 
   const [draft, setDraft] = useState({ mode: 'neutral', strength: 1, volatility: 1, speed: 1 })
   const [fastForwardHours, setFastForwardHours] = useState({})
@@ -94,17 +103,17 @@ export default function AdminScenario() {
 
   function handleApply() {
     if (!selectedSession) return
-    applySessionScenario(selectedSession.id, draft.mode, draft.strength, draft.volatility, draft.speed)
+    applySessionScenario(selectedSession.id, selectedSymbol, draft.mode, draft.strength, draft.volatility, draft.speed)
   }
 
   function handlePreset(preset) {
     setDraft({ mode: preset.mode, strength: preset.strength, volatility: preset.volatility, speed: preset.speed })
-    if (selectedSession) applySessionScenario(selectedSession.id, preset.mode, preset.strength, preset.volatility, preset.speed)
+    if (selectedSession) applySessionScenario(selectedSession.id, selectedSymbol, preset.mode, preset.strength, preset.volatility, preset.speed)
   }
 
   function handleReset(level) {
     if (!selectedSession) return
-    resetSessionScenario(selectedSession.id, level)
+    resetSessionScenario(selectedSession.id, selectedSymbol, level)
   }
 
   function handleFastForward(sessionId) {
@@ -122,14 +131,75 @@ export default function AdminScenario() {
     setShowBulkInput(false)
   }
 
+  // Flat, cross-session list of every symbol currently running a
+  // scenario, anywhere — the "efficiency" view. Without this, seeing
+  // what's actually biased right now means opening every session one
+  // at a time and checking each symbol tab. This answers "what's
+  // running right now" in one glance, with a one-click reset per row.
+  const liveScenarios = []
+  Object.entries(sessionScenarios).forEach(([sessionId, symbolScenarios]) => {
+    const session = activeSessions.find((s) => s.id === Number(sessionId))
+    if (!session) return
+    Object.entries(symbolScenarios).forEach(([symbol, scenario]) => {
+      liveScenarios.push({ session, symbol, scenario })
+    })
+  })
+
   return (
     <Layout pageTitle="Scenario Control">
       <h1 className="page-title">Scenario Control</h1>
       <p className="page-sub">
-        Applies to ONE session at a time — every other session, including other
-        sessions belonging to the same client, keeps reading the real, unbiased
-        market. Nothing here sets a balance or payout directly.
+        Applies to ONE symbol within ONE session at a time. A session can run several
+        different scenarios at once — BTC/USD bullish while EUR/USD stays normal in the
+        same session — since each symbol's synthetic price ticks independently. Nothing
+        here sets a balance or payout directly.
       </p>
+
+      {liveScenarios.length > 0 && (
+        <div className="glass-card fade-in-up-1" style={{ marginBottom: 20 }}>
+          <div className="panel-head">
+            <h3><Activity size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Live right now ({liveScenarios.length})</h3>
+          </div>
+          <div style={{ padding: 16 }} className="stagger-in">
+            {liveScenarios.map(({ session, symbol, scenario }) => {
+              const owner = users.find((u) => u.id === session.userId)
+              const Icon = symbolIcon(symbol)
+              return (
+                <div key={session.id + symbol} className="entity-card">
+                  <div className="icon-badge"><Icon size={16} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">
+                      {symbol} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>on</span>{' '}
+                      <Link to={`/admin/users/${session.userId}`} style={{ color: 'inherit' }}>{owner?.name || `User #${session.userId}`}</Link>
+                    </div>
+                    <div className="entity-card-meta">
+                      {scenario.reset ? (
+                        <span className="status-pill status-pending">Resetting ({formatResetTimeLeft(scenario.reset)})</span>
+                      ) : (
+                        <span className="status-pill status-pending">{scenario.mode}, strength {scenario.strength}/3</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+                    <button
+                      className="tx-btn"
+                      style={{ padding: '6px 10px', fontSize: 12 }}
+                      onClick={() => { setSelectedSessionId(session.id); setSelectedSymbol(symbol) }}
+                    >
+                      Control
+                    </button>
+                    {!scenario.reset && (
+                      <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => resetSessionScenario(session.id, symbol, 'normal')}>
+                        <RotateCcw size={12} /> Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Session to control</h3></div>
@@ -145,11 +215,11 @@ export default function AdminScenario() {
               {activeSessions.map((s) => {
                 const owner = users.find((u) => u.id === s.userId)
                 const tier = getTier(s.tierId)
-                const hasScenario = !!sessionScenarios[s.id]
+                const scenarioCount = Object.keys(sessionScenarios[s.id] || {}).length
                 return (
                   <option key={s.id} value={s.id}>
                     {owner?.name || `User #${s.userId}`} — {tier?.name || s.tierId} — {formatMoney(s.amount)}
-                    {hasScenario ? ' — scenario active' : ' — normal'}
+                    {scenarioCount > 0 ? ` — ${scenarioCount} scenario${scenarioCount === 1 ? '' : 's'} active` : ' — normal'}
                   </option>
                 )
               })}
@@ -161,26 +231,58 @@ export default function AdminScenario() {
       {selectedSession && (
         <>
           <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Status — this session only</h3></div>
+            <div className="panel-head"><h3>Trading pair</h3></div>
+            <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap' }} className="stagger-in">
+              {symbols.map((symbol) => {
+                const Icon = symbolIcon(symbol)
+                const hasScenario = !!sessionScenarios[selectedSession.id]?.[symbol]
+                const isSelected = symbol === selectedSymbol
+                return (
+                  <button
+                    key={symbol}
+                    onClick={() => setSelectedSymbol(symbol)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                      borderRadius: 10, border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
+                      background: isSelected ? 'var(--accent-bg)' : 'var(--bg)',
+                      color: isSelected ? 'var(--accent-bright)' : 'var(--text)',
+                      cursor: 'pointer', position: 'relative'
+                    }}
+                  >
+                    <Icon size={15} /> {symbol}
+                    {hasScenario && (
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-bright)', marginLeft: 2 }} />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="panel" style={{ marginBottom: 16 }}>
+            <div className="panel-head"><h3>Status — {selectedSymbol} on this session</h3></div>
             <div className="stats-grid" style={{ padding: '16px 20px' }}>
               <div className="stat-card">
                 <div className="stat-label">Current state</div>
                 <div className="stat-value" style={{ fontSize: 16 }}>
-                  {!selectedScenario
+                  {!selectedSymbolScenario
                     ? 'Normal market'
-                    : selectedScenario.reset
-                    ? `Resetting (${selectedScenario.reset.level})`
-                    : `${selectedScenario.mode}, ${selectedScenario.strength}/3`}
+                    : selectedSymbolScenario.reset
+                    ? `Resetting (${selectedSymbolScenario.reset.level})`
+                    : `${selectedSymbolScenario.mode}, ${selectedSymbolScenario.strength}/3`}
                 </div>
-                {selectedScenario?.reset && (
+                {selectedSymbolScenario?.reset && (
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    {formatResetTimeLeft(selectedScenario.reset)}
+                    {formatResetTimeLeft(selectedSymbolScenario.reset)}
                   </div>
                 )}
               </div>
               <div className="stat-card">
-                <div className="stat-label">Live session value</div>
-                <div className="stat-value">{formatMoney(sessionCurrentValue(selectedSession))}</div>
+                <div className="stat-label">{selectedSymbol} price on this session</div>
+                <div className="stat-value">{formatMoney(selectedSymbolScenario?.price ?? prices[selectedSymbol])}</div>
+                {selectedSymbolScenario && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Real market: {formatMoney(prices[selectedSymbol])}</div>
+                )}
               </div>
               <div className="stat-card">
                 <div className="stat-label">Time left on session</div>
@@ -190,7 +292,7 @@ export default function AdminScenario() {
           </div>
 
           <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Quick presets — this session</h3></div>
+            <div className="panel-head"><h3>Quick presets — {selectedSymbol}, this session</h3></div>
             <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {PRESETS.map((preset) => (
                 <button key={preset.label} className="tx-btn deposit" style={{ padding: '10px 16px', fontSize: 13 }} onClick={() => handlePreset(preset)}>
@@ -201,7 +303,7 @@ export default function AdminScenario() {
           </div>
 
           <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Custom scenario — this session</h3></div>
+            <div className="panel-head"><h3>Custom scenario — {selectedSymbol}, this session</h3></div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Direction</div>
@@ -221,26 +323,26 @@ export default function AdminScenario() {
               </div>
               <div>
                 <button className="tx-btn deposit" style={{ padding: '10px 18px', fontSize: 13 }} onClick={handleApply}>
-                  Apply to this session
+                  Apply to {selectedSymbol} on this session
                 </button>
               </div>
             </div>
           </div>
 
           <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Reset — return this session to normal</h3></div>
+            <div className="panel-head"><h3>Reset</h3></div>
             <div style={{ padding: '16px 20px' }}>
               <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 0, marginBottom: 12 }}>
-                Gradually interpolates this session's price back to the real market —
-                pick how fast. Doesn't apply to any other session.
+                Gradually interpolates {selectedSymbol}'s price on this session back to the real market — pick how
+                fast. Other symbols on this session, and every other session, are untouched.
               </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
                 {RESET_LEVELS.map((level) => (
                   <button
                     key={level.id}
-                    disabled={!selectedScenario}
+                    disabled={!selectedSymbolScenario}
                     className="tx-btn withdraw"
-                    style={{ padding: '10px 16px', fontSize: 13, opacity: selectedScenario ? 1 : 0.5, cursor: selectedScenario ? 'pointer' : 'not-allowed' }}
+                    style={{ padding: '10px 16px', fontSize: 13, opacity: selectedSymbolScenario ? 1 : 0.5, cursor: selectedSymbolScenario ? 'pointer' : 'not-allowed' }}
                     onClick={() => handleReset(level.id)}
                   >
                     {level.label}
@@ -248,6 +350,15 @@ export default function AdminScenario() {
                   </button>
                 ))}
               </div>
+              {Object.keys(sessionScenarios[selectedSession.id] || {}).length > 1 && (
+                <button
+                  className="tx-btn withdraw"
+                  style={{ padding: '8px 14px', fontSize: 12.5 }}
+                  onClick={() => resetAllSessionScenarios(selectedSession.id, 'normal')}
+                >
+                  Reset all {Object.keys(sessionScenarios[selectedSession.id]).length} symbols on this session
+                </button>
+              )}
             </div>
           </div>
         </>
@@ -285,13 +396,14 @@ export default function AdminScenario() {
         {activeSessions.length === 0 ? (
           <div className="empty-state"><p>No active sessions right now.</p></div>
         ) : (
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: 16 }} className="stagger-in">
             {activeSessions.map((s) => {
               const owner = users.find((u) => u.id === s.userId)
               const tier = getTier(s.tierId)
-              const scenario = sessionScenarios[s.id]
+              const symbolScenarios = sessionScenarios[s.id] || {}
+              const scenarioEntries = Object.entries(symbolScenarios)
               return (
-                <div key={s.id} className={'entity-card' + (s.id === selectedSession?.id ? ' entity-card-accent-pending' : '')}>
+                <div key={s.id} className={'entity-card' + (s.id === selectedSession?.id ? ' entity-card-accent-pending' : '')} style={{ alignItems: 'flex-start' }}>
                   <div className="icon-badge"><Activity size={17} /></div>
                   <div className="entity-card-body">
                     <div className="entity-card-title">
@@ -299,12 +411,14 @@ export default function AdminScenario() {
                     </div>
                     <div className="entity-card-meta">
                       <span>{formatTimeLeft(s.expiresAt)}</span>
-                      {!scenario ? (
+                      {scenarioEntries.length === 0 ? (
                         <span className="status-pill status-approved">Normal</span>
-                      ) : scenario.reset ? (
-                        <span className="status-pill status-pending">Resetting ({formatResetTimeLeft(scenario.reset)})</span>
                       ) : (
-                        <span className="status-pill status-pending">{scenario.mode}, {scenario.strength}/3</span>
+                        scenarioEntries.map(([symbol, scenario]) => (
+                          <span key={symbol} className="status-pill status-pending">
+                            {symbol} {scenario.reset ? `resetting` : `${scenario.mode} ${scenario.strength}/3`}
+                          </span>
+                        ))
                       )}
                     </div>
                   </div>

@@ -17,7 +17,12 @@
   --accent-bg: #2b1512;
   --success: #45bd7a;
   --success-bg: #10281b;
-  --danger: #e5493d;
+  /* Deliberately not aliased to --accent: the default theme's brand
+     color is also red, so a shared value made "Create your account"
+     and "this trade lost money" send the identical color signal.
+     Danger gets its own fixed hue (colder/more saturated) so it
+     reads as an alert regardless of which accent is active. */
+  --danger: #ef4444;
   --danger-bg: #2b1512;
   --shadow-color: rgba(0, 0, 0, 0.5);
   --glow: rgba(229, 73, 61, 0.25);
@@ -41,7 +46,7 @@
   --accent-bg: #fbe9e6;
   --success: #1f8a4c;
   --success-bg: #e7f6ed;
-  --danger: #d6392e;
+  --danger: #dc2626;
   --danger-bg: #fbe9e6;
   --shadow-color: rgba(23, 22, 20, 0.08);
   --glow: rgba(214, 57, 46, 0.15);
@@ -75,6 +80,17 @@
   box-sizing: border-box;
 }
 
+/* Radius scale — every border-radius in this file resolves to one of
+   these four steps (plus 3px for hairline decorative marks like the
+   active-nav indicator, and 999px for pills). Kept as real tokens,
+   not just a convention, so nothing drifts back to one-off values. */
+:root {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
 body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -99,6 +115,90 @@ h1, h2, h3,
   min-height: 100vh;
 }
 
+.icon-btn.mobile-menu-btn {
+  display: none;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+/* Below 860px (same breakpoint the rest of the app already uses —
+   see .tx-layout, .home-hero), the sidebar stops taking up flex
+   space and becomes a fixed off-canvas drawer instead: hidden by
+   default, slides in from the left when opened via the hamburger
+   button Topbar renders on mobile, with a dimmed backdrop behind it
+   that closes it on tap. Nothing above 860px changes — the sidebar
+   stays exactly as it always was on tablet/desktop. */
+@media (max-width: 860px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.22s var(--ease);
+    box-shadow: 20px 0 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 199;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s var(--ease);
+  }
+
+  .sidebar-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .icon-btn.mobile-menu-btn {
+    display: flex;
+  }
+
+  .topbar-row {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+  }
+
+  .mobile-menu-btn {
+    order: 1;
+  }
+
+  .topbar-right {
+    order: 2;
+    margin-left: auto;
+  }
+
+  .badge-demo {
+    order: 3;
+    flex-basis: 100%;
+    margin-top: 8px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page-content {
+    padding: 10px 16px 32px;
+  }
+
+  .breadcrumb {
+    padding-left: 16px;
+  }
+}
+
 /* Sidebar */
 .sidebar {
   width: 230px;
@@ -106,6 +206,17 @@ h1, h2, h3,
   background: linear-gradient(180deg, #171412, #0a0a0a);
   border-right: 1px solid var(--border);
   padding: 22px 16px;
+  /* Sticky + its own scroll, not just a flex-stretched full-height
+     block — a page taller than one screen no longer means scrolling
+     the sidebar's own nav out of view along with it, on desktop
+     immediately, and it's also what makes the fix below solvable
+     without a desktop regression: the mobile override just swaps
+     sticky for fixed, both already scroll independently the same way. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .brand {
@@ -121,7 +232,7 @@ h1, h2, h3,
 .brand-mark {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(150deg, var(--accent-bright), var(--accent-dark));
   display: flex;
   align-items: center;
@@ -152,7 +263,7 @@ h1, h2, h3,
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: #a19d99;
   font-size: 14px;
   cursor: pointer;
@@ -160,6 +271,19 @@ h1, h2, h3,
   margin-bottom: 2px;
   position: relative;
   transition: color 0.18s ease, background 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.nav-badge {
+  margin-left: auto;
+  background: var(--accent-bright);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  min-width: 16px;
+  text-align: center;
 }
 
 .nav-item.active {
@@ -220,7 +344,7 @@ h1, h2, h3,
   background: var(--accent-bg);
   border: 1px solid var(--accent-dark);
   padding: 5px 12px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
 }
 
 .badge-feed-warning {
@@ -232,7 +356,7 @@ h1, h2, h3,
 .icon-btn {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -254,7 +378,7 @@ h1, h2, h3,
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--danger);
   color: #fff;
   font-size: 10px;
@@ -291,7 +415,7 @@ h1, h2, h3,
   width: 280px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   box-shadow: 0 16px 40px var(--shadow-color);
   z-index: 30;
   overflow: hidden;
@@ -385,7 +509,7 @@ h1, h2, h3,
   flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 14px 18px;
   min-width: 150px;
   transition: transform 0.2s var(--ease), border-color 0.2s var(--ease);
@@ -417,9 +541,14 @@ h1, h2, h3,
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 18px 20px;
   box-shadow: var(--shadow-md);
+  container-type: inline-size;
+  min-width: 0; /* grid items default to min-width:auto, which lets an
+    unbreakable string (a long dollar figure) force the whole column
+    wider than its track — the card border visibly "stretching" past
+    its neighbor. This is the fix for that. */
   transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
@@ -437,7 +566,11 @@ h1, h2, h3,
 
 .stat-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 24px;
+  /* Scales down before it ever has to overflow or wrap — fluid
+     between a 200px-wide mobile card and a 320px+ desktop one. */
+  font-size: clamp(17px, 4.5cqi, 24px);
+  overflow-wrap: anywhere;
+  line-height: 1.15;
 }
 
 /* ---------- Icon badges + immersive card lists ---------- */
@@ -448,7 +581,7 @@ h1, h2, h3,
 .icon-badge {
   width: 38px;
   height: 38px;
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -460,7 +593,7 @@ h1, h2, h3,
 .icon-badge-lg {
   width: 46px;
   height: 46px;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
 }
 
 /* A list row rendered as its own elevated card rather than a table
@@ -473,7 +606,7 @@ h1, h2, h3,
   align-items: center;
   gap: 14px;
   padding: 14px 18px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
@@ -525,7 +658,7 @@ h1, h2, h3,
 .investment-card {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 18px 20px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), border-color 0.18s var(--ease);
@@ -595,7 +728,7 @@ h1, h2, h3,
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 0;
   margin-bottom: 20px;
   overflow: hidden;
@@ -616,24 +749,35 @@ h1, h2, h3,
   font-size: 15px;
 }
 
+/* Table — the shared base every <table> in the app inherits, so this
+   one upgrade reaches every list in the product at once (deposits
+   queue, sessions, portfolio, audit log, etc). border-collapse is
+   "separate" specifically so a hovered row can round its own corners
+   independent of its neighbors — the small detail that makes a table
+   feel like a designed component instead of a raw HTML table. */
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
 }
 
-th {
+thead th {
   text-align: left;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  padding: 12px 20px;
+  padding: 13px 20px;
   border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 td {
-  padding: 12px 20px;
+  padding: 13px 20px;
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
 
 tr:last-child td {
@@ -642,10 +786,35 @@ tr:last-child td {
 
 tbody tr {
   transition: background 0.14s var(--ease);
+  animation: fadeSlideUp 0.3s var(--ease) both;
 }
+
+/* Cascade the first dozen rows in on mount; anything past that just
+   renders immediately rather than making someone wait to see row 40. */
+tbody tr:nth-child(1) { animation-delay: 0.01s; }
+tbody tr:nth-child(2) { animation-delay: 0.025s; }
+tbody tr:nth-child(3) { animation-delay: 0.04s; }
+tbody tr:nth-child(4) { animation-delay: 0.055s; }
+tbody tr:nth-child(5) { animation-delay: 0.07s; }
+tbody tr:nth-child(6) { animation-delay: 0.085s; }
+tbody tr:nth-child(7) { animation-delay: 0.1s; }
+tbody tr:nth-child(8) { animation-delay: 0.115s; }
+tbody tr:nth-child(9) { animation-delay: 0.13s; }
+tbody tr:nth-child(10) { animation-delay: 0.145s; }
+tbody tr:nth-child(n+11) { animation-delay: 0.16s; }
 
 tbody tr:hover {
   background: var(--surface-2);
+}
+
+tbody tr:hover td:first-child {
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+tbody tr:hover td:last-child {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
 }
 
 .pnl-up {
@@ -660,7 +829,7 @@ tbody tr:hover {
   font-size: 11px;
   font-weight: 600;
   padding: 2px 9px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--accent-bg);
   color: var(--accent-bright);
 }
@@ -704,7 +873,7 @@ tbody tr:hover {
   flex: 1;
   justify-content: center;
   padding: 11px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   font-size: 14px;
@@ -716,6 +885,26 @@ tbody tr:hover {
 .tx-btn:hover {
   transform: translateY(-1px);
   filter: brightness(1.06);
+}
+
+/* The base .tx-btn rule sets color:white but never a background —
+   fine for .deposit/.withdraw, which each supply their own. Every
+   OTHER bare `className="tx-btn"` usage (there were ~25 of them)
+   was rendering white text on nothing, i.e. invisible against a
+   light card or page background — exactly the "keys that blend into
+   the background" bug. This gives every bare tx-btn the same
+   neutral look .withdraw already has, without touching .deposit or
+   .withdraw (their own more specific rules still win), and without
+   touching any button that already sets its own background/color
+   inline (inline styles always beat a class either way). */
+.tx-btn:not(.deposit):not(.withdraw) {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tx-btn:not(.deposit):not(.withdraw):hover {
+  border-color: var(--accent-dark);
 }
 
 .tx-btn:active {
@@ -809,7 +998,7 @@ tbody tr:hover {
   color: var(--text);
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -843,7 +1032,7 @@ tbody tr:hover {
   gap: 6px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text-secondary);
   font-size: 13px;
@@ -883,7 +1072,7 @@ tbody tr:hover {
   color: var(--text-muted);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 12px 14px;
 }
 
@@ -932,7 +1121,7 @@ tbody tr:hover {
 .login-hero-mark {
   width: 46px;
   height: 46px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(6px);
   display: flex;
@@ -1033,7 +1222,7 @@ tbody tr:hover {
   width: 100%;
   padding: 11px 12px 11px 38px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
   font-size: 14px;
@@ -1058,7 +1247,7 @@ tbody tr:hover {
   gap: 8px;
   padding: 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--accent-bright), var(--accent-dark));
   color: white;
   font-size: 14px;
@@ -1084,10 +1273,72 @@ tbody tr:hover {
   background: var(--accent-bg);
   color: var(--accent-bright);
   border: 1px solid var(--accent-dark);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   font-size: 13px;
   margin-bottom: 16px;
+}
+
+/* Styled document/photo upload control — used anywhere a raw
+   <input type="file"> would otherwise show the browser's default
+   button, which reads as unfinished next to the rest of the panel
+   system. Click or drag; see FileDropInput.jsx. */
+.file-drop-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.file-drop-zone:hover,
+.file-drop-zone.is-dragover {
+  border-color: var(--accent-bright);
+  color: var(--accent-bright);
+  background: var(--accent-bg);
+}
+
+.file-drop-preview {
+  position: relative;
+  display: inline-flex;
+  width: fit-content;
+}
+
+.file-drop-preview img {
+  max-width: 220px;
+  max-height: 140px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  display: block;
+  object-fit: cover;
+}
+
+.file-drop-remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.file-drop-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .demo-note {
@@ -1120,7 +1371,7 @@ tbody tr:hover {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 18px 18px 16px;
   background: var(--surface-2);
   box-shadow: var(--shadow-sm);
@@ -1257,7 +1508,7 @@ tbody tr:hover {
 .home-nav-mark {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1332,7 +1583,7 @@ tbody tr:hover {
   background: var(--accent-bg);
   border: 1px solid var(--accent-dark);
   padding: 5px 12px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   margin-bottom: 18px;
 }
 
@@ -1372,7 +1623,7 @@ tbody tr:hover {
 .home-hero-ticker {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 20px;
   box-shadow: var(--shadow-lg);
 }
@@ -1427,7 +1678,7 @@ tbody tr:hover {
 .home-benefit-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 22px;
 }
 
@@ -1445,7 +1696,7 @@ tbody tr:hover {
 .home-benefit-icon {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1470,7 +1721,7 @@ tbody tr:hover {
 .home-instrument-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 22px;
 }
 
@@ -1494,7 +1745,7 @@ tbody tr:hover {
 .home-instrument-chip {
   font-size: 12px;
   padding: 5px 10px;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   background: var(--accent-bg);
   color: var(--accent-bright);
   border: 1px solid var(--accent-dark);
@@ -1549,7 +1800,7 @@ tbody tr:hover {
 .home-footer-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1567,8 +1818,68 @@ tbody tr:hover {
   .home-hero {
     grid-template-columns: 1fr;
   }
+  .home-nav {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
   .home-nav-links {
-    display: none;
+    order: 3;
+    flex-basis: 100%;
+    gap: 18px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .home-nav-links a {
+    white-space: nowrap;
+  }
+  .home-nav-actions {
+    gap: 8px;
+  }
+  .home-nav-login {
+    font-size: 12.5px;
+  }
+  .tx-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .responsive-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Dense data tables (Portfolio, session history, admin overviews)
+     stay tables on mobile rather than reflowing into cards — the
+     whole point of a table is comparing columns across rows, which a
+     card layout loses. Instead, the panel scrolls horizontally so
+     the table itself is intact and readable, just swipeable. :has()
+     picks up a table at any nesting depth without needing a wrapper
+     div added to every one of the ~13 tables across the app. */
+  .panel:has(table) {
+    overflow-x: auto;
+  }
+
+  .panel:has(table) table {
+    min-width: 560px;
+  }
+
+  /* Every entity-card row across the app (deposits, sessions,
+     support inbox, audit log, client lists — dozens of usages) gets
+     wrapping for free here, rather than relying on each page having
+     remembered to add flexWrap inline. A row that doesn't fit on one
+     line on a narrow phone now drops its trailing content (amount,
+     buttons) to a second line instead of overflowing or squeezing
+     text unreadably thin. */
+  .entity-card {
+    flex-wrap: wrap;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .configurator-panel {
+    width: 100vw;
+    right: -100vw;
   }
 }
 /* ---------------------------------------------
@@ -1586,7 +1897,7 @@ tbody tr:hover {
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
 }
@@ -1613,7 +1924,7 @@ tbody tr:hover {
 .hero-stat-icon {
   width: 38px;
   height: 38px;
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1657,6 +1968,169 @@ tbody tr:hover {
 .fade-in-up-3 { animation-delay: 0.15s; }
 .fade-in-up-4 { animation-delay: 0.21s; }
 
+/* Reusable "pill" tab switcher — used anywhere two or three closely
+   related modes live side by side (Deposit/Withdraw being the first
+   case). One filled, moving-shadow indicator beats two separate
+   buttons stacked in a form, which is what this replaced. */
+.segment-tabs {
+  display: inline-flex;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  gap: 4px;
+  margin-bottom: 18px;
+}
+
+.segment-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease), transform 0.15s var(--ease);
+}
+
+.segment-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.segment-tab:active {
+  transform: scale(0.97);
+}
+
+.segment-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.segment-tab.active.tab-accent-success { color: var(--success); }
+.segment-tab.active.tab-accent-danger { color: var(--accent-bright); }
+
+/* Staggered entrance for a row of buttons/cards, e.g. payment-method
+   pickers — each child animates in slightly after the last one. */
+.stagger-in > * {
+  animation: fadeSlideUp 0.35s var(--ease) both;
+}
+.stagger-in > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger-in > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger-in > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger-in > *:nth-child(4) { animation-delay: 0.14s; }
+
+/* Support chat thread — "mine" vs "theirs" is relative to whoever's
+   looking: a client's own messages are "mine" on their screen, an
+   admin's own replies are "mine" on theirs. Computed by the page,
+   not hardcoded to a role, so the exact same CSS serves both
+   Support.jsx (client) and AdminSupportInbox.jsx (admin). */
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.chat-bubble {
+  max-width: 72%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  animation: fadeSlideUp 0.25s var(--ease) both;
+}
+
+.chat-bubble-mine {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--accent-bright), var(--accent-dark));
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble-theirs {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble-meta {
+  font-size: 10.5px;
+  margin-top: 5px;
+  opacity: 0.65;
+}
+
+.chat-composer {
+  display: flex;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-composer textarea {
+  flex: 1;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  min-height: 42px;
+  max-height: 120px;
+}
+
+
+/* Premium toggle switch — replaces raw <input type="checkbox"> for
+   on/off settings. Sliding thumb, accent color when checked. */
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: var(--border);
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+  transition: background 0.18s var(--ease);
+}
+
+.toggle-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-switch.checked {
+  background: var(--accent-bright);
+}
+
+.toggle-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.18s var(--ease);
+}
+
+.toggle-switch.checked .toggle-switch-thumb {
+  transform: translateX(18px);
+}
+
 .mini-donut-legend {
   display: flex;
   flex-direction: column;
@@ -1689,7 +2163,7 @@ tbody tr:hover {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-2);
   border: 1px solid var(--border);
   font-size: 13px;
@@ -1704,7 +2178,7 @@ tbody tr:hover {
   background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
   background-size: 200% 100%;
   animation: skeletonShine 1.4s ease-in-out infinite;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 @keyframes skeletonShine {
@@ -1740,7 +2214,7 @@ tbody tr:hover {
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   box-shadow: 0 16px 36px -18px var(--shadow-color);
   animation: toastSlideIn 0.25s ease both;

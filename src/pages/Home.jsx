@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, ShieldCheck, Users, ClipboardList, TrendingUp,
-  Bitcoin, DollarSign, LineChart as LineChartIcon, Layers, Lock,
-  CheckCircle2, Building2, Mail, Phone, Sprout, Gem, Crown
+  Bitcoin, DollarSign, LineChart as LineChartIcon, Lock,
+  CheckCircle2, Mail, Phone, Sprout, Gem, Crown
 } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { TIERS } from '../config/tiers.js'
 import { useSettings } from '../context/SettingsContext.jsx'
+import PublicFooter from '../components/PublicFooter.jsx'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -258,23 +259,7 @@ export default function Home() {
         </section>
       )}
 
-      <footer className="home-footer">
-        <div className="home-footer-icon"><Layers size={22} /></div>
-        <h2>Ready to get started?</h2>
-        <Link to="/signup" className="btn-primary" style={{ padding: '13px 24px', fontSize: 15, margin: '0 auto' }}>
-          Create your account <ArrowRight size={16} />
-        </Link>
-        <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginTop: 20, fontSize: 12.5, flexWrap: 'wrap' }}>
-          <Link to="/about" style={{ color: 'var(--text-muted)' }}>About Us</Link>
-          <Link to="/privacy" style={{ color: 'var(--text-muted)' }}>Privacy Policy</Link>
-          <Link to="/help" style={{ color: 'var(--text-muted)' }}>Help</Link>
-        </div>
-        {settings.companyAddress && (
-          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Building2 size={12} /> {settings.companyAddress}
-          </p>
-        )}
-      </footer>
+      <PublicFooter />
     </div>
   )
 }

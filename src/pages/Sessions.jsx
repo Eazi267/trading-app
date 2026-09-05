@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { CheckCircle2, Lock, TrendingUp, TrendingDown, Clock3, History, Sparkles, Sprout, Gem, Crown, X } from 'lucide-react'
+import { CheckCircle2, Lock, TrendingUp, TrendingDown, Clock3, History, Sparkles, Sprout, Gem, Crown, X, ChevronDown, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
-import { useApp } from '../context/AppContext.jsx'
+import { useApp, positionEquity } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { TIERS, getTier } from '../config/tiers.js'
+import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
 
 function formatMoney(n) {
   if (!Number.isFinite(n)) return 'no limit'
@@ -42,15 +43,17 @@ function tierIconFor(index) {
 
 export default function Sessions() {
   const { currentUser } = useAuth()
-  const { transactions, getBalanceBreakdown, getSessionsForUser, startSession, cancelAwaitingSession, closeSession, sessionCurrentValue } = useApp()
+  const { transactions, orders, getBalanceBreakdown, getSessionsForUser, startSession, cancelAwaitingSession, closeSession, sessionCurrentValue, getEffectivePricesForSession } = useApp()
   const { settings } = useSettings()
   const [selectedTier, setSelectedTier] = useState(TIERS[0].id)
   const [duration, setDuration] = useState(TIERS[0].durationDays)
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
   const [closeError, setCloseError] = useState('')
+  const [expandedSessionId, setExpandedSessionId] = useState(null)
 
   const { available } = getBalanceBreakdown(currentUser.id)
+  const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const activeSessions = mySessions.filter((s) => s.status === 'active')
   const awaitingSessions = mySessions.filter((s) => s.status === 'awaiting_start')
@@ -97,6 +100,9 @@ export default function Sessions() {
         <div className="stat-card">
           <div className="stat-label">Available to commit</div>
           <div className="stat-value">{formatMoney(available)}</div>
+          {displayCurrency.code !== 'USD' && (
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(available, displayCurrency.code)}</div>
+          )}
         </div>
       </div>
 
@@ -152,19 +158,19 @@ export default function Sessions() {
           {error && <div className="form-error">{error}</div>}
 
           <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Amount to commit (USD)</label>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
             <input
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
               style={{
-                flex: 1, padding: '10px 12px', borderRadius: 8,
+                flex: 1, minWidth: 140, padding: '10px 12px', borderRadius: 8,
                 border: '1px solid var(--border)', background: 'var(--bg)',
                 color: 'var(--text)', fontSize: 14
               }}
             />
-            <button className="tx-btn deposit" onClick={handleStart}>{isManaged ? 'Commit funds' : 'Start session'}</button>
+            <button className="tx-btn deposit" style={{ flex: 'none' }} onClick={handleStart}>{isManaged ? 'Commit funds' : 'Start session'}</button>
           </div>
 
           {(() => {
@@ -247,33 +253,98 @@ export default function Sessions() {
                 const livePnl = liveValue - s.amount
                 const isExpired = new Date(s.expiresAt).getTime() <= Date.now()
                 const isProfit = livePnl >= 0
+                const isExpanded = expandedSessionId === s.id
+                const sessionOrders = orders.filter((o) => o.sessionId === s.id)
+                const effectivePrices = getEffectivePricesForSession(s.id)
                 return (
                   <div key={s.id} className={'investment-card' + (isProfit ? '' : ' is-loss')}>
-                    <div className="investment-card-head">
-                      <div className="investment-card-tier">
-                        <div className="icon-badge">{isProfit ? <TrendingUp size={18} /> : <TrendingDown size={18} />}</div>
-                        <div>
-                          <strong>{tier?.name || s.tierId}</strong>
-                          <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{s.leverage}x leverage</div>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setExpandedSessionId(isExpanded ? null : s.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') setExpandedSessionId(isExpanded ? null : s.id) }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="investment-card-head">
+                        <div className="investment-card-tier">
+                          <div className="icon-badge">{isProfit ? <TrendingUp size={18} /> : <TrendingDown size={18} />}</div>
+                          <div>
+                            <strong>{tier?.name || s.tierId}</strong>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{s.leverage}x leverage</div>
+                          </div>
                         </div>
+                        <ChevronDown size={16} style={{ color: 'var(--text-muted)', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease)' }} />
+                      </div>
+
+                      <div className="investment-card-amount">{formatMoney(s.amount)} committed</div>
+                      <div className={'investment-card-pnl ' + (isProfit ? 'pnl-up' : 'pnl-down')}>
+                        {isProfit ? '+' : ''}{formatMoney(livePnl)}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
+                        <Clock3 size={13} /> {formatTimeLeft(s.expiresAt)}
+                      </div>
+                      <div className="progress-track" style={{ marginBottom: 4 }}>
+                        <div className="progress-fill" style={{ width: `${sessionProgress(s)}%` }} />
                       </div>
                     </div>
 
-                    <div className="investment-card-amount">{formatMoney(s.amount)} committed</div>
-                    <div className={'investment-card-pnl ' + (isProfit ? 'pnl-up' : 'pnl-down')}>
-                      {isProfit ? '+' : ''}{formatMoney(livePnl)}
-                    </div>
+                    {isExpanded && (
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: 10, paddingTop: 10 }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                          Open positions {s.positions.length > 0 ? `(${s.positions.length})` : ''}
+                        </div>
+                        {s.positions.length === 0 ? (
+                          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '0 0 12px' }}>No open positions right now — your account manager can open one.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                            {s.positions.map((p) => {
+                              const pnl = positionEquity(p, effectivePrices) - p.marginAmount
+                              const posProfit = pnl >= 0
+                              const isShort = p.direction === 'short'
+                              return (
+                                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '6px 0' }}>
+                                  {posProfit ? <TrendingUp size={13} className="pnl-up" /> : <TrendingDown size={13} className="pnl-down" />}
+                                  <span style={{ fontWeight: 600 }}>{p.symbol}</span>
+                                  <span className={'status-pill ' + (isShort ? 'status-rejected' : 'status-approved')} style={{ fontSize: 10 }}>{isShort ? 'short' : 'long'}</span>
+                                  <span style={{ color: 'var(--text-muted)' }}>{formatMoney(p.marginAmount)} · {p.leverage}x</span>
+                                  <span className={posProfit ? 'pnl-up' : 'pnl-down'} style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono', monospace" }}>
+                                    {posProfit ? '+' : ''}{formatMoney(pnl)}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>
-                      <Clock3 size={13} /> {formatTimeLeft(s.expiresAt)}
-                    </div>
-                    <div className="progress-track" style={{ marginBottom: 4 }}>
-                      <div className="progress-fill" style={{ width: `${sessionProgress(s)}%` }} />
-                    </div>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                          Trade history for this investment
+                        </div>
+                        {sessionOrders.length === 0 ? (
+                          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>No trades in this investment yet.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {sessionOrders.map((o) => (
+                              <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 0' }}>
+                                {o.type === 'open_position' ? <ArrowDownCircle size={13} style={{ color: 'var(--text-muted)' }} /> : <ArrowUpCircle size={13} style={{ color: 'var(--text-muted)' }} />}
+                                <span>{o.type === 'open_position' ? 'Opened' : 'Closed'} {o.symbol}</span>
+                                {o.direction && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>({o.direction})</span>}
+                                <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: 11 }}>{formatDate(o.date)}</span>
+                                {o.pnl != null && (
+                                  <span className={o.pnl >= 0 ? 'pnl-up' : 'pnl-down'} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                                    {o.pnl >= 0 ? '+' : ''}{formatMoney(o.pnl)}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="investment-card-footer">
                       {isExpired ? (
-                        <button className="tx-btn withdraw" style={{ padding: '6px 12px', fontSize: 12, flex: 'none' }} onClick={() => handleClose(s.id)}>
+                        <button className="tx-btn withdraw" style={{ padding: '6px 12px', fontSize: 12, flex: 'none' }} onClick={(e) => { e.stopPropagation(); handleClose(s.id) }}>
                           End session
                         </button>
                       ) : (

@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
+import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine, Receipt, Wallet } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import CollapsiblePanel, { useShowMore } from '../components/CollapsiblePanel.jsx'
-import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
+import ToggleSwitch from '../components/ToggleSwitch.jsx'
+import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
+import { useApp, getFeeOwedAmount, positionEquity } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
 import { TIERS, ALL_TIERS, getTier } from '../config/tiers.js'
+import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
+import { METHOD_LABELS } from '../config/paymentMethods.js'
+import { hasPermission } from '../config/adminTiers.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
-const METHOD_LABELS = { usdt: 'USDT', btc: 'BTC', bank: 'Bank' }
 
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -50,7 +54,10 @@ export default function AdminUserDetail() {
     applyDiscountToFee, getOutstandingFees, deleteTransaction,
     getEffectivePricesForSession, sessionScenarios, applySessionScenario, resetSessionScenario
   } = useApp()
-  const { users, setUserTier, setClientVip, currentUser, reviewKycSubmission, setKycRequired, reviewEnhancedKyc } = useAuth()
+  const { users, setUserTier, setClientVip, currentUser, reviewKycSubmission, setKycRequired, reviewEnhancedKyc, unbindWallet } = useAuth()
+  const canFinance = hasPermission(currentUser, 'finance')
+  const canTrade = hasPermission(currentUser, 'trade')
+  const canSupport = hasPermission(currentUser, 'support')
   const { notify, getNotificationsForUser } = useNotifications()
   const { settings } = useSettings()
 
@@ -62,6 +69,7 @@ export default function AdminUserDetail() {
   // Which active session the admin is currently trading against.
   const [selectedSessionId, setSelectedSessionId] = useState(null)
   const [tradeSymbol, setTradeSymbol] = useState(Object.keys(prices)[0])
+  const [tradeDirection, setTradeDirection] = useState('long')
   const [tradeMargin, setTradeMargin] = useState('')
   const [tradeError, setTradeError] = useState('')
   const [leverageInput, setLeverageInput] = useState('')
@@ -80,6 +88,7 @@ export default function AdminUserDetail() {
   const [existingDiscountHours, setExistingDiscountHours] = useState('')
   const [existingDiscountError, setExistingDiscountError] = useState('')
   const [deletingTxId, setDeletingTxId] = useState(null)
+  const [viewingTx, setViewingTx] = useState(null)
   const [kycRejectReason, setKycRejectReason] = useState('')
   const [enhancedRejectReason, setEnhancedRejectReason] = useState('')
   const [deleteReason, setDeleteReason] = useState('')
@@ -128,7 +137,7 @@ export default function AdminUserDetail() {
       setTradeError('Enter a margin amount above zero.')
       return
     }
-    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin)
+    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
     if (result.error) {
       setTradeError(result.error)
       return
@@ -246,26 +255,38 @@ export default function AdminUserDetail() {
       </button>
 
       <h1 className="page-title">{targetUser.name}</h1>
-      <p className="page-sub">{targetUser.email} — trade inside their active sessions below.</p>
+      <p className="page-sub">
+        {targetUser.email} · UID <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{targetUser.uid}</span> — trade inside their active sessions below.
+      </p>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Client balance</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
           {(() => {
             const { total, available, pending, sessionBalance, outstandingFees } = getBalanceBreakdown(userId)
+            const clientCurrency = resolveDisplayCurrency(targetUser, settings.currencyCode)
             return (
               <>
                 <div className="stat-card">
                   <div className="stat-label">Total balance</div>
                   <div className="stat-value">{formatMoney(total)}</div>
+                  {clientCurrency.code !== 'USD' && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(total, clientCurrency.code)}</div>
+                  )}
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">Available</div>
                   <div className="stat-value">{formatMoney(available)}</div>
+                  {clientCurrency.code !== 'USD' && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(available, clientCurrency.code)}</div>
+                  )}
                 </div>
                 <div className="stat-card">
                   <div className="stat-label">Committed to active sessions</div>
                   <div className="stat-value">{formatMoney(pending)}</div>
+                  {clientCurrency.code !== 'USD' && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(pending, clientCurrency.code)}</div>
+                  )}
                 </div>
                 {sessionBalance !== 0 && (
                   <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
@@ -273,12 +294,20 @@ export default function AdminUserDetail() {
                     <div className={'stat-value ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
                       {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
                     </div>
+                    {clientCurrency.code !== 'USD' && (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {sessionBalance >= 0 ? '≈ +' : '≈ '}{formatCurrency(sessionBalance, clientCurrency.code)}
+                      </div>
+                    )}
                   </div>
                 )}
                 {outstandingFees > 0 && (
                   <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
                     <div className="stat-label">Outstanding fees</div>
                     <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
+                    {clientCurrency.code !== 'USD' && (
+                      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ -{formatCurrency(outstandingFees, clientCurrency.code)}</div>
+                    )}
                   </div>
                 )}
               </>
@@ -287,6 +316,35 @@ export default function AdminUserDetail() {
         </div>
       </div>
 
+      {canSupport && (
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head"><h3>Withdrawal wallet</h3></div>
+        <div style={{ padding: '16px 20px' }}>
+          {targetUser.boundWallet ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', marginBottom: 12 }}>
+                <div className="icon-badge"><Wallet size={16} /></div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    {METHOD_LABELS[targetUser.boundWallet.method] || targetUser.boundWallet.method}
+                    {targetUser.boundWallet.chain ? ` · ${targetUser.boundWallet.chain}` : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{targetUser.boundWallet.address}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Bound {formatDate(targetUser.boundWallet.boundAt)}</div>
+                </div>
+              </div>
+              <button className="tx-btn withdraw" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => unbindWallet(userId)}>
+                Unbind wallet
+              </button>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No wallet bound yet — the client will be asked to bind one before their first crypto withdrawal.</p>
+          )}
+        </div>
+      </div>
+      )}
+
+      {canFinance && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Apply a fee</h3></div>
         {feeError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{feeError}</div>}
@@ -339,10 +397,10 @@ export default function AdminUserDetail() {
             </div>
           )
         })()}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 20px 12px', fontSize: 13, cursor: 'pointer' }}>
-          <input type="checkbox" checked={feeDiscountEnabled} onChange={(e) => setFeeDiscountEnabled(e.target.checked)} />
-          Add a temporary discount
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 20px 12px', fontSize: 13, justifyContent: 'space-between' }}>
+          <span>Add a temporary discount</span>
+          <ToggleSwitch checked={feeDiscountEnabled} onChange={setFeeDiscountEnabled} />
+        </div>
         {feeDiscountEnabled && (
           <div style={{ padding: '0 20px 16px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input
@@ -365,17 +423,13 @@ export default function AdminUserDetail() {
           Recorded immediately as an outstanding invoice in this client's Transaction History, but it does not deduct from their balance yet. It only debits once the client deposits that exact amount and you approve it — that's what actually settles the fee. A discount only lowers what's owed for the set number of hours; after that it reverts to the full amount automatically, no separate step needed.
         </p>
       </div>
+      )}
 
+      {canFinance && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Identity verification</h3></div>
         <div style={{ padding: '16px 20px' }}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-              <input
-                type="checkbox"
-                checked={!!targetUser?.kycRequired}
-                onChange={(e) => setKycRequired(userId, e.target.checked)}
-                style={{ marginTop: 3 }}
-              />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)', justifyContent: 'space-between' }}>
               <span>
                 <strong style={{ fontSize: 13.5 }}>Require verification for this client</strong>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -384,7 +438,8 @@ export default function AdminUserDetail() {
                     : 'Verification is off sitewide, but this client specifically will still be required to verify before withdrawing.'}
                 </div>
               </span>
-            </label>
+              <ToggleSwitch checked={!!targetUser?.kycRequired} onChange={(val) => setKycRequired(userId, val)} />
+            </div>
 
             {!targetUser?.kyc ? (
               <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0 }}>No document submitted yet.</p>
@@ -441,8 +496,9 @@ export default function AdminUserDetail() {
             )}
           </div>
         </div>
+      )}
 
-      {targetUser?.kycEnhanced && (
+      {canFinance && targetUser?.kycEnhanced && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head"><h3>Enhanced verification (proof of address)</h3></div>
           <div style={{ padding: '16px 20px' }}>
@@ -486,7 +542,7 @@ export default function AdminUserDetail() {
         </div>
       )}
 
-      {getOutstandingFees(userId).length > 0 && (
+      {canFinance && getOutstandingFees(userId).length > 0 && (
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
           <div className="panel-head">
             <h3>Outstanding fees ({getOutstandingFees(userId).length})</h3>
@@ -496,26 +552,19 @@ export default function AdminUserDetail() {
             This client can't withdraw until every fee below is fully paid through their Fee Balance.
           </p>
           {existingDiscountError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{existingDiscountError}</div>}
-          <table>
-            <thead><tr><th>Date</th><th>Reason</th><th>Owed now</th><th></th></tr></thead>
-            <tbody>
-              {getOutstandingFees(userId).map((fee) => {
-                const owed = getFeeOwedAmount(fee)
-                const discounted = owed < fee.amount
-                return (
-                  <tr key={fee.id}>
-                    <td>{formatDate(fee.date)}</td>
-                    <td>{fee.note || '—'}</td>
-                    <td>
-                      {discounted && <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6 }}>{formatMoney(fee.amount)}</span>}
-                      {formatMoney(owed)}
-                      {discounted && fee.discountExpiresAt && (
-                        <div style={{ fontSize: 11, color: 'var(--accent-bright)' }}>{formatTimeLeft(fee.discountExpiresAt)}</div>
-                      )}
-                    </td>
-                    <td>
+          <div style={{ padding: 16 }} className="stagger-in">
+            {getOutstandingFees(userId).map((fee) => {
+              const owed = getFeeOwedAmount(fee)
+              const discounted = owed < fee.amount
+              return (
+                <div key={fee.id} className="entity-card entity-card-accent-loss" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div className="icon-badge"><Receipt size={17} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">{fee.note || 'Fee'}</div>
+                    <div className="entity-card-meta"><span>{formatDate(fee.date)}</span></div>
+                    <div style={{ marginTop: 10 }}>
                       {discountingFeeId === fee.id ? (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                           <input
                             type="number"
                             value={existingDiscountAmount}
@@ -543,15 +592,25 @@ export default function AdminUserDetail() {
                           {discounted ? 'Update discount' : 'Add discount'}
                         </button>
                       )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="pnl-down" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>
+                      {discounted && <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6, fontWeight: 400 }}>{formatMoney(fee.amount)}</span>}
+                      {formatMoney(owed)}
+                    </div>
+                    {discounted && fee.discountExpiresAt && (
+                      <div style={{ fontSize: 11, color: 'var(--accent-bright)', marginTop: 2 }}>{formatTimeLeft(fee.discountExpiresAt)}</div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
+      {canSupport && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Message this client</h3></div>
         {messageError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{messageError}</div>}
@@ -586,22 +645,23 @@ export default function AdminUserDetail() {
           return (
             <>
               <div style={{ padding: '4px 20px 0', fontSize: 12, color: 'var(--text-muted)' }}>Recently sent</div>
-              <table>
-                <thead><tr><th>Title</th><th>Message</th><th>Sent</th></tr></thead>
-                <tbody>
-                  {priorMessages.map((n) => (
-                    <tr key={n.id}>
-                      <td>{n.title}</td>
-                      <td style={{ maxWidth: 320, whiteSpace: 'normal' }}>{n.message}</td>
-                      <td>{formatDate(n.date)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ padding: '8px 16px 16px' }} className="stagger-in">
+                {priorMessages.map((n) => (
+                  <div key={n.id} className="entity-card" style={{ alignItems: 'flex-start' }}>
+                    <div className="icon-badge"><Send size={15} /></div>
+                    <div className="entity-card-body">
+                      <div className="entity-card-title">{n.title}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{n.message}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', flex: 'none' }}>{formatDate(n.date)}</div>
+                  </div>
+                ))}
+              </div>
             </>
           )
         })()}
       </div>
+      )}
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Market prices</h3></div>
@@ -682,6 +742,7 @@ export default function AdminUserDetail() {
       </div>
 
       {/* ---------- Per-session leveraged trading ---------- */}
+      {canTrade && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Trade inside a session</h3></div>
 
@@ -807,6 +868,24 @@ export default function AdminUserDetail() {
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                     @ {formatMoney(effectivePrices[tradeSymbol])}
                   </span>
+                  <div className="segment-tabs" style={{ margin: 0, padding: 3 }}>
+                    <button
+                      type="button"
+                      className={'segment-tab' + (tradeDirection === 'long' ? ' active tab-accent-success' : '')}
+                      style={{ padding: '7px 14px' }}
+                      onClick={() => setTradeDirection('long')}
+                    >
+                      <TrendingUp size={14} /> Long
+                    </button>
+                    <button
+                      type="button"
+                      className={'segment-tab' + (tradeDirection === 'short' ? ' active tab-accent-danger' : '')}
+                      style={{ padding: '7px 14px' }}
+                      onClick={() => setTradeDirection('short')}
+                    >
+                      <TrendingDown size={14} /> Short
+                    </button>
+                  </div>
                   <input
                     type="number"
                     value={tradeMargin}
@@ -815,7 +894,7 @@ export default function AdminUserDetail() {
                     style={{ width: 170, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
                   />
                   <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleOpenPosition}>
-                    Open position ({selectedSession.leverage}x)
+                    Open {tradeDirection} position ({selectedSession.leverage}x)
                   </button>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     Committed from this session's own cash — never the client's wider balance.
@@ -827,22 +906,28 @@ export default function AdminUserDetail() {
                 ) : (
                   <table>
                     <thead>
-                      <tr><th>Symbol</th><th>Margin</th><th>Entry price</th><th>Current price</th><th>Live P&L</th><th>Action</th></tr>
+                      <tr><th>Symbol</th><th style={{ textAlign: 'right' }}>Margin</th><th style={{ textAlign: 'right' }}>Entry price</th><th style={{ textAlign: 'right' }}>Current price</th><th style={{ textAlign: 'right' }}>Live P&L</th><th></th></tr>
                     </thead>
                     <tbody>
                       {selectedSession.positions.map((p) => {
                         const currentPrice = effectivePrices[p.symbol]
-                        const livePnl = p.marginAmount * p.leverage * ((currentPrice - p.entryPrice) / p.entryPrice)
+                        const livePnl = positionEquity(p, effectivePrices) - p.marginAmount
+                        const isShort = p.direction === 'short'
                         return (
                           <tr key={p.id}>
-                            <td>{p.symbol}</td>
-                            <td>{formatMoney(p.marginAmount)}</td>
-                            <td>{formatMoney(p.entryPrice)}</td>
-                            <td>{formatMoney(currentPrice)}</td>
-                            <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'}>
+                            <td style={{ fontWeight: 600 }}>
+                              {p.symbol}
+                              <span className={'status-pill ' + (isShort ? 'status-rejected' : 'status-approved')} style={{ marginLeft: 8, fontSize: 10.5 }}>
+                                {isShort ? 'short' : 'long'}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(p.marginAmount)}</td>
+                            <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(p.entryPrice)}</td>
+                            <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(currentPrice)}</td>
+                            <td className={livePnl >= 0 ? 'pnl-up' : 'pnl-down'} style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>
                               {livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)}
                             </td>
-                            <td>
+                            <td style={{ textAlign: 'right' }}>
                               <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleClosePosition(p.id)}>
                                 Close
                               </button>
@@ -859,6 +944,7 @@ export default function AdminUserDetail() {
           </>
         )}
       </div>
+      )}
 
       {/* ---------- Trade history (legacy buy/sell + new open/close position, same audit log) ---------- */}
       <CollapsiblePanel title="Trade history" count={userOrders.length} style={{ marginTop: 16 }}>
@@ -904,22 +990,27 @@ export default function AdminUserDetail() {
           <div className="empty-state"><p>No requests yet.</p></div>
         ) : (
           <div style={{ padding: 16 }}>
-            {userTransactions.slice(0, transactionsShowMore.limit).map((t) => (
-              <div key={t.id} className="entity-card">
-                <div className="icon-badge">{t.type === 'deposit' ? <ArrowDownToLine size={17} /> : <ArrowUpFromLine size={17} />}</div>
-                <div className="entity-card-body">
-                  <div className="entity-card-title" style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')} · {formatMoney(t.amount)}</div>
-                  <div className="entity-card-meta">
-                    <span>{formatDate(t.date)}</span>
-                    {t.type === 'withdrawal' && t.withdrawalMethod && (
-                      <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
-                    )}
-                    {t.type === 'deposit' && t.depositMethod && (
-                      <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
-                    )}
-                    <span className={'status-pill status-' + t.status}>{t.status}</span>
+            {userTransactions.slice(0, transactionsShowMore.limit).map((t) => {
+              const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
+              return (
+                <div key={t.id} className="entity-card">
+                  <div className="icon-badge">{t.type === 'withdrawal' ? <ArrowUpFromLine size={17} /> : <ArrowDownToLine size={17} />}</div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title" style={{ textTransform: 'capitalize' }}>{t.type.replace('_', ' ')} · {formatMoney(t.amount)}</div>
+                    <div className="entity-card-meta">
+                      <span>{formatDate(t.date)}</span>
+                      {t.type === 'withdrawal' && t.withdrawalMethod && (
+                        <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
+                      )}
+                      {(t.type === 'deposit' || t.type === 'fee_payment') && t.depositMethod && (
+                        <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
+                      )}
+                      {wasCorrected && (
+                        <span style={{ color: 'var(--accent-bright)' }}>requested {formatMoney(t.requestedAmount)}</span>
+                      )}
+                      <span className={'status-pill status-' + t.status}>{t.status}</span>
+                    </div>
                   </div>
-                </div>
                 {deletingTxId === t.id ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 'none' }}>
                     <input
@@ -941,17 +1032,27 @@ export default function AdminUserDetail() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    className="tx-btn"
-                    style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)', flex: 'none' }}
-                    onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
-                    aria-label="Delete transaction"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+                    <button
+                      className="tx-btn"
+                      style={{ padding: '6px 10px', fontSize: 12 }}
+                      onClick={() => setViewingTx(t)}
+                    >
+                      View
+                    </button>
+                    <button
+                      className="tx-btn"
+                      style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)' }}
+                      onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
+                      aria-label="Delete transaction"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {transactionsShowMore.hasMore && (
@@ -1017,7 +1118,7 @@ export default function AdminUserDetail() {
           <>
             <table>
               <thead>
-                <tr><th>Tier</th><th>Amount</th><th>Leverage</th><th>Started</th><th>Status</th><th>Result</th><th>Action</th></tr>
+                <tr><th>Tier</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Leverage</th><th>Started</th><th>Status</th><th style={{ textAlign: 'right' }}>Result</th><th></th></tr>
               </thead>
               <tbody>
                 {userSessions.slice(0, sessionsShowMore.limit).map((s) => {
@@ -1028,10 +1129,10 @@ export default function AdminUserDetail() {
                   const wasCapped = s.status === 'closed' && s.payout < s.rawPnl
                   return (
                     <tr key={s.id}>
-                      <td>{tier?.name || s.tierId}</td>
-                      <td>{formatMoney(s.amount)}</td>
-                      <td>{isAwaiting ? '—' : `${s.leverage}x`}</td>
-                      <td>{isAwaiting ? `Committed ${formatDate(s.committedAt)}` : formatDate(s.startedAt)}</td>
+                      <td style={{ fontWeight: 600 }}>{tier?.name || s.tierId}</td>
+                      <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(s.amount)}</td>
+                      <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{isAwaiting ? '—' : `${s.leverage}x`}</td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{isAwaiting ? `Committed ${formatDate(s.committedAt)}` : formatDate(s.startedAt)}</td>
                       <td>
                         <span className={'status-pill status-' + (s.status === 'active' || s.status === 'awaiting_start' ? 'pending' : s.status === 'cancelled' ? 'rejected' : 'approved')}>
                           {isAwaiting ? 'awaiting start' : s.status}
@@ -1040,30 +1141,30 @@ export default function AdminUserDetail() {
                           <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>{formatTimeLeft(s.expiresAt)}</span>
                         )}
                       </td>
-                      <td className={isAwaiting ? undefined : (livePnl >= 0 ? 'pnl-up' : 'pnl-down')}>
+                      <td className={isAwaiting ? undefined : (livePnl >= 0 ? 'pnl-up' : 'pnl-down')} style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontWeight: isAwaiting ? 400 : 600 }}>
                         {isAwaiting
-                          ? <span style={{ color: 'var(--text-muted)' }}>{s.durationDays}-day session once started</span>
+                          ? <span style={{ color: 'var(--text-muted)', fontFamily: 'inherit', fontWeight: 400 }}>{s.durationDays}-day session once started</span>
                           : s.status === 'active'
                           ? <>{livePnl >= 0 ? '+' : ''}{formatMoney(livePnl)} (live)</>
                           : <>
                               {s.payout >= 0 ? '+' : ''}{formatMoney(s.payout)}
                               {wasCapped && (
-                                <span style={{ color: isSessionUnlocked(s.id) ? 'var(--success)' : 'var(--text-muted)', fontSize: 11 }}>
+                                <span style={{ color: isSessionUnlocked(s.id) ? 'var(--success)' : 'var(--text-muted)', fontSize: 11, fontWeight: 400 }}>
                                   {' '}(tier cap reached — extra {formatMoney(s.excessPending || (s.rawPnl - s.payout))} {isSessionUnlocked(s.id) ? 'unlocked, ready to certify' : 'locked until fee paid'})
                                 </span>
                               )}
-                              {s.closedReason === 'expired' && <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> (auto-expired)</span>}
+                              {s.closedReason === 'expired' && <span style={{ color: 'var(--text-muted)', fontSize: 11, fontWeight: 400 }}> (auto-expired)</span>}
                             </>
                         }
                       </td>
-                      <td>
+                      <td style={{ textAlign: 'right' }}>
                         {s.status === 'active' && (
                           <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => closeSession(s.id)}>
                             Close session
                           </button>
                         )}
                         {isAwaiting && (
-                          <div style={{ display: 'flex', gap: 6 }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button className="tx-btn deposit" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => beginAwaitingSession(s.id)}>
                               Begin session
                             </button>
@@ -1089,6 +1190,7 @@ export default function AdminUserDetail() {
         )}
       </CollapsiblePanel>
 
+      <TransactionDetailModal transaction={viewingTx} isAdmin={true} onClose={() => setViewingTx(null)} />
     </Layout>
   )
 }

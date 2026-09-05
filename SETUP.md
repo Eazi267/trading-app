@@ -33,7 +33,45 @@ UI when presenting to prospective clients). Keep these handy for your own testin
 - Client: `trader@pulse.app` / `trader123`
 - Admin: `admin@pulse.app` / `admin123`
 
-## If something breaks
+## Testing on your actual phone
+
+`npm run dev` now binds to your whole network (not just this computer),
+so your phone can reach it directly, live, with hot-reload — you edit
+code, save, and the phone screen updates in under a second, same as
+the browser on your laptop.
+
+1. Make sure your phone and computer are on the **same WiFi network**
+   (this won't work over mobile data, or if your computer's on a
+   different network like a work VPN)
+2. Run `npm run dev` as usual. Look at the terminal output — alongside
+   `Local: http://localhost:5173/` there's now also a line like:
+   ```
+   Network: http://192.168.1.42:5173/
+   ```
+3. Type that `Network` address into your phone's browser (Safari on
+   iPhone, Chrome on Android). That's it — you're looking at the live
+   site running on your computer.
+4. Leave both windows open side by side. Edit a file, save it, and
+   watch the phone update automatically.
+
+**If the phone can't connect:** it's almost always a firewall
+blocking the connection, not a code problem. On Windows, the first
+time you run `npm run dev` you may get a popup asking to allow Node.js
+through the firewall on private networks — click Allow. On Mac,
+System Settings → Network → Firewall may need a similar exception for
+node. If it still doesn't work, temporarily disable the firewall to
+confirm that's the cause, then re-enable it and add a proper
+exception rather than leaving it off.
+
+**Quick alternative with no phone required:** in Chrome or Firefox on
+your computer, open DevTools (F12), click the device toolbar icon (or
+Ctrl/Cmd+Shift+M), and pick a phone preset from the dropdown at the
+top. This is faster for quick iteration since there's no network step,
+but it's a simulation — always do a final check on a real phone before
+considering something done, since real mobile browsers have quirks
+(safe-area insets, actual touch behavior, real keyboard overlays) that
+DevTools can't fully replicate.
+
 Copy the exact error message from the terminal and send it to me —
 same debugging process we used for Ledger.
 

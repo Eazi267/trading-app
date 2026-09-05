@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import Layout from '../components/Layout.jsx'
+import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
 import { Inbox, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -33,6 +35,7 @@ export default function TransactionHistory() {
   const { transactions } = useApp()
   const { currentUser } = useAuth()
   const fullHistory = getFullTransactionHistory(transactions, currentUser.id)
+  const [viewingTx, setViewingTx] = useState(null)
 
   return (
     <Layout pageTitle="Transaction History">
@@ -60,7 +63,7 @@ export default function TransactionHistory() {
                 ? 'entity-card-accent-pending'
                 : isFeePayment ? '' : (signedAmount >= 0 ? 'entity-card-accent-profit' : 'entity-card-accent-loss')
               return (
-                <div key={t.id} className={'entity-card ' + accentClass}>
+                <div key={t.id} className={'entity-card ' + accentClass} style={{ cursor: 'pointer' }} onClick={() => setViewingTx(t)}>
                   <div className="icon-badge"><TypeIcon type={t.type} /></div>
                   <div className="entity-card-body">
                     <div className="entity-card-title">
@@ -96,6 +99,7 @@ export default function TransactionHistory() {
           </div>
         )}
       </div>
+      <TransactionDetailModal transaction={viewingTx} isAdmin={false} onClose={() => setViewingTx(null)} />
     </Layout>
   )
 }

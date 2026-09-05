@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { PiggyBank, Lock, Unlock, Receipt, Tag, Clock, Clock3, TrendingUp, TrendingDown, X as XIcon } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
@@ -35,8 +35,9 @@ function formatTimeLeft(iso) {
 
 export default function Balance() {
   const { currentUser } = useAuth()
-  const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees, payFeeBalance } = useApp()
+  const { transactions, getBalanceBreakdown, getSessionsForUser, sessionCurrentValue, getOutstandingFees } = useApp()
   const { settings } = useSettings()
+  const navigate = useNavigate()
 
   if (currentUser.role === 'admin') {
     return (
@@ -50,28 +51,12 @@ export default function Balance() {
   const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const outstandingFeeList = getOutstandingFees(currentUser.id)
-
-  const [payAmount, setPayAmount] = useState('')
-  const [payError, setPayError] = useState('')
-  const [paySuccess, setPaySuccess] = useState(null)
+  const totalOwed = outstandingFeeList.reduce((sum, fee) => sum + getFeeOwedAmount(fee), 0)
 
   // A Fee Balance payment already sitting in the approval queue —
   // checked from real pending-transaction data, not local state, so
   // this stays correct even after navigating away and back.
   const hasPendingFeePayment = transactions.some((t) => t.type === 'fee_payment' && t.status === 'pending')
-
-  function handlePayFeeBalance() {
-    setPayError('')
-    setPaySuccess(null)
-    const amount = parseFloat(payAmount)
-    const result = payFeeBalance(amount)
-    if (result.error) {
-      setPayError(result.error)
-      return
-    }
-    setPaySuccess(result)
-    setPayAmount('')
-  }
 
   return (
     <Layout pageTitle="Balance">
@@ -91,10 +76,16 @@ export default function Balance() {
         <div className="stat-card">
           <div className="stat-label"><Unlock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Available</div>
           <div className="stat-value">{formatMoney(available)}</div>
+          {displayCurrency.code !== 'USD' && (
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(available, displayCurrency.code)}</div>
+          )}
         </div>
         <div className="stat-card">
           <div className="stat-label"><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Pending in sessions</div>
           <div className="stat-value">{formatMoney(pending)}</div>
+          {displayCurrency.code !== 'USD' && (
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(pending, displayCurrency.code)}</div>
+          )}
         </div>
         {sessionBalance !== 0 && (
           <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
@@ -102,19 +93,27 @@ export default function Balance() {
             <div className={'stat-value ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
               {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
             </div>
+            {displayCurrency.code !== 'USD' && (
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                {sessionBalance >= 0 ? '≈ +' : '≈ '}{formatCurrency(sessionBalance, displayCurrency.code)}
+              </div>
+            )}
           </div>
         )}
         {outstandingFees > 0 && (
           <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
             <div className="stat-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Fee balance</div>
             <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
+            {displayCurrency.code !== 'USD' && (
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ -{formatCurrency(outstandingFees, displayCurrency.code)}</div>
+            )}
           </div>
         )}
       </div>
 
       {pendingSessionSettlements !== 0 && (
         <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
-          A recent session closed with a result of {pendingSessionSettlements >= 0 ? '+' : ''}{formatMoney(pendingSessionSettlements)}. It's held for admin certification before it's added to or deducted from your main balance — this applies to both profit and loss results.
+          A recent session closed with a result of {pendingSessionSettlements >= 0 ? '+' : ''}{formatMoney(pendingSessionSettlements)}. It's held for your account manager's review before it's added to or deducted from your main balance — this applies to both profit and loss results.
         </p>
       )}
 
@@ -141,67 +140,52 @@ export default function Balance() {
             leftover after everything's covered goes to your main balance, and if it's not enough your Fee
             Balance simply stays outstanding for whatever's left.
           </p>
-          <table>
-            <thead><tr><th>Date</th><th>Reason</th><th>Owed</th></tr></thead>
-            <tbody>
-              {outstandingFeeList.map((fee) => {
-                const owed = getFeeOwedAmount(fee)
-                const discounted = owed < fee.amount - (fee.amountPaid || 0)
-                const timeLeft = fee.discountExpiresAt ? formatTimeLeft(fee.discountExpiresAt) : null
-                return (
-                  <tr key={fee.id}>
-                    <td>{formatDate(fee.date)}</td>
-                    <td>{fee.note || '—'}</td>
-                    <td className="pnl-down">
-                      {discounted ? (
-                        <>
-                          <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6 }}>{formatMoney(fee.amount - (fee.amountPaid || 0))}</span>
-                          {formatMoney(owed)}
-                          {timeLeft && (
-                            <div style={{ fontSize: 11, color: 'var(--accent-bright)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                              <Tag size={11} /> Discount — {timeLeft}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <>-{formatMoney(owed)}</>
+          <div style={{ padding: 16 }} className="stagger-in">
+            {outstandingFeeList.map((fee) => {
+              const owed = getFeeOwedAmount(fee)
+              const discounted = owed < fee.amount - (fee.amountPaid || 0)
+              const timeLeft = fee.discountExpiresAt ? formatTimeLeft(fee.discountExpiresAt) : null
+              return (
+                <div key={fee.id} className="entity-card entity-card-accent-loss">
+                  <div className="icon-badge"><Receipt size={17} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title">{fee.note || 'Fee'}</div>
+                    <div className="entity-card-meta"><span>{formatDate(fee.date)}</span></div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="pnl-down" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>
+                      {discounted && (
+                        <span style={{ textDecoration: 'line-through', opacity: 0.5, marginRight: 6, fontWeight: 400 }}>
+                          {formatMoney(fee.amount - (fee.amountPaid || 0))}
+                        </span>
                       )}
-                      {fee.amountPaid > 0 && (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatMoney(fee.amountPaid)} already paid</div>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              type="number"
-              value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
-              placeholder="Amount to deposit"
-              style={{ width: 160, padding: '9px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
+                      -{formatMoney(owed)}
+                    </div>
+                    {timeLeft && (
+                      <div style={{ fontSize: 11, color: 'var(--accent-bright)', display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
+                        <Tag size={11} /> Discount — {timeLeft}
+                      </div>
+                    )}
+                    {fee.amountPaid > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{formatMoney(fee.amountPaid)} already paid</div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>
             <button
               className="tx-btn deposit"
-              style={{ padding: '9px 16px', fontSize: 13, flex: 'none' }}
-              onClick={handlePayFeeBalance}
+              style={{ padding: '9px 16px', fontSize: 13 }}
+              onClick={() => navigate(`/transactions?fee=1&amount=${totalOwed.toFixed(2)}`)}
               disabled={hasPendingFeePayment}
             >
-              {hasPendingFeePayment ? 'Awaiting approval' : 'Deposit toward fees'}
+              {hasPendingFeePayment ? 'Awaiting approval' : 'Pay this fee'}
             </button>
           </div>
-          {payError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{payError}</div>}
-          {paySuccess && (
-            <div style={{ margin: '0 20px 16px', fontSize: 12.5, color: 'var(--success)' }}>
-              Submitted — {paySuccess.spilloverAmount > 0
-                ? `${formatMoney(paySuccess.amount - paySuccess.spilloverAmount)} will clear your Fee Balance and ${formatMoney(paySuccess.spilloverAmount)} will go to your main balance once approved.`
-                : 'this will apply to your Fee Balance once approved.'}
-            </div>
-          )}
           <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-            Submitting needs admin approval, same as any deposit, before it actually clears anything.
+            Takes you to the Deposit page to pick how you're sending it — needs admin approval, same as any deposit, before it actually clears anything.
           </p>
         </div>
       )}

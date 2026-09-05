@@ -39,7 +39,7 @@ export default function AdminEmailOutbox() {
       <div className="panel">
         <div className="panel-head"><h3>{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</h3></div>
         {filtered.length === 0 ? (
-          <div className="empty-state"><p>Nothing has triggered an email yet.</p></div>
+          <div className="empty-state"><p>{outbox.length === 0 ? 'Nothing has triggered an email yet.' : 'No emails match this search.'}</p></div>
         ) : (
           <div style={{ padding: 16 }}>
             {filtered.map((e) => (

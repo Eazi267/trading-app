@@ -1,14 +1,16 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip } from 'recharts'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Wallet, TrendingUp, Target, Activity } from 'lucide-react'
+import { ArrowRight, Wallet, TrendingUp, TrendingDown, Target, Activity } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useSettings } from '../context/SettingsContext.jsx'
 import { useCountUp } from '../hooks/useCountUp.js'
 import { useSkeleton } from '../hooks/useSkeleton.js'
 import { getTradeStats, getProfitBreakdown, getActiveTradeCount, getClosedPositions } from '../utils/analytics.js'
 import { dedupeSeriesForSymbol, tightDomain } from '../utils/priceCharts.js'
 import { getTier } from '../config/tiers.js'
+import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
 import AdminDashboardView from './AdminDashboardView.jsx'
 
 function formatMoney(n) {
@@ -22,13 +24,14 @@ function formatDate(iso) {
 // A hero stat card whose number counts up/down to its real value
 // instead of snapping — the value itself is always whatever was
 // passed in, never a placeholder.
-function HeroStat({ icon: Icon, label, value, formatter, deltaLabel, deltaPositive, animationClass }) {
+function HeroStat({ icon: Icon, label, value, formatter, deltaLabel, deltaPositive, animationClass, equivalent }) {
   const animated = useCountUp(value)
   return (
     <div className={'glass-card hero-stat-card ' + animationClass}>
       <div className="hero-stat-icon"><Icon size={18} /></div>
       <div className="hero-stat-label">{label}</div>
       <div className="hero-stat-value">{formatter(animated)}</div>
+      {equivalent && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{equivalent}</div>}
       {deltaLabel && (
         <div className={'hero-stat-delta ' + (deltaPositive ? 'pnl-up' : 'pnl-down')}>{deltaLabel}</div>
       )}
@@ -40,6 +43,7 @@ export default function Dashboard() {
   const loading = useSkeleton(500)
   const { prices, history, orders, transactions, sessions, getBalanceBreakdown, getSessionsForUser } = useApp()
   const { currentUser } = useAuth()
+  const { settings } = useSettings()
 
   if (currentUser.role === 'admin') {
     return (
@@ -50,6 +54,7 @@ export default function Dashboard() {
   }
 
   const { total, available } = getBalanceBreakdown(currentUser.id)
+  const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const activeSessions = mySessions.filter((s) => s.status === 'active')
   const hasNoSessionsYet = mySessions.length === 0
@@ -102,6 +107,7 @@ export default function Dashboard() {
           label="Portfolio value"
           value={total}
           formatter={formatMoney}
+          equivalent={displayCurrency.code !== 'USD' ? `≈ ${formatCurrency(total, displayCurrency.code)}` : undefined}
           animationClass="fade-in-up fade-in-up-1"
         />
         <HeroStat
@@ -219,20 +225,26 @@ export default function Dashboard() {
         {recentTrades.length === 0 ? (
           <div className="empty-state"><p>No closed trades yet — once a position closes, it'll show up here.</p></div>
         ) : (
-          <table>
-            <thead><tr><th>Symbol</th><th>Margin</th><th>Leverage</th><th>P&amp;L</th><th>Closed</th></tr></thead>
-            <tbody>
-              {recentTrades.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.symbol}</td>
-                  <td>{formatMoney(t.marginAmount)}</td>
-                  <td>{t.leverage}x</td>
-                  <td className={t.pnl >= 0 ? 'pnl-up' : 'pnl-down'}>{t.pnl >= 0 ? '+' : ''}{formatMoney(t.pnl)}</td>
-                  <td>{formatDate(t.date)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ padding: 16 }} className="stagger-in">
+            {recentTrades.map((t) => (
+              <div key={t.id} className={'entity-card ' + (t.pnl >= 0 ? 'entity-card-accent-profit' : 'entity-card-accent-loss')}>
+                <div className="icon-badge">{t.pnl >= 0 ? <TrendingUp size={17} /> : <TrendingDown size={17} />}</div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{t.symbol}</div>
+                  <div className="entity-card-meta">
+                    <span>{formatMoney(t.marginAmount)} margin</span>
+                    <span>{t.leverage}x</span>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div className={t.pnl >= 0 ? 'pnl-up' : 'pnl-down'} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>
+                    {t.pnl >= 0 ? '+' : ''}{formatMoney(t.pnl)}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{formatDate(t.date)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </Layout>

@@ -1,9 +1,12 @@
-import { Inbox, Check, X, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Gift, Play, Lock, ShieldCheck } from 'lucide-react'
+import { useState } from 'react'
+import { Inbox, Check, X, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Gift, Play, Lock, ShieldCheck, Camera, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout.jsx'
+import ScreenshotUploader from '../components/ScreenshotUploader.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getTier } from '../config/tiers.js'
+import { METHOD_LABELS } from '../config/paymentMethods.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -18,7 +21,6 @@ function formatType(type) {
   return type.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
-const METHOD_LABELS = { usdt: 'USDT', btc: 'BTC', bank: 'Bank' }
 
 // A distinct icon per request type — the whole point of a card
 // layout over a table is that the type is recognizable at a glance,
@@ -31,13 +33,27 @@ function TypeIcon({ type }) {
 }
 
 export default function AdminRequests() {
-  const { transactions, sessions, approveTransaction, rejectTransaction, beginAwaitingSession, cancelAwaitingSession, isSessionUnlocked } = useApp()
+  const { transactions, sessions, approveTransaction, rejectTransaction, correctTransactionAmount, beginAwaitingSession, cancelAwaitingSession, isSessionUnlocked } = useApp()
   const { users } = useAuth()
+  const [correctingId, setCorrectingId] = useState(null)
+  const [correctionDraft, setCorrectionDraft] = useState({ amount: '', screenshots: [], note: '' })
   const pending = transactions.filter((t) => t.status === 'pending')
   const awaitingSessions = sessions.filter((s) => s.status === 'awaiting_start')
   const pendingKyc = users.filter((u) => u.kyc?.status === 'pending')
   const pendingEnhancedKyc = users.filter((u) => u.kycEnhanced?.status === 'pending')
   const resolved = transactions.filter((t) => t.status !== 'pending').slice(0, 10)
+
+  function startCorrecting(t) {
+    setCorrectingId(t.id)
+    setCorrectionDraft({ amount: t.amount, screenshots: t.correctionEvidence || [], note: t.correctionNote || '' })
+  }
+
+  function saveCorrection(id) {
+    const value = parseFloat(correctionDraft.amount)
+    if (!value || value <= 0) return
+    correctTransactionAmount(id, value, correctionDraft.screenshots, correctionDraft.note)
+    setCorrectingId(null)
+  }
 
   return (
     <Layout pageTitle="Pending Requests">
@@ -111,8 +127,11 @@ export default function AdminRequests() {
               const isSignedType = t.type === 'session_settlement' || t.type === 'capped_profit_release'
               const isLoss = isSignedType && t.amount < 0
               const isLockedExcess = t.type === 'capped_profit_release' && !isSessionUnlocked(t.sessionId)
+              const canCorrect = (t.type === 'deposit' || t.type === 'fee_payment') && !isLockedExcess
+              const isCorrecting = correctingId === t.id
+              const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
               return (
-                <div key={t.id} className={'entity-card ' + (isLockedExcess ? 'entity-card-accent-pending' : isSignedType ? (isLoss ? 'entity-card-accent-loss' : 'entity-card-accent-profit') : 'entity-card-accent-pending')}>
+                <div key={t.id} className={'entity-card ' + (isLockedExcess ? 'entity-card-accent-pending' : isSignedType ? (isLoss ? 'entity-card-accent-loss' : 'entity-card-accent-profit') : 'entity-card-accent-pending')} style={{ flexWrap: 'wrap' }}>
                   <div className="icon-badge">{isLockedExcess ? <Lock size={17} /> : <TypeIcon type={t.type} />}</div>
                   <div className="entity-card-body">
                     <div className="entity-card-title">
@@ -123,13 +142,19 @@ export default function AdminRequests() {
                       {t.type === 'withdrawal' && t.withdrawalMethod && (
                         <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
                       )}
-                      {t.type === 'deposit' && t.depositMethod && (
+                      {(t.type === 'deposit' || t.type === 'fee_payment') && t.depositMethod && (
                         <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
                       )}
                       {t.type === 'deposit' && t.verificationStatus === 'unavailable' && (
                         <span style={{ color: 'var(--text-muted)' }}>Blockchain verification: not connected — review manually</span>
                       )}
                       {isLockedExcess && <span style={{ color: 'var(--accent-bright)' }}>Needs a paid unlock fee before release</span>}
+                      {wasCorrected && (
+                        <span style={{ color: 'var(--accent-bright)' }}>
+                          Requested {formatMoney(t.requestedAmount)} → confirmed {formatMoney(t.amount)}
+                          {t.correctionEvidence?.length > 0 ? ` · ${t.correctionEvidence.length} screenshot${t.correctionEvidence.length === 1 ? '' : 's'}` : ''}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div
@@ -141,6 +166,16 @@ export default function AdminRequests() {
                     {isSignedType && t.amount >= 0 ? '+' : ''}{formatMoney(t.amount)}
                   </div>
                   <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
+                    {canCorrect && (
+                      <button
+                        className="tx-btn"
+                        style={{ padding: '6px 10px', fontSize: 12 }}
+                        onClick={() => (isCorrecting ? setCorrectingId(null) : startCorrecting(t))}
+                      >
+                        <Camera size={13} /> {wasCorrected ? 'Edit correction' : 'Correct amount'}
+                        <ChevronDown size={12} style={{ transform: isCorrecting ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease)' }} />
+                      </button>
+                    )}
                     {isLockedExcess ? (
                       <Link to={`/admin/users/${t.userId}`} className="tx-btn" style={{ padding: '6px 10px', fontSize: 12, textDecoration: 'none' }}>
                         Add fee
@@ -154,6 +189,41 @@ export default function AdminRequests() {
                       <X size={15} />
                     </button>
                   </div>
+
+                  {isCorrecting && (
+                    <div style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>
+                        Fix this before approving if the client sent more or less than they requested — the amount
+                        below is what actually lands on their balance{t.type === 'fee_payment' ? ' and fee allocation' : ''}, not what they typed.
+                      </p>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
+                        <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                          Actual amount received (USD)
+                          <input
+                            type="number"
+                            value={correctionDraft.amount}
+                            onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, amount: e.target.value }))}
+                            style={{ display: 'block', width: 160, marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                          />
+                        </label>
+                        <input
+                          type="text"
+                          value={correctionDraft.note}
+                          onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, note: e.target.value }))}
+                          placeholder="Note (optional) — e.g. network fee deducted"
+                          style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                        />
+                      </div>
+                      <ScreenshotUploader
+                        label="Evidence (transaction hash, wallet balance, bank receipt, etc.)"
+                        images={correctionDraft.screenshots}
+                        onChange={(screenshots) => setCorrectionDraft((prev) => ({ ...prev, screenshots }))}
+                      />
+                      <button className="tx-btn deposit" style={{ marginTop: 10, padding: '8px 16px', fontSize: 13 }} onClick={() => saveCorrection(t.id)}>
+                        Save correction
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}

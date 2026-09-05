@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search } from 'lucide-react'
+import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search, Zap, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAudit } from '../context/AuditContext.jsx'
 
@@ -63,7 +63,11 @@ const ACTION_ICONS = {
   vip_revoked: Star,
   flagged_for_review: Flag,
   demo_clients_generated: Users2,
-  demo_clients_removed: Users2
+  demo_clients_removed: Users2,
+  session_leverage_changed: Zap,
+  session_duration_changed: Clock,
+  session_position_opened: ArrowUpRight,
+  session_position_closed: ArrowDownRight
 }
 function iconFor(action) {
   if (action.startsWith('referral_campaign')) return Gift

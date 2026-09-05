@@ -1,8 +1,23 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { LineChart, TrendingUp, Zap, Activity, BarChart3, Shield } from 'lucide-react'
 import { BRAND as BRAND_DEFAULTS } from '../config/brand.js'
+import { TIERS as DEFAULT_TIERS, VIP_TIERS as DEFAULT_VIP_TIERS, setTierConfig } from '../config/tiers.js'
 
 const SettingsContext = createContext(null)
+
+// localStorage is JSON, and JSON has no representation for Infinity
+// (JSON.stringify(Infinity) silently becomes null) — but a tier's
+// maxDeposit legitimately needs "no upper limit" (see Major VIP).
+// These two functions are the only place that translation happens,
+// so every other reader of settings.tiers/vipTiers just sees a
+// normal JS Infinity, same as the original hardcoded config did.
+const INFINITY_MARKER = '__INFINITY__'
+function packTiers(tiers) {
+  return tiers.map((t) => ({ ...t, maxDeposit: t.maxDeposit === Infinity ? INFINITY_MARKER : t.maxDeposit }))
+}
+function unpackTiers(tiers) {
+  return tiers.map((t) => ({ ...t, maxDeposit: t.maxDeposit === INFINITY_MARKER ? Infinity : t.maxDeposit }))
+}
 
 // Derives the --accent-dark/--accent-bright/--accent-bg shades from
 // one admin-picked hex, the same four variables every preset accent
@@ -24,6 +39,15 @@ export const LOGO_ICONS = {
 }
 
 const DEFAULT_SETTINGS = {
+  // Investment tiers — admin-editable in Business Settings ("Investment
+  // Tiers"). Stored here (not just in config/tiers.js) so an admin's
+  // edits persist and travel with the rest of the business config.
+  // maxDeposit uses Infinity for "no upper limit" (see Major VIP) —
+  // see packTiers/unpackTiers above for why that needs special
+  // handling around localStorage specifically.
+  tiers: DEFAULT_TIERS,
+  vipTiers: DEFAULT_VIP_TIERS,
+
   brandName: BRAND_DEFAULTS.name,
   brandTagline: BRAND_DEFAULTS.tagline,
   logoIconKey: 'LineChart',
@@ -189,12 +213,31 @@ const DEFAULT_SETTINGS = {
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('pulse_business_settings')
-    return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS
+    if (!saved) return DEFAULT_SETTINGS
+    const parsed = JSON.parse(saved)
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      tiers: parsed.tiers ? unpackTiers(parsed.tiers) : DEFAULT_SETTINGS.tiers,
+      vipTiers: parsed.vipTiers ? unpackTiers(parsed.vipTiers) : DEFAULT_SETTINGS.vipTiers
+    }
   })
 
   useEffect(() => {
-    localStorage.setItem('pulse_business_settings', JSON.stringify(settings))
+    localStorage.setItem('pulse_business_settings', JSON.stringify({
+      ...settings,
+      tiers: packTiers(settings.tiers),
+      vipTiers: packTiers(settings.vipTiers)
+    }))
   }, [settings])
+
+  // Pushes whatever tier list is currently in settings (admin-edited
+  // or still the defaults) into config/tiers.js's live bindings — see
+  // that file's top comment for why this is the one place this needs
+  // to happen for the whole app to pick up the change.
+  useEffect(() => {
+    setTierConfig(settings.tiers, settings.vipTiers)
+  }, [settings.tiers, settings.vipTiers])
 
   // Overrides the four accent CSS variables directly on the root
   // element when a custom color is set — inline style on the element

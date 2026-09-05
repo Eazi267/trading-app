@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home } from 'lucide-react'
+import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home, Menu } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
@@ -16,7 +16,7 @@ function timeAgo(iso) {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-export default function Topbar({ pageTitle }) {
+export default function Topbar({ pageTitle, onMenuClick }) {
   const { theme, setTheme, priceFeedStatus } = useApp()
   const { currentUser, logout } = useAuth()
   const { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead } = useNotifications()
@@ -51,6 +51,9 @@ export default function Topbar({ pageTitle }) {
   return (
     <div>
       <div className="topbar-row">
+        <button className="icon-btn mobile-menu-btn" onClick={onMenuClick} aria-label="Open menu">
+          <Menu size={18} />
+        </button>
         <span className={'badge-demo' + (priceFeedStatus.error ? ' badge-feed-warning' : '')}>
           {priceFeedStatus.error ? <WifiOff size={13} /> : <Wifi size={13} />}
           {priceFeedStatus.error

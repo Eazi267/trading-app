@@ -83,16 +83,16 @@ export default function AdminBalanceView() {
           <div className="empty-state"><p>No clients yet.</p></div>
         ) : (
           <table>
-            <thead><tr><th>Client</th><th>Tier</th><th>Total</th><th>Available</th><th>Committed</th><th>Pending review</th></tr></thead>
+            <thead><tr><th>Client</th><th>Tier</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Available</th><th style={{ textAlign: 'right' }}>Committed</th><th style={{ textAlign: 'right' }}>Pending review</th></tr></thead>
             <tbody>
               {balances.map((b) => (
                 <tr key={b.user.id}>
                   <td><Link to={`/admin/users/${b.user.id}`} style={{ color: 'inherit', fontWeight: 600 }}>{b.user.name}</Link></td>
                   <td>{getTier(b.user.tier)?.name || 'None'}</td>
-                  <td>{formatMoney(b.total)}</td>
-                  <td>{formatMoney(b.available)}</td>
-                  <td>{formatMoney(b.committed)}</td>
-                  <td>{b.pendingReview > 0 ? formatMoney(b.pendingReview) : '—'}</td>
+                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.total)}</td>
+                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.available)}</td>
+                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.committed)}</td>
+                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: b.pendingReview > 0 ? 'var(--accent-bright)' : 'var(--text-muted)' }}>{b.pendingReview > 0 ? formatMoney(b.pendingReview) : '—'}</td>
                 </tr>
               ))}
             </tbody>

@@ -72,18 +72,18 @@ export default function AdminAnalyticsView() {
           <div className="empty-state"><p>No active sessions right now.</p></div>
         ) : (
           <table>
-            <thead><tr><th>Client</th><th>Tier</th><th>Amount</th><th>Leverage</th><th>Live value</th><th>Time left</th><th>Scenario</th></tr></thead>
+            <thead><tr><th>Client</th><th>Tier</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Leverage</th><th style={{ textAlign: 'right' }}>Live value</th><th style={{ textAlign: 'right' }}>Time left</th><th>Scenario</th></tr></thead>
             <tbody>
               {activeSessions.map(({ session, owner }) => {
                 const scenario = sessionScenarios[session.id]
                 return (
                   <tr key={session.id}>
-                    <td>{owner?.name || `User #${session.userId}`}</td>
+                    <td style={{ fontWeight: 600 }}>{owner?.name || `User #${session.userId}`}</td>
                     <td>{getTier(session.tierId)?.name || session.tierId}</td>
-                    <td>{formatMoney(session.amount)}</td>
-                    <td>{session.leverage}x</td>
-                    <td>{formatMoney(sessionCurrentValue(session))}</td>
-                    <td>{formatTimeLeft(session.expiresAt)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(session.amount)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{session.leverage}x</td>
+                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(sessionCurrentValue(session))}</td>
+                    <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 13 }}>{formatTimeLeft(session.expiresAt)}</td>
                     <td>
                       {!scenario ? (
                         <span className="status-pill status-approved">Normal</span>

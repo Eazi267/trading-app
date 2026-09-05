@@ -3,14 +3,21 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
-import { COUNTRIES } from '../config/currencies.js'
+import { COUNTRIES, guessCountryFromTimezone } from '../config/currencies.js'
 
 export default function Signup() {
   const [searchParams] = useSearchParams()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [country, setCountry] = useState(COUNTRIES[0])
+  // Prefilled from the browser's own timezone, not an IP lookup —
+  // see guessCountryFromTimezone's comment for why. Always just a
+  // starting point: countryWasGuessed only controls whether we show
+  // the "detected" hint, and flips off the moment the client touches
+  // the dropdown themselves.
+  const guessedCountry = guessCountryFromTimezone()
+  const [country, setCountry] = useState(guessedCountry || COUNTRIES[0])
+  const [countryWasGuessed, setCountryWasGuessed] = useState(!!guessedCountry)
   const [referralCodeUsed, setReferralCodeUsed] = useState(searchParams.get('ref') || '')
   const [error, setError] = useState('')
   const { signup } = useAuth()
@@ -69,10 +76,15 @@ export default function Signup() {
           <label>Country</label>
           <div className="field-input-wrap">
             <Globe2 size={16} />
-            <select value={country} onChange={(e) => setCountry(e.target.value)}>
+            <select value={country} onChange={(e) => { setCountry(e.target.value); setCountryWasGuessed(false) }}>
               {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {countryWasGuessed && (
+            <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '-10px 0 16px' }}>
+              Detected from your device's timezone — change it if this isn't right.
+            </p>
+          )}
 
           <label>Referral code (optional)</label>
           <div className="field-input-wrap">

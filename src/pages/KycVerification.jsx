@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ShieldCheck, Upload, Clock3, CheckCircle2, XCircle } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import FileDropInput from '../components/FileDropInput.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 
@@ -110,20 +111,20 @@ export default function KycVerification() {
               </select>
             </label>
 
-            <label style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-              Front of document
-              <input type="file" accept="image/*" onChange={async (e) => setFrontImage(e.target.files[0] ? await readAsDataUrl(e.target.files[0]) : null)} style={{ display: 'block', marginTop: 4, fontSize: 12.5 }} />
-            </label>
-            {frontImage && <img src={frontImage} alt="Front preview" style={{ maxWidth: 220, borderRadius: 8, border: '1px solid var(--border)' }} />}
+            <FileDropInput
+              label="Front of document"
+              value={frontImage}
+              onFile={async (file) => setFrontImage(await readAsDataUrl(file))}
+              onClear={() => setFrontImage(null)}
+            />
 
             {needsBackSide && (
-              <>
-                <label style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-                  Back of document
-                  <input type="file" accept="image/*" onChange={async (e) => setBackImage(e.target.files[0] ? await readAsDataUrl(e.target.files[0]) : null)} style={{ display: 'block', marginTop: 4, fontSize: 12.5 }} />
-                </label>
-                {backImage && <img src={backImage} alt="Back preview" style={{ maxWidth: 220, borderRadius: 8, border: '1px solid var(--border)' }} />}
-              </>
+              <FileDropInput
+                label="Back of document"
+                value={backImage}
+                onFile={async (file) => setBackImage(await readAsDataUrl(file))}
+                onClear={() => setBackImage(null)}
+              />
             )}
 
             {error && <div className="form-error">{error}</div>}
@@ -170,11 +171,12 @@ export default function KycVerification() {
 
             {(!kycEnhanced || kycEnhanced.status === 'rejected') && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: kycEnhanced ? 0 : 4 }}>
-                <label style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-                  Proof of address
-                  <input type="file" accept="image/*" onChange={async (e) => setEnhancedImage(e.target.files[0] ? await readAsDataUrl(e.target.files[0]) : null)} style={{ display: 'block', marginTop: 4, fontSize: 12.5 }} />
-                </label>
-                {enhancedImage && <img src={enhancedImage} alt="Proof of address preview" style={{ maxWidth: 220, borderRadius: 8, border: '1px solid var(--border)' }} />}
+                <FileDropInput
+                  label="Proof of address"
+                  value={enhancedImage}
+                  onFile={async (file) => setEnhancedImage(await readAsDataUrl(file))}
+                  onClear={() => setEnhancedImage(null)}
+                />
                 {enhancedError && <div className="form-error">{enhancedError}</div>}
                 <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }} onClick={handleSubmitEnhanced}>
                   <Upload size={14} /> Submit for review

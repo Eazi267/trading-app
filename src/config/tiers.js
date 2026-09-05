@@ -5,11 +5,21 @@
 // only real, calculated gains are bounded, and only once a
 // session closes. Nothing here promises a return up front.
 //
-// Single source of truth pattern — change the numbers here, nothing
-// else should hardcode tier values.
+// These are `let`, not `const` — deliberately. Business
+// Settings (see AdminBusinessSettings.jsx's "Investment Tiers"
+// section) lets an admin add, remove, rename, and re-tune tiers
+// at runtime, persisted through SettingsContext the same way
+// every other business setting is. SettingsContext calls
+// setTierConfig() whenever the admin-edited tier list changes.
+// ES module bindings are LIVE, so every file that already does
+// `import { TIERS, getTier } from './tiers.js'` sees the updated
+// values automatically — nothing else needed to change to make
+// tiers admin-configurable. The arrays below are the fallback/
+// initial values before Settings has hydrated from localStorage,
+// not the permanent source of truth anymore.
 // ---------------------------------------------------------
 
-export const TIERS = [
+export let TIERS = [
   {
     id: 'tier1',
     name: 'Tier 1 — Starter',
@@ -50,13 +60,7 @@ export const TIERS = [
 
 // Hidden, admin-only tiers — never shown in a client's own tier
 // picker (Sessions.jsx filters these out by checking `hidden`).
-// Mini VIP covers accounts too small for Tier 1's $100 floor; Major
-// VIP covers the same $25,000+ bracket that already gets flagged for
-// manual review at deposit time (LARGE_ACCOUNT_THRESHOLD below) — so
-// requiring an admin to set these up isn't a new rule, it's the same
-// "large/unusual accounts get a human, not an auto-assignment" rule
-// already in place, just extended to the tier itself.
-export const VIP_TIERS = [
+export let VIP_TIERS = [
   {
     id: 'mini_vip',
     name: 'Mini VIP',
@@ -89,7 +93,18 @@ export const VIP_TIERS = [
 // session's tier needs to resolve correctly regardless of whether a
 // client would ever see it in their own picker (settlement math,
 // leverage clamping, admin's own tier-assignment dropdown, etc).
-export const ALL_TIERS = [...TIERS, ...VIP_TIERS]
+export let ALL_TIERS = [...TIERS, ...VIP_TIERS]
+
+// Called by SettingsContext whenever the admin-edited tier list
+// changes (including once on initial mount, with whatever was
+// persisted or the defaults above). Reassigns the exported bindings
+// in place so every existing importer picks up the new values
+// without needing to change how they read TIERS/getTier/etc.
+export function setTierConfig(tiers, vipTiers) {
+  TIERS = tiers && tiers.length > 0 ? tiers : TIERS
+  VIP_TIERS = vipTiers || VIP_TIERS
+  ALL_TIERS = [...TIERS, ...VIP_TIERS]
+}
 
 // Deposits at or above this amount skip the automated tier
 // bands entirely — they're flagged for the admin to review

@@ -1,6 +1,13 @@
-import { Star } from 'lucide-react'
+import { Star, Bitcoin, Coins, Landmark, Gem } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
+
+function symbolIcon(symbol) {
+  if (symbol.startsWith('BTC')) return Bitcoin
+  if (symbol.startsWith('ETH')) return Coins
+  if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) return Gem // metals
+  return Landmark // forex pairs
+}
 
 export default function Watchlist() {
   const { prices, watchlist, toggleWatchlist } = useApp()
@@ -14,36 +21,31 @@ export default function Watchlist() {
         <div className="panel-head">
           <h3>All symbols</h3>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Symbol</th>
-              <th>Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(prices).map(([symbol, price]) => {
-              const starred = watchlist.includes(symbol)
-              return (
-                <tr key={symbol}>
-                  <td>
-                    <button
-                      onClick={() => toggleWatchlist(symbol)}
-                      className="star-toggle-btn"
-                      style={{ color: starred ? 'var(--accent-bright)' : 'var(--text-muted)' }}
-                      aria-label={starred ? 'Remove from watchlist' : 'Add to watchlist'}
-                    >
-                      <Star size={16} fill={starred ? 'currentColor' : 'none'} />
-                    </button>
-                  </td>
-                  <td>{symbol}</td>
-                  <td>{price.toFixed(price > 100 ? 2 : 4)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <div style={{ padding: 16 }} className="stagger-in">
+          {Object.entries(prices).map(([symbol, price]) => {
+            const starred = watchlist.includes(symbol)
+            const Icon = symbolIcon(symbol)
+            return (
+              <div key={symbol} className="entity-card">
+                <div className="icon-badge"><Icon size={17} /></div>
+                <div className="entity-card-body">
+                  <div className="entity-card-title">{symbol}</div>
+                </div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, marginRight: 4 }}>
+                  {price.toFixed(price > 100 ? 2 : 4)}
+                </div>
+                <button
+                  onClick={() => toggleWatchlist(symbol)}
+                  className="star-toggle-btn"
+                  style={{ color: starred ? 'var(--accent-bright)' : 'var(--text-muted)' }}
+                  aria-label={starred ? 'Remove from watchlist' : 'Add to watchlist'}
+                >
+                  <Star size={18} fill={starred ? 'currentColor' : 'none'} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {watchlist.length > 0 && (

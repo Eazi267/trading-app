@@ -3,19 +3,30 @@ import { useAudit } from './AuditContext.jsx'
 import { useEmail, fillTemplate } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
 import { COUNTRY_CURRENCY } from '../config/currencies.js'
+import { ADMIN_TIERS } from '../config/adminTiers.js'
 
 const AuthContext = createContext(null)
 
 const SEED_USERS = [
-  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString(), tier: 'tier1', flaggedForReview: false, vipUnlocked: null },
-  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString(), tier: null, flaggedForReview: false, vipUnlocked: null }
+  { id: 1, name: 'Demo Trader', email: 'trader@pulse.app', password: 'trader123', role: 'user', uid: '100000001', referralCode: 'TRADER01', referredBy: null, createdAt: new Date().toISOString(), tier: 'tier1', flaggedForReview: false, vipUnlocked: null },
+  { id: 2, name: 'Demo Admin', email: 'admin@pulse.app', password: 'admin123', role: 'admin', adminTier: 'super_admin', uid: '100000002', referralCode: 'ADMIN01', referredBy: null, createdAt: new Date().toISOString(), tier: null, flaggedForReview: false, vipUnlocked: null }
 ]
 
 function loadUsers() {
   const saved = localStorage.getItem('pulse_users')
-  if (saved) return JSON.parse(saved)
-  localStorage.setItem('pulse_users', JSON.stringify(SEED_USERS))
-  return SEED_USERS
+  if (!saved) {
+    localStorage.setItem('pulse_users', JSON.stringify(SEED_USERS))
+    return SEED_USERS
+  }
+  const parsed = JSON.parse(saved)
+  // Backfill for accounts created before uid existed — every user
+  // needs one, not just accounts created going forward.
+  if (parsed.some((u) => !u.uid)) {
+    const withUids = parsed.map((u) => (u.uid ? u : { ...u, uid: generateUid(parsed) }))
+    localStorage.setItem('pulse_users', JSON.stringify(withUids))
+    return withUids
+  }
+  return parsed
 }
 
 function loadProfiles() {
@@ -39,6 +50,22 @@ function generateReferralCode(name, existingUsers) {
     code = `${initials}${random}`
   } while (existingUsers.some((u) => u.referralCode === code))
   return code
+}
+
+// A unique, alternate login credential — separate from email, never
+// changes, and usable in place of it (see login() below). Purely
+// numeric and fixed-length on purpose: unlike an email, it can be
+// read aloud over a support call or written on a note without any
+// ambiguity about formatting. Not offered as a visible login option
+// anywhere in the UI (Login.jsx never mentions it) — it's there for
+// support-assisted account access and for referencing an account
+// precisely (e.g. in an appeal), not as a marketed alternative.
+function generateUid(existingUsers) {
+  let uid
+  do {
+    uid = String(Math.floor(100000000 + Math.random() * 900000000)) // 9 digits
+  } while (existingUsers.some((u) => u.uid === uid))
+  return uid
 }
 
 // Plausible-looking names/emails for the demo client generator below.
@@ -81,16 +108,23 @@ export function AuthProvider({ children }) {
   }
 
   function login(email, password) {
-    const match = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    )
-    if (match) {
-      const merged = mergeProfile(match)
-      setCurrentUser(merged)
-      localStorage.setItem('pulse_current_user', JSON.stringify(merged))
-      return merged
+    // Email must match exactly — the UID is a hidden alternate for
+    // the PASSWORD field specifically, not the identifier. See
+    // generateUid's comment: this exists for support-assisted access
+    // (a client who's lost their password but still knows their
+    // email can be given their UID to use here instead), never
+    // surfaced as an option in Login.jsx itself.
+    const match = users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase())
+    if (!match || (match.password !== password && match.uid !== password)) {
+      return { error: "That email and password combination wasn't found." }
     }
-    return null
+    if (match.role === 'admin' && match.active === false) {
+      return { error: 'This admin account has been deactivated. Contact a super admin.' }
+    }
+    const merged = mergeProfile(match)
+    setCurrentUser(merged)
+    localStorage.setItem('pulse_current_user', JSON.stringify(merged))
+    return { user: merged }
   }
 
   // No tier is assigned at signup anymore — a client picks a tier for
@@ -114,6 +148,7 @@ export function AuthProvider({ children }) {
       email,
       password,
       role: 'user',
+      uid: generateUid(users),
       referralCode: generateReferralCode(name, users),
       referredBy: referrer ? referrer.id : null,
       createdAt: new Date().toISOString(),
@@ -139,6 +174,86 @@ export function AuthProvider({ children }) {
     }, settings.emailSendingEnabled)
 
     return { user: newUser }
+  }
+
+  // super_admin-only (enforced by the calling UI via hasPermission,
+  // same pattern as every other permission check — this function
+  // itself doesn't re-check because AuthContext has no concept of
+  // "who's asking" beyond currentUser, and the route/nav layer
+  // already keeps non-super_admins from ever reaching this form).
+  function createAdmin({ name, email, password, adminTier }) {
+    const emailTaken = users.some((u) => u.email.toLowerCase() === email.toLowerCase())
+    if (emailTaken) return { error: 'An account with that email already exists.' }
+    if (!ADMIN_TIERS[adminTier]) return { error: 'Invalid admin tier.' }
+    if (!name.trim() || !email.trim() || password.length < 6) return { error: 'Fill in every field — password needs at least 6 characters.' }
+
+    const newAdmin = {
+      id: Date.now(),
+      name,
+      email,
+      password,
+      role: 'admin',
+      adminTier,
+      active: true,
+      uid: generateUid(users),
+      referralCode: generateReferralCode(name, users),
+      referredBy: null,
+      createdAt: new Date().toISOString(),
+      createdByAdminId: currentUser?.id,
+      createdByAdminName: currentUser?.name,
+      tier: null,
+      flaggedForReview: false
+    }
+    persistUsers([...users, newAdmin])
+    logAudit({
+      action: 'admin_account_created',
+      actor: currentUser,
+      targetUserId: newAdmin.id,
+      targetUserName: newAdmin.name,
+      details: { email, adminTier }
+    })
+    return { user: newAdmin }
+  }
+
+  function updateAdminTier(adminId, adminTier) {
+    if (!ADMIN_TIERS[adminTier]) return { error: 'Invalid admin tier.' }
+    const target = users.find((u) => u.id === adminId)
+    if (!target || target.role !== 'admin') return { error: 'Admin not found.' }
+    const previousTier = target.adminTier || 'super_admin'
+    persistUsers(users.map((u) => (u.id === adminId ? { ...u, adminTier } : u)))
+    if (currentUser?.id === adminId) {
+      const merged = { ...currentUser, adminTier }
+      setCurrentUser(merged)
+      localStorage.setItem('pulse_current_user', JSON.stringify(merged))
+    }
+    logAudit({
+      action: 'admin_tier_changed',
+      actor: currentUser,
+      targetUserId: adminId,
+      targetUserName: target.name,
+      details: { previousTier, newTier: adminTier }
+    })
+    return {}
+  }
+
+  // Deactivating (not deleting) an admin account — same reasoning as
+  // everywhere else in this app that avoids destructive deletes:
+  // their history (audit entries, actions they took on client
+  // accounts) stays intact and attributable. A deactivated admin
+  // simply can't log in; login() checks `active` below.
+  function setAdminActive(adminId, active) {
+    const target = users.find((u) => u.id === adminId)
+    if (!target || target.role !== 'admin') return { error: 'Admin not found.' }
+    if (target.id === currentUser?.id) return { error: "You can't deactivate your own account." }
+    persistUsers(users.map((u) => (u.id === adminId ? { ...u, active } : u)))
+    logAudit({
+      action: active ? 'admin_account_reactivated' : 'admin_account_deactivated',
+      actor: currentUser,
+      targetUserId: adminId,
+      targetUserName: target.name,
+      details: {}
+    })
+    return {}
   }
 
   // Admin can assign/change a client's tier directly (e.g. after
@@ -298,6 +413,7 @@ export function AuthProvider({ children }) {
         email,
         password: Math.random().toString(36).slice(2, 10),
         role: 'user',
+        uid: generateUid(working),
         referralCode: generateReferralCode(name, working),
         referredBy: null,
         createdAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
@@ -475,8 +591,58 @@ export function AuthProvider({ children }) {
     })
   }
 
+  // Client-only, self-service — binding itself is the security
+  // feature (it's the client locking their OWN withdrawal path down,
+  // not something that needs review). Can only be set once from here;
+  // changing it after the fact deliberately requires a human on the
+  // support side (see unbindWallet below), so someone who compromises
+  // an account can't just silently redirect future withdrawals to a
+  // different address.
+  function bindWallet(method, chain, address) {
+    if (currentUser.boundWallet) return { error: 'A wallet is already bound to this account. Contact support to change it.' }
+    if (!method || !address?.trim()) return { error: 'Choose a method and enter your wallet address.' }
+    const boundWallet = { method, chain: chain || null, address: address.trim(), boundAt: new Date().toISOString() }
+    persistUsers(users.map((u) => (u.id === currentUser.id ? { ...u, boundWallet } : u)))
+    const merged = { ...currentUser, boundWallet }
+    setCurrentUser(merged)
+    localStorage.setItem('pulse_current_user', JSON.stringify(merged))
+    logAudit({
+      action: 'wallet_bound',
+      actor: currentUser,
+      targetUserId: currentUser.id,
+      targetUserName: currentUser.name,
+      details: { method, chain, address: address.trim() }
+    })
+    return { ok: true }
+  }
+
+  // Admin/support-admin only (the calling UI gates this on the
+  // `support` permission — see config/adminTiers.js — matching
+  // "unlinked with help from admin or support admin" literally: both
+  // those tiers, and only those, carry that permission).
+  function unbindWallet(userId) {
+    const target = users.find((u) => u.id === userId)
+    if (!target) return { error: 'User not found.' }
+    if (!target.boundWallet) return { error: 'No wallet is bound for this client.' }
+    const previous = target.boundWallet
+    persistUsers(users.map((u) => (u.id === userId ? { ...u, boundWallet: null } : u)))
+    if (currentUser?.id === userId) {
+      const merged = { ...currentUser, boundWallet: null }
+      setCurrentUser(merged)
+      localStorage.setItem('pulse_current_user', JSON.stringify(merged))
+    }
+    logAudit({
+      action: 'wallet_unbound',
+      actor: currentUser,
+      targetUserId: userId,
+      targetUserName: target.name,
+      details: { previousMethod: previous.method, previousChain: previous.chain, previousAddress: previous.address }
+    })
+    return { ok: true }
+  }
+
   return (
-    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients, submitKycDocument, reviewKycSubmission, setKycRequired, submitEnhancedKyc, reviewEnhancedKyc }}>
+    <AuthContext.Provider value={{ currentUser, users, login, signup, logout, updateProfile, changePassword, getReferrals, setUserTier, setClientVip, flagForReview, getFlaggedUsers, generateDemoClients, removeDemoClients, submitKycDocument, reviewKycSubmission, setKycRequired, submitEnhancedKyc, reviewEnhancedKyc, createAdmin, updateAdminTier, setAdminActive, bindWallet, unbindWallet }}>
       {children}
     </AuthContext.Provider>
   )

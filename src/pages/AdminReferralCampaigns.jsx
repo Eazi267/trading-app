@@ -35,6 +35,14 @@ export default function AdminReferralCampaigns() {
   const { referralCampaigns, createReferralCampaign, setCampaignActive, getActiveReferralCampaign, getCampaignStats } = useApp()
   const { settings } = useSettings()
 
+  const [name, setName] = useState('')
+  const [bonusAmount, setBonusAmount] = useState('')
+  const [startDate, setStartDate] = useState(todayStr())
+  const [endDate, setEndDate] = useState('')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState('')
+  const [created, setCreated] = useState(false)
+
   if (!settings.showReferrals) {
     return (
       <Layout pageTitle="Referral Campaigns">
@@ -44,14 +52,6 @@ export default function AdminReferralCampaigns() {
       </Layout>
     )
   }
-
-  const [name, setName] = useState('')
-  const [bonusAmount, setBonusAmount] = useState('')
-  const [startDate, setStartDate] = useState(todayStr())
-  const [endDate, setEndDate] = useState('')
-  const [note, setNote] = useState('')
-  const [error, setError] = useState('')
-  const [created, setCreated] = useState(false)
 
   const liveCampaign = getActiveReferralCampaign()
 

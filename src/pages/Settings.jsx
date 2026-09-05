@@ -1,8 +1,12 @@
 import { useState, useRef } from 'react'
-import { Camera, Lock } from 'lucide-react'
+import { Camera, Lock, Wallet, ShieldAlert, Bitcoin, Coins, Landmark } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useSupport } from '../context/SupportContext.jsx'
 import { CURRENCIES, COUNTRY_CURRENCY, COUNTRIES } from '../config/currencies.js'
+import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
+
+const METHOD_ICONS = { usdt: Coins, btc: Bitcoin }
 
 const inputStyle = {
   width: '100%', padding: '10px 12px', borderRadius: 8,
@@ -11,7 +15,29 @@ const inputStyle = {
 }
 
 export default function Settings() {
-  const { currentUser, updateProfile, changePassword } = useAuth()
+  const { currentUser, updateProfile, changePassword, bindWallet } = useAuth()
+  const { createCase } = useSupport()
+  const [walletMethod, setWalletMethod] = useState('usdt')
+  const [walletChain, setWalletChain] = useState(CRYPTO_CHAINS.usdt[0])
+  const [walletAddress, setWalletAddress] = useState('')
+  const [walletError, setWalletError] = useState('')
+  const [unlinkSent, setUnlinkSent] = useState(false)
+
+  function handleBindWallet() {
+    const result = bindWallet(walletMethod, CRYPTO_CHAINS[walletMethod] ? walletChain : null, walletAddress)
+    if (result.error) return setWalletError(result.error)
+    setWalletError('')
+  }
+
+  function handleRequestUnlink() {
+    const w = currentUser.boundWallet
+    createCase({
+      subject: 'Unlink withdrawal wallet',
+      category: 'account',
+      body: `I'd like to unlink my withdrawal wallet (currently ${METHOD_LABELS[w.method] || w.method}${w.chain ? ` on ${w.chain}` : ''}, ${w.address}) so I can bind a different one. Please help me unlink it.`
+    })
+    setUnlinkSent(true)
+  }
   const fileRef = useRef(null)
   const [form, setForm] = useState({
     name: currentUser.name || '',
@@ -83,6 +109,99 @@ export default function Settings() {
     <Layout pageTitle="Settings">
       <h1 className="page-title">Settings</h1>
       <p className="page-sub">Update your profile — changes are saved and reflected everywhere right away.</p>
+
+      <div className="panel" style={{ maxWidth: 480, marginBottom: 16 }}>
+        <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Account ID</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>{currentUser.uid}</div>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'right', maxWidth: 220 }}>
+            Have this ready when contacting support — it identifies your account precisely and can help you back in if you're ever locked out.
+          </div>
+        </div>
+      </div>
+
+      <div className="panel" style={{ maxWidth: 480, marginBottom: 16 }}>
+        <div className="panel-head">
+          <h3><Wallet size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Withdrawal wallet</h3>
+        </div>
+        <div style={{ padding: '0 20px 20px' }}>
+          {currentUser.boundWallet ? (
+            <>
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                Withdrawals are only ever sent here — this is what keeps a withdrawal safe even if someone else
+                gets into your account, since they can't redirect it to a different address without support's help.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', marginBottom: 12 }}>
+                <div className="icon-badge">
+                  {(() => { const Icon = METHOD_ICONS[currentUser.boundWallet.method] || Wallet; return <Icon size={16} /> })()}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    {METHOD_LABELS[currentUser.boundWallet.method] || currentUser.boundWallet.method}
+                    {currentUser.boundWallet.chain ? ` · ${currentUser.boundWallet.chain}` : ''}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{currentUser.boundWallet.address}</div>
+                </div>
+              </div>
+              {unlinkSent ? (
+                <p style={{ fontSize: 12.5, color: 'var(--success)' }}>Request sent — support will follow up to verify it's really you before unlinking anything.</p>
+              ) : (
+                <button className="tx-btn withdraw" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleRequestUnlink}>
+                  <ShieldAlert size={14} /> Request to unlink
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+                Bind one wallet address on one network before your first withdrawal — every future withdrawal goes
+                only there. This is a one-time setup; changing it later needs support's help, on purpose.
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                {Object.keys(METHOD_ICONS).map((m) => {
+                  const Icon = METHOD_ICONS[m]
+                  const isSelected = walletMethod === m
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setWalletMethod(m); setWalletChain(CRYPTO_CHAINS[m][0]) }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                        borderRadius: 10, border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
+                        background: isSelected ? 'var(--accent-bg)' : 'var(--bg)',
+                        color: isSelected ? 'var(--accent-bright)' : 'var(--text)', cursor: 'pointer'
+                      }}
+                    >
+                      <Icon size={15} /> {METHOD_LABELS[m]}
+                    </button>
+                  )
+                })}
+              </div>
+              <select
+                value={walletChain}
+                onChange={(e) => setWalletChain(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 10 }}
+              >
+                {CRYPTO_CHAINS[walletMethod].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
+              </select>
+              <input
+                type="text"
+                value={walletAddress}
+                onChange={(e) => setWalletAddress(e.target.value)}
+                placeholder="Wallet address"
+                style={{ ...inputStyle, marginBottom: 10 }}
+              />
+              {walletError && <div className="form-error">{walletError}</div>}
+              <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13.5 }} onClick={handleBindWallet}>
+                Bind wallet
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="panel" style={{ maxWidth: 480 }}>
         <div className="panel-head">

@@ -34,7 +34,7 @@ export default function AdminUsers() {
 
   const q = search.trim().toLowerCase()
   const filtered = q
-    ? clients.filter((u) => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q))
+    ? clients.filter((u) => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.uid?.includes(q))
     : clients
 
   return (
@@ -57,7 +57,7 @@ export default function AdminUsers() {
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
         <input
           type="text"
-          placeholder="Search clients…"
+          placeholder="Search clients by name, email, or UID…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 13 }}
@@ -86,6 +86,7 @@ export default function AdminUsers() {
                     </div>
                     <div className="entity-card-meta">
                       <span>{u.email}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>UID {u.uid}</span>
                       <span style={{ textTransform: 'capitalize' }}>{u.tier || 'No tier'}</span>
                       {pendingCount > 0 && (
                         <span style={{ color: 'var(--accent-bright)' }}>{pendingCount} pending</span>

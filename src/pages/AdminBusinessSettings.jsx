@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import {
   Image, Info, Gift, DollarSign, ArrowDownToLine, ArrowUpFromLine, Mail,
-  HelpCircle, FileText, Shield, Palette, Settings as SettingsIcon, ChevronRight, RotateCcw, ShieldCheck
+  HelpCircle, FileText, Shield, Palette, Settings as SettingsIcon, ChevronRight, RotateCcw, ShieldCheck,
+  Coins, Bitcoin, Landmark, Layers, Plus, Trash2
 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import Modal from '../components/Modal.jsx'
+import FileDropInput from '../components/FileDropInput.jsx'
+import ToggleSwitch from '../components/ToggleSwitch.jsx'
 import { useSettings, LOGO_ICONS } from '../context/SettingsContext.jsx'
 import { CURRENCIES } from '../config/currencies.js'
+
+const METHOD_ICONS = { usdt: Coins, btc: Bitcoin, bank: Landmark }
 
 const inputStyle = { display: 'block', width: '100%', marginTop: 4, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13.5 }
 
@@ -75,6 +80,50 @@ export default function AdminBusinessSettings() {
   const { settings, updateSettings, resetSettings } = useSettings()
   const [openModal, setOpenModal] = useState(null) // which row's modal is open, or null
 
+  // --- Investment tiers ---
+  // Direct-to-settings updates (no separate draft state), same
+  // pattern as the deposit/withdrawal method toggles elsewhere in
+  // this file — every keystroke is already the saved value, nothing
+  // extra to sync or lose on an accidental navigation away.
+  function updateTierField(list, index, field, value) {
+    const next = [...settings[list]]
+    next[index] = { ...next[index], [field]: value }
+    updateSettings({ [list]: next })
+  }
+  function updateTierRange(list, index, rangeKey, subKey, value) {
+    const next = [...settings[list]]
+    next[index] = { ...next[index], [rangeKey]: { ...next[index][rangeKey], [subKey]: value } }
+    updateSettings({ [list]: next })
+  }
+  function addTier() {
+    const n = settings.tiers.length + 1
+    updateSettings({
+      tiers: [...settings.tiers, {
+        id: `tier_${Date.now()}`, name: `Tier ${n}`, description: '',
+        maxPayoutMultiplier: 3, minDeposit: 100, maxDeposit: 999,
+        durationDays: 3, durationRange: { min: 1, max: 7 },
+        leverageRange: { min: 1, max: 100 }, defaultLeverage: 2
+      }]
+    })
+  }
+  function removeTier(index) {
+    if (settings.tiers.length <= 1) return // at least one visible tier must always exist
+    updateSettings({ tiers: settings.tiers.filter((_, i) => i !== index) })
+  }
+  function addVipTier() {
+    updateSettings({
+      vipTiers: [...settings.vipTiers, {
+        id: `vip_${Date.now()}`, name: 'New VIP tier', description: 'Admin-assigned only.',
+        maxPayoutMultiplier: 10, minDeposit: 0, maxDeposit: Infinity,
+        durationDays: 7, durationRange: { min: 1, max: 30 },
+        leverageRange: { min: 1, max: 1000 }, defaultLeverage: 10, hidden: true
+      }]
+    })
+  }
+  function removeVipTier(index) {
+    updateSettings({ vipTiers: settings.vipTiers.filter((_, i) => i !== index) })
+  }
+
   // --- Brand + logo/favicon ---
   const [brandName, setBrandName] = useState(settings.brandName)
   const [brandTagline, setBrandTagline] = useState(settings.brandTagline)
@@ -139,6 +188,7 @@ export default function AdminBusinessSettings() {
     { key: 'company', icon: Info, label: 'Edit company info' },
     { key: 'signup', icon: Gift, label: 'Signup bonus' },
     { key: 'currency', icon: DollarSign, label: 'Currency setup' },
+    { key: 'tiers', icon: Layers, label: 'Investment tiers' },
     { key: 'deposit', icon: ArrowDownToLine, label: 'Deposit setup' },
     { key: 'withdrawal', icon: ArrowUpFromLine, label: 'Withdrawal setup' },
     { key: 'email', icon: Mail, label: 'Email settings' },
@@ -198,23 +248,21 @@ export default function AdminBusinessSettings() {
         </div>
 
         <div style={{ display: 'flex', gap: 20, marginTop: 16, flexWrap: 'wrap' }}>
-          <div>
-            {settings.logoImageDataUrl && (
-              <img src={settings.logoImageDataUrl} alt="Logo preview" style={{ width: 48, height: 48, objectFit: 'contain', marginBottom: 6, borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }} />
-            )}
-            <label style={labelStyle}>
-              Logo image
-              <input type="file" accept="image/*" onChange={(e) => handleFileUpload('logoImageDataUrl', e.target.files[0])} style={{ display: 'block', marginTop: 4, fontSize: 12 }} />
-            </label>
+          <div style={{ width: 200 }}>
+            <FileDropInput
+              label="Logo image"
+              value={settings.logoImageDataUrl}
+              onFile={(file) => handleFileUpload('logoImageDataUrl', file)}
+              onClear={() => updateSettings({ logoImageDataUrl: null })}
+            />
           </div>
-          <div>
-            {settings.faviconDataUrl && (
-              <img src={settings.faviconDataUrl} alt="Favicon preview" style={{ width: 32, height: 32, objectFit: 'contain', marginBottom: 6, borderRadius: 6, background: 'var(--bg)', border: '1px solid var(--border)' }} />
-            )}
-            <label style={labelStyle}>
-              Favicon
-              <input type="file" accept="image/*" onChange={(e) => handleFileUpload('faviconDataUrl', e.target.files[0])} style={{ display: 'block', marginTop: 4, fontSize: 12 }} />
-            </label>
+          <div style={{ width: 200 }}>
+            <FileDropInput
+              label="Favicon"
+              value={settings.faviconDataUrl}
+              onFile={(file) => handleFileUpload('faviconDataUrl', file)}
+              onClear={() => updateSettings({ faviconDataUrl: null })}
+            />
           </div>
         </div>
 
@@ -253,13 +301,13 @@ export default function AdminBusinessSettings() {
 
       {/* ---------- Signup bonus ---------- */}
       <Modal open={openModal === 'signup'} onClose={() => setOpenModal(null)} title="Signup bonus" description="A one-time real transaction granted per real client — same mechanism as the referral bonus.">
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-          <input type="checkbox" checked={settings.signupBonusEnabled} onChange={(e) => updateSettings({ signupBonusEnabled: e.target.checked })} style={{ marginTop: 3 }} />
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
           <span>
             <strong style={{ fontSize: 13.5 }}>Signup bonus enabled</strong>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Off by default — turn on once an amount is set below.</div>
           </span>
-        </label>
+          <ToggleSwitch checked={settings.signupBonusEnabled} onChange={(val) => updateSettings({ signupBonusEnabled: val })} />
+        </div>
         <label style={{ ...labelStyle, display: 'block', marginTop: 14 }}>
           Signup bonus amount (USD)
           <input type="number" min="0" step="1" value={signupBonusAmount} onChange={(e) => setSignupBonusAmount(e.target.value)} style={{ ...inputStyle, maxWidth: 200 }} />
@@ -288,25 +336,186 @@ export default function AdminBusinessSettings() {
         </div>
       </Modal>
 
+      {/* ---------- Investment tiers ---------- */}
+      <Modal
+        open={openModal === 'tiers'}
+        onClose={() => setOpenModal(null)}
+        title="Investment tiers"
+        description="How many tiers exist, their names, deposit bands, max leverage, and max payout — all editable here. Changes apply to every page immediately, including sessions clients open after this."
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} className="stagger-in">
+          {settings.tiers.map((tier, i) => (
+            <div key={tier.id} className="panel" style={{ margin: 0 }}>
+              <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="text" value={tier.name}
+                    onChange={(e) => updateTierField('tiers', i, 'name', e.target.value)}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13.5, fontWeight: 600 }}
+                  />
+                  <button
+                    onClick={() => removeTier(i)}
+                    disabled={settings.tiers.length <= 1}
+                    style={{ padding: 8, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: settings.tiers.length <= 1 ? 'var(--text-muted)' : 'var(--danger)', cursor: settings.tiers.length <= 1 ? 'not-allowed' : 'pointer', flex: 'none' }}
+                    title={settings.tiers.length <= 1 ? 'At least one tier must exist' : 'Remove tier'}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+
+                <div className="responsive-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Min deposit (USD)
+                    <input
+                      type="number" value={tier.minDeposit}
+                      onChange={(e) => updateTierField('tiers', i, 'minDeposit', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Max deposit (USD)
+                    <input
+                      type="number" value={tier.maxDeposit}
+                      onChange={(e) => updateTierField('tiers', i, 'maxDeposit', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Max leverage
+                    <input
+                      type="number" value={tier.leverageRange.max}
+                      onChange={(e) => updateTierRange('tiers', i, 'leverageRange', 'max', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Max payout (× starting amount)
+                    <input
+                      type="number" value={tier.maxPayoutMultiplier}
+                      onChange={(e) => updateTierField('tiers', i, 'maxPayoutMultiplier', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Default duration (days)
+                    <input
+                      type="number" value={tier.durationDays}
+                      onChange={(e) => updateTierField('tiers', i, 'durationDays', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    Max duration (days)
+                    <input
+                      type="number" value={tier.durationRange.max}
+                      onChange={(e) => updateTierRange('tiers', i, 'durationRange', 'max', Number(e.target.value))}
+                      style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button className="tx-btn" style={{ marginTop: 12, padding: '9px 16px', fontSize: 13 }} onClick={addTier}>
+          <Plus size={14} /> Add tier
+        </button>
+
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>VIP tiers</div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+            Hidden — never shown in a client's own picker. Assign one to a specific client from their account page.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }} className="stagger-in">
+            {settings.vipTiers.map((tier, i) => (
+              <div key={tier.id} className="panel" style={{ margin: 0 }}>
+                <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="text" value={tier.name}
+                      onChange={(e) => updateTierField('vipTiers', i, 'name', e.target.value)}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13.5, fontWeight: 600 }}
+                    />
+                    <button
+                      onClick={() => removeVipTier(i)}
+                      style={{ padding: 8, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--danger)', cursor: 'pointer', flex: 'none' }}
+                      title="Remove VIP tier"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <div className="responsive-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      Min deposit (USD)
+                      <input
+                        type="number" value={tier.minDeposit}
+                        onChange={(e) => updateTierField('vipTiers', i, 'minDeposit', Number(e.target.value))}
+                        style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      Max deposit (blank = no limit)
+                      <input
+                        type="number"
+                        value={Number.isFinite(tier.maxDeposit) ? tier.maxDeposit : ''}
+                        placeholder="No limit"
+                        onChange={(e) => updateTierField('vipTiers', i, 'maxDeposit', e.target.value === '' ? Infinity : Number(e.target.value))}
+                        style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      Max leverage
+                      <input
+                        type="number" value={tier.leverageRange.max}
+                        onChange={(e) => updateTierRange('vipTiers', i, 'leverageRange', 'max', Number(e.target.value))}
+                        style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      Max payout (× starting amount)
+                      <input
+                        type="number" value={tier.maxPayoutMultiplier}
+                        onChange={(e) => updateTierField('vipTiers', i, 'maxPayoutMultiplier', Number(e.target.value))}
+                        style={{ display: 'block', width: '100%', marginTop: 3, padding: '7px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5 }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className="tx-btn" style={{ marginTop: 12, padding: '9px 16px', fontSize: 13 }} onClick={addVipTier}>
+            <Plus size={14} /> Add VIP tier
+          </button>
+        </div>
+      </Modal>
+
       {/* ---------- Deposit setup ---------- */}
       <Modal open={openModal === 'deposit'} onClose={() => setOpenModal(null)} title="Deposit setup">
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
           <div style={{ ...labelStyle, marginBottom: 8 }}>Payment methods clients can indicate</div>
-          {[
-            { id: 'usdt', label: 'USDT' },
-            { id: 'btc', label: 'BTC' },
-            { id: 'bank', label: 'Bank Transfer' }
-          ].map((m) => (
-            <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={!!settings.depositMethods[m.id]}
-                onChange={(e) => updateSettings({ depositMethods: { ...settings.depositMethods, [m.id]: e.target.checked } })}
-              />
-              <span style={{ fontSize: 13.5 }}>{m.label}</span>
-            </label>
-          ))}
-          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          <div className="stagger-in" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { id: 'usdt', label: 'USDT' },
+              { id: 'btc', label: 'BTC' },
+              { id: 'bank', label: 'Bank Transfer' }
+            ].map((m) => {
+              const Icon = METHOD_ICONS[m.id] || Coins
+              return (
+                <div key={m.id} className="entity-card" style={{ padding: '10px 14px' }}>
+                  <div className="icon-badge"><Icon size={16} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title" style={{ fontSize: 13.5 }}>{m.label}</div>
+                  </div>
+                  <ToggleSwitch
+                    checked={!!settings.depositMethods[m.id]}
+                    onChange={(val) => updateSettings({ depositMethods: { ...settings.depositMethods, [m.id]: val } })}
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '10px 0 0' }}>
             This is metadata only, for your own reconciliation — no wallet address or bank account is shown to
             clients on the platform. Coordinate actual payment details through your own channels, then approve
             the deposit here once received.
@@ -337,25 +546,29 @@ export default function AdminBusinessSettings() {
       <Modal open={openModal === 'withdrawal'} onClose={() => setOpenModal(null)} title="Withdrawal setup">
         <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
           <div style={{ ...labelStyle, marginBottom: 8 }}>Payout methods clients can choose from</div>
-          {[
-            { id: 'usdt', label: 'USDT' },
-            { id: 'btc', label: 'BTC' },
-            { id: 'bank', label: 'Bank Account', note: 'Requires enhanced verification (proof of address) from the client, on top of basic ID.' }
-          ].map((m) => (
-            <label key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={!!settings.withdrawalMethods[m.id]}
-                onChange={(e) => updateSettings({ withdrawalMethods: { ...settings.withdrawalMethods, [m.id]: e.target.checked } })}
-                style={{ marginTop: 3 }}
-              />
-              <span>
-                <strong style={{ fontSize: 13.5 }}>{m.label}</strong>
-                {m.note && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{m.note}</div>}
-              </span>
-            </label>
-          ))}
-          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+          <div className="stagger-in" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { id: 'usdt', label: 'USDT' },
+              { id: 'btc', label: 'BTC' },
+              { id: 'bank', label: 'Bank Account', note: 'Requires enhanced verification (proof of address) from the client, on top of basic ID.' }
+            ].map((m) => {
+              const Icon = METHOD_ICONS[m.id] || Coins
+              return (
+                <div key={m.id} className="entity-card" style={{ padding: '10px 14px', alignItems: m.note ? 'flex-start' : 'center' }}>
+                  <div className="icon-badge"><Icon size={16} /></div>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title" style={{ fontSize: 13.5 }}>{m.label}</div>
+                    {m.note && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{m.note}</div>}
+                  </div>
+                  <ToggleSwitch
+                    checked={!!settings.withdrawalMethods[m.id]}
+                    onChange={(val) => updateSettings({ withdrawalMethods: { ...settings.withdrawalMethods, [m.id]: val } })}
+                  />
+                </div>
+              )
+            })}
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '10px 0 0' }}>
             Crypto methods don't move real crypto — the client provides a destination address and you fulfill it
             manually, same as every other withdrawal on this platform.
           </p>
@@ -383,8 +596,7 @@ export default function AdminBusinessSettings() {
 
       {/* ---------- Email settings ---------- */}
       <Modal open={openModal === 'email'} onClose={() => setOpenModal(null)} title="Email settings" description="No real email leaves this platform yet — see the note below. Everything here is stored and ready for when a real provider is connected.">
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-          <input type="checkbox" checked={settings.emailSendingEnabled} onChange={(e) => updateSettings({ emailSendingEnabled: e.target.checked })} style={{ marginTop: 3 }} />
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
           <span>
             <strong style={{ fontSize: 13.5 }}>Email sending enabled</strong>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -392,7 +604,8 @@ export default function AdminBusinessSettings() {
               keeps Pulse from also trying to send and creating duplicates.
             </div>
           </span>
-        </label>
+          <ToggleSwitch checked={settings.emailSendingEnabled} onChange={(val) => updateSettings({ emailSendingEnabled: val })} />
+        </div>
 
         <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '14px 0 16px', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
           Real sending needs a backend to hold a mail provider's API key — that can't live safely in the browser.
@@ -433,13 +646,7 @@ export default function AdminBusinessSettings() {
         title="Blockchain verification"
         description="No deposit is verified automatically yet — this is stored and ready for when a real provider is connected."
       >
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={settings.blockchainVerificationEnabled}
-            onChange={(e) => updateSettings({ blockchainVerificationEnabled: e.target.checked })}
-            style={{ marginTop: 3 }}
-          />
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
           <span>
             <strong style={{ fontSize: 13.5 }}>Automatic verification enabled</strong>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -448,7 +655,8 @@ export default function AdminBusinessSettings() {
               nothing is silently skipped once a provider is wired in.
             </div>
           </span>
-        </label>
+          <ToggleSwitch checked={settings.blockchainVerificationEnabled} onChange={(val) => updateSettings({ blockchainVerificationEnabled: val })} />
+        </div>
 
         <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '14px 0 16px', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
           Real verification needs a backend to hold a payment processor's API key (Coinbase Commerce, NOWPayments,
@@ -588,55 +796,58 @@ export default function AdminBusinessSettings() {
         {settings.kycEnabled && (
           <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
             <div style={{ ...labelStyle, marginBottom: 8 }}>Accepted document types</div>
-            {[{ id: 'passport', label: 'Passport' }, { id: 'id', label: 'National ID' }].map((doc) => (
-              <label key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={settings.kycAcceptedDocumentTypes.includes(doc.id)}
-                  onChange={(e) => {
-                    const next = e.target.checked
-                      ? [...settings.kycAcceptedDocumentTypes, doc.id]
-                      : settings.kycAcceptedDocumentTypes.filter((d) => d !== doc.id)
-                    if (next.length === 0) return // at least one type must stay accepted
-                    updateSettings({ kycAcceptedDocumentTypes: next })
-                  }}
-                />
-                <span style={{ fontSize: 13 }}>{doc.label}</span>
-              </label>
-            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} className="stagger-in">
+              {[{ id: 'passport', label: 'Passport' }, { id: 'id', label: 'National ID' }].map((doc) => (
+                <div key={doc.id} className="entity-card" style={{ padding: '9px 14px' }}>
+                  <div className="entity-card-body">
+                    <div className="entity-card-title" style={{ fontSize: 13 }}>{doc.label}</div>
+                  </div>
+                  <ToggleSwitch
+                    checked={settings.kycAcceptedDocumentTypes.includes(doc.id)}
+                    onChange={(val) => {
+                      const next = val
+                        ? [...settings.kycAcceptedDocumentTypes, doc.id]
+                        : settings.kycAcceptedDocumentTypes.filter((d) => d !== doc.id)
+                      if (next.length === 0) return // at least one type must stay accepted
+                      updateSettings({ kycAcceptedDocumentTypes: next })
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
 
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginTop: 10 }}>
-              <input type="checkbox" checked={settings.kycRequireBackSide} onChange={(e) => updateSettings({ kycRequireBackSide: e.target.checked })} style={{ marginTop: 3 }} />
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10, justifyContent: 'space-between' }}>
               <span>
                 <strong style={{ fontSize: 13.5 }}>Require back-side image</strong>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Only applies to National ID — a passport's photo page is the whole document.</div>
               </span>
-            </label>
+              <ToggleSwitch checked={settings.kycRequireBackSide} onChange={(val) => updateSettings({ kycRequireBackSide: val })} />
+            </div>
           </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 6 }}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-            <input type="checkbox" checked={settings.showReferrals} onChange={(e) => updateSettings({ showReferrals: e.target.checked })} style={{ marginTop: 3 }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
             <span>
               <strong style={{ fontSize: 13.5 }}>Referral program</strong>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Client referral links, bonus campaigns, and the Referrals nav link.</div>
             </span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-            <input type="checkbox" checked={settings.showVipTiers} onChange={(e) => updateSettings({ showVipTiers: e.target.checked })} style={{ marginTop: 3 }} />
+            <ToggleSwitch checked={settings.showReferrals} onChange={(val) => updateSettings({ showReferrals: val })} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
             <span>
               <strong style={{ fontSize: 13.5 }}>VIP tiers</strong>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Hidden higher tiers an admin can unlock for specific clients.</div>
             </span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-            <input type="checkbox" checked={settings.demoModeEnabled} onChange={(e) => updateSettings({ demoModeEnabled: e.target.checked })} style={{ marginTop: 3 }} />
+            <ToggleSwitch checked={settings.showVipTiers} onChange={(val) => updateSettings({ showVipTiers: val })} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' }}>
             <span>
               <strong style={{ fontSize: 13.5 }}>Demo mode</strong>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Turn off once onboarding real clients.</div>
             </span>
-          </label>
+            <ToggleSwitch checked={settings.demoModeEnabled} onChange={(val) => updateSettings({ demoModeEnabled: val })} />
+          </div>
         </div>
 
         <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)' }}>

@@ -7,8 +7,8 @@
 // reconciliation and for whichever real verification provider gets
 // connected later (see src/services/blockchainVerification.js).
 export const CRYPTO_CHAINS = {
-  usdt: ['TRC20 (Tron)', 'ERC20 (Ethereum)', 'BEP20 (BSC)'],
-  btc: ['Bitcoin Network']
+  usdt: ['TRC20 (Tron)', 'ERC20 (Ethereum)', 'BEP20 (BSC)', 'Polygon', 'Solana', 'Arbitrum One', 'Avalanche C-Chain'],
+  btc: ['Bitcoin Network', 'Lightning Network']
 }
 
 export const METHOD_LABELS = { usdt: 'USDT', btc: 'BTC', bank: 'Bank' }

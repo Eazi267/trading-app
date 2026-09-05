@@ -14,6 +14,13 @@ export default function AdminGenerateClients() {
   const { generateDemoActivity, purgeDataForUsers } = useApp()
   const { settings } = useSettings()
 
+  const [count, setCount] = useState(10)
+  const [minDeposit, setMinDeposit] = useState(300)
+  const [maxDeposit, setMaxDeposit] = useState(8000)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const [clearedCount, setClearedCount] = useState(null)
+
   if (!settings.demoModeEnabled) {
     return (
       <Layout pageTitle="Generate Demo Clients">
@@ -23,13 +30,6 @@ export default function AdminGenerateClients() {
       </Layout>
     )
   }
-
-  const [count, setCount] = useState(10)
-  const [minDeposit, setMinDeposit] = useState(300)
-  const [maxDeposit, setMaxDeposit] = useState(8000)
-  const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
-  const [clearedCount, setClearedCount] = useState(null)
 
   const existingDemoCount = users.filter((u) => u.isDemoGenerated).length
 

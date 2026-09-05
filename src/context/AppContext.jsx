@@ -5,6 +5,7 @@ import { useEmail } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
 import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
+import { useSupport } from './SupportContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
 
@@ -15,14 +16,16 @@ const AppContext = createContext(null)
 // up (that one needs a backend — CORS/paid-key territory, unlike
 // CoinGecko's keyless public endpoint).
 export const REAL_SYMBOLS = ['BTC/USD', 'ETH/USD']
-export const SIMULATED_SYMBOLS = ['EUR/USD', 'GBP/USD']
+export const SIMULATED_SYMBOLS = ['EUR/USD', 'GBP/USD', 'XAU/USD', 'XAG/USD']
 const REAL_PRICE_POLL_MS = 20 * 1000 // 20s — 3 req/min, well under CoinGecko's keyless limit
 
 const STARTING_PRICES = {
   'BTC/USD': 64200,
   'ETH/USD': 3150,
   'EUR/USD': 1.086,
-  'GBP/USD': 1.271
+  'GBP/USD': 1.271,
+  'XAU/USD': 2380, // Gold, USD per troy ounce
+  'XAG/USD': 28.4 // Silver, USD per troy ounce
 }
 
 const STARTING_WATCHLIST = ['BTC/USD', 'ETH/USD']
@@ -54,13 +57,23 @@ function biasToDrift(bias) {
 // The real cash-out value of ONE open leveraged position, given a
 // price snapshot. marginAmount is what the position actually risks;
 // leverage multiplies both the gain AND the loss against that margin.
-// Equity can go negative if the loss exceeds the margin — that's the
-// literal implementation of "leverage allows negative balance, no
-// auto-liquidation."
-function positionEquity(position, currentPrices) {
+// direction flips which way that gain/loss runs: 'long' profits when
+// price rises (the original, still-default behavior), 'short'
+// profits when price falls. Equity can go negative if the loss
+// exceeds the margin — that's the literal implementation of
+// "leverage allows negative balance, no auto-liquidation."
+// Exported (not a private helper) specifically so every place that
+// needs a position's live P&L — the session settlement math below,
+// AND the "Live P&L" table column in AdminTrading/AdminUserDetail —
+// calls this one function instead of each re-deriving the formula.
+// Two independent copies of a P&L formula is exactly how a short
+// position would end up showing an inverted (wrong) live number in
+// one place and a correct one in the other.
+export function positionEquity(position, currentPrices) {
   const price = currentPrices[position.symbol]
   if (!price) return position.marginAmount
-  const pnl = position.marginAmount * position.leverage * ((price - position.entryPrice) / position.entryPrice)
+  const directionSign = position.direction === 'short' ? -1 : 1
+  const pnl = position.marginAmount * position.leverage * directionSign * ((price - position.entryPrice) / position.entryPrice)
   return position.marginAmount + pnl
 }
 
@@ -93,6 +106,14 @@ function computeSessionSettlement(session, currentPrices) {
 // sync, so no timer/interval process is needed for the discount, and
 // no separate ledger is needed for partial payments.
 export function getFeeOwedAmount(fee) {
+  // Once a fee has actually been settled (recorded at approval time —
+  // see approveTransaction's fee_payment branch), that stays true
+  // permanently. Without this check, a fee paid in full while a
+  // discount was active would silently become "owed again" the
+  // moment that discount's expiresAt passed, because the discount
+  // math below would then price it against the full (undiscounted)
+  // amount instead of what was actually agreed and paid.
+  if (fee.feeStatus === 'paid') return 0
   const base = fee.discountAmount > 0 && fee.discountExpiresAt && new Date(fee.discountExpiresAt) > new Date()
     ? Math.max(0, fee.amount - fee.discountAmount)
     : fee.amount
@@ -105,6 +126,7 @@ export function AppProvider({ children }) {
   const { sendEmail } = useEmail()
   const { settings } = useSettings()
   const { notify } = useNotifications()
+  const { createCase } = useSupport()
   const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
   const [prices, setPrices] = useState(STARTING_PRICES)
@@ -231,56 +253,62 @@ export function AppProvider({ children }) {
           return [...prevHistory, point].slice(-150)
         })
 
-        // Tick every session's own scenario independently. A session
-        // not in this map simply isn't touched — it keeps reading the
-        // plain `next` prices above, i.e. "normal market," even while
-        // a sibling session right next to it is biased.
+        // Tick every session's scenarios independently, AND within a
+        // session, tick every symbol's scenario independently of its
+        // sibling symbols. sessionScenarios[sessionId] is now a map
+        // keyed by symbol, not a single blob — so a session can have
+        // BTC/USD biased bullish while EUR/USD in that same session
+        // (or with no scenario at all) keeps reading the real feed,
+        // and two different symbols can run two different scenarios
+        // at once. A symbol not present in a session's map simply
+        // isn't touched — it reads the plain `next` prices above.
         const updatedScenarios = {}
-        Object.entries(sessionScenariosRef.current).forEach(([sessionId, scenario]) => {
-          if (scenario.reset) {
-            const elapsed = Date.now() - new Date(scenario.reset.startedAt).getTime()
-            const progress = Math.min(1, Math.max(0, elapsed / scenario.reset.durationMs))
-            if (progress >= 1) {
-              // Fully settled back to normal — drop the scenario
-              // entirely so this session goes back to reading the
-              // real global feed directly, with nothing layered on top.
-              return
-            }
-            const interpolated = {}
-            Object.keys(scenario.reset.fromPrices).forEach((symbol) => {
-              const from = scenario.reset.fromPrices[symbol]
+        Object.entries(sessionScenariosRef.current).forEach(([sessionId, symbolScenarios]) => {
+          const updatedSymbols = {}
+          Object.entries(symbolScenarios).forEach(([symbol, scenario]) => {
+            if (scenario.reset) {
+              const elapsed = Date.now() - new Date(scenario.reset.startedAt).getTime()
+              const progress = Math.min(1, Math.max(0, elapsed / scenario.reset.durationMs))
+              if (progress >= 1) {
+                // Fully settled back to normal — drop this symbol's
+                // scenario entirely so it goes back to reading the
+                // real global feed directly, nothing layered on top.
+                return
+              }
+              const from = scenario.reset.fromPrice
               const to = next[symbol]
-              interpolated[symbol] = from + (to - from) * progress
-            })
-            updatedScenarios[sessionId] = { ...scenario, prices: interpolated }
-          } else {
-            const drift = biasToDrift(scenario)
-            const volatility = scenario.volatility || 1
-            const steps = Math.max(1, Math.min(10, Math.round(scenario.speed || 1)))
-            let stepped = scenario.prices
-            for (let i = 0; i < steps; i++) {
-              const tickResult = {}
-              Object.keys(stepped).forEach((symbol) => {
-                tickResult[symbol] = randomWalk(stepped[symbol], drift, volatility)
-              })
-              stepped = tickResult
+              updatedSymbols[symbol] = { ...scenario, price: from + (to - from) * progress }
+            } else {
+              const drift = biasToDrift(scenario)
+              const volatility = scenario.volatility || 1
+              const steps = Math.max(1, Math.min(10, Math.round(scenario.speed || 1)))
+              let stepped = scenario.price
+              for (let i = 0; i < steps; i++) {
+                stepped = randomWalk(stepped, drift, volatility)
+              }
+              updatedSymbols[symbol] = { ...scenario, price: stepped }
             }
-            updatedScenarios[sessionId] = { ...scenario, prices: stepped }
+          })
+          if (Object.keys(updatedSymbols).length > 0) {
+            updatedScenarios[sessionId] = updatedSymbols
           }
         })
         setSessionScenarios(updatedScenarios)
 
         // Auto-expiry: any active session whose expiresAt has passed
         // gets force-settled here. Each session settles against ITS
-        // OWN effective prices — the plain global feed, merged with
-        // that session's synthetic prices if it has an active
-        // scenario — computed fresh from this same tick, never stale.
+        // OWN effective prices — the plain global feed, with each
+        // scenario'd symbol's synthetic price substituted in — computed
+        // fresh from this same tick, never stale.
         const expired = sessionsRef.current.filter(
           (s) => s.status === 'active' && s.expiresAt && new Date(s.expiresAt).getTime() <= Date.now()
         )
         if (expired.length > 0) {
           expired.forEach((session) => {
-            const effectivePrices = { ...next, ...(updatedScenarios[session.id]?.prices || {}) }
+            const effectivePrices = { ...next }
+            Object.entries(updatedScenarios[session.id] || {}).forEach(([symbol, scenario]) => {
+              effectivePrices[symbol] = scenario.price
+            })
             delete updatedScenarios[session.id]
             const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, effectivePrices)
             setSessions((prevSessions) =>
@@ -392,72 +420,94 @@ export function AppProvider({ children }) {
   // settlement — reads through this single function, so there's
   // exactly one place that decides "which price does this session see."
   function getEffectivePricesForSession(sessionId) {
-    const scenario = sessionScenarios[sessionId]
-    if (!scenario) return prices
-    return { ...prices, ...scenario.prices }
+    const symbolScenarios = sessionScenarios[sessionId]
+    if (!symbolScenarios || Object.keys(symbolScenarios).length === 0) return prices
+    const effective = { ...prices }
+    Object.entries(symbolScenarios).forEach(([symbol, scenario]) => {
+      effective[symbol] = scenario.price
+    })
+    return effective
   }
 
   const RESET_DURATIONS = { mild: 5 * 60 * 1000, normal: 90 * 1000, hard: 15 * 1000 }
   const SCENARIO_MODES = ['neutral', 'bullish', 'bearish']
 
   // ADMIN-ONLY, demo tool. Applies (or updates) a bias to exactly ONE
-  // session — every other session, including other sessions for the
-  // same client, keeps reading the real, unbiased global price feed.
-  // This is the actual fix for "scenario control affected every
-  // client at once": there is no more global switch, only this.
-  //   mode/strength: which way this session's synthetic price leans, how hard
+  // symbol within ONE session — every other symbol, in this session
+  // or any other, keeps reading the real, unbiased global price feed
+  // unless it has its own separate scenario applied. This is what
+  // makes "BTC/USD bullish while EUR/USD bearish, same session, same
+  // time" possible: each symbol's synthetic price is tracked and
+  // ticked independently (see sessionScenarios[sessionId][symbol]).
+  //   mode/strength: which way this symbol's synthetic price leans, how hard
   //   volatility: how big each swing is
   //   speed: how many steps compound per tick (visibly faster motion)
-  function applySessionScenario(sessionId, mode, strength = 1, volatility = 1, speed = 1) {
+  function applySessionScenario(sessionId, symbol, mode, strength = 1, volatility = 1, speed = 1) {
     const session = sessions.find((s) => s.id === sessionId)
     if (!session || session.status !== 'active') return { error: 'Session is not active.' }
     if (!SCENARIO_MODES.includes(mode)) return { error: 'Invalid scenario mode.' }
+    if (!prices[symbol]) return { error: 'Unknown symbol.' }
 
-    const existing = sessionScenarios[sessionId]
-    // Continuation, not a jump: if this session already has synthetic
-    // prices, keep them as the starting point for the new settings.
-    // Otherwise seed from wherever the real market is right now.
-    const seedPrices = existing?.prices || { ...prices }
+    const existing = sessionScenarios[sessionId]?.[symbol]
+    // Continuation, not a jump: if this symbol already has a
+    // synthetic price running, keep it as the starting point for the
+    // new settings. Otherwise seed from wherever the real market is.
+    const seedPrice = existing?.price ?? prices[symbol]
 
     setSessionScenarios((prev) => ({
       ...prev,
       [sessionId]: {
-        mode,
-        strength: Math.min(3, Math.max(1, Math.round(strength))),
-        volatility: Math.min(3, Math.max(1, Math.round(volatility))),
-        speed: Math.min(10, Math.max(1, Math.round(speed))),
-        appliedAt: new Date().toISOString(),
-        prices: seedPrices,
-        reset: null
+        ...(prev[sessionId] || {}),
+        [symbol]: {
+          mode,
+          strength: Math.min(3, Math.max(1, Math.round(strength))),
+          volatility: Math.min(3, Math.max(1, Math.round(volatility))),
+          speed: Math.min(10, Math.max(1, Math.round(speed))),
+          appliedAt: new Date().toISOString(),
+          price: seedPrice,
+          reset: null
+        }
       }
     }))
     return { ok: true }
   }
 
-  // ADMIN-ONLY, demo tool. Starts this session's synthetic price
+  // ADMIN-ONLY, demo tool. Starts one symbol's synthetic price
   // interpolating back to the real market price over a chosen
   // duration — mild (5 min, gentle) / normal (90s) / hard (15s, a
-  // near-immediate snap back). Once progress reaches 1 the scenario
-  // is dropped entirely (handled in the tick above) and the session
-  // goes back to reading the real feed directly, with nothing layered
-  // on top of it anymore.
-  function resetSessionScenario(sessionId, level) {
+  // near-immediate snap back). Once progress reaches 1 that symbol's
+  // scenario is dropped entirely (handled in the tick above) and it
+  // goes back to reading the real feed directly. Other symbols in the
+  // same session, if they have their own scenarios, are untouched.
+  function resetSessionScenario(sessionId, symbol, level) {
     if (!RESET_DURATIONS[level]) return { error: 'Invalid reset level.' }
-    const scenario = sessionScenarios[sessionId]
-    if (!scenario) return { error: 'This session has no scenario applied to reset.' }
+    const scenario = sessionScenarios[sessionId]?.[symbol]
+    if (!scenario) return { error: 'This symbol has no scenario applied to reset.' }
 
     setSessionScenarios((prev) => ({
       ...prev,
       [sessionId]: {
-        ...scenario,
-        reset: {
-          level,
-          startedAt: new Date().toISOString(),
-          durationMs: RESET_DURATIONS[level],
-          fromPrices: scenario.prices
+        ...prev[sessionId],
+        [symbol]: {
+          ...scenario,
+          reset: {
+            level,
+            startedAt: new Date().toISOString(),
+            durationMs: RESET_DURATIONS[level],
+            fromPrice: scenario.price
+          }
         }
       }
     }))
+    return { ok: true }
+  }
+
+  // Convenience for "reset everything on this session" — same effect
+  // as calling resetSessionScenario once per symbol currently active.
+  function resetAllSessionScenarios(sessionId, level) {
+    const symbolScenarios = sessionScenarios[sessionId]
+    if (!symbolScenarios || Object.keys(symbolScenarios).length === 0) return { error: 'No scenarios on this session.' }
+    Object.keys(symbolScenarios).forEach((symbol) => resetSessionScenario(sessionId, symbol, level))
     return { ok: true }
   }
 
@@ -736,6 +786,14 @@ export function AppProvider({ children }) {
 
     const clamped = clampLeverage(session.tierId, leverage)
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, leverage: clamped } : s)))
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_leverage_changed',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, previousLeverage: session.leverage, newLeverage: clamped }
+    })
     return { leverage: clamped }
   }
 
@@ -752,6 +810,14 @@ export function AppProvider({ children }) {
     const clamped = clampDuration(session.tierId, days)
     const newExpiresAt = new Date(new Date(session.startedAt).getTime() + clamped * 24 * 60 * 60 * 1000)
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, expiresAt: newExpiresAt.toISOString() } : s)))
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_duration_changed',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, previousExpiresAt: session.expiresAt, newDurationDays: clamped, newExpiresAt: newExpiresAt.toISOString() }
+    })
     return { days: clamped, expiresAt: newExpiresAt.toISOString() }
   }
 
@@ -760,16 +826,18 @@ export function AppProvider({ children }) {
   // deducted from the session's cash the moment the position opens;
   // that's the literal enforcement of "can only trade with the exact
   // amount committed to this session."
-  function openSessionPosition(sessionId, symbol, marginAmount) {
+  function openSessionPosition(sessionId, symbol, marginAmount, direction = 'long') {
     const session = sessions.find((s) => s.id === sessionId)
     if (!session || session.status !== 'active') return { error: 'Session is not active.' }
     const price = getEffectivePricesForSession(sessionId)[symbol]
     if (!price || !marginAmount || marginAmount <= 0) return { error: 'Invalid symbol or margin amount.' }
     if (marginAmount > session.cash) return { error: 'Exceeds this session\u2019s available cash.' }
+    if (direction !== 'long' && direction !== 'short') return { error: 'Invalid direction.' }
 
     const position = {
       id: Date.now(),
       symbol,
+      direction,
       entryPrice: price,
       marginAmount,
       leverage: session.leverage,
@@ -783,13 +851,21 @@ export function AppProvider({ children }) {
           : s
       )
     )
-    logSessionAction(session.userId, sessionId, 'open_position', symbol, marginAmount, session.leverage, price, null)
+    logSessionAction(session.userId, sessionId, 'open_position', symbol, marginAmount, session.leverage, price, null, direction)
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_position_opened',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, symbol, direction, marginAmount, leverage: session.leverage, entryPrice: price }
+    })
     notify(
       session.userId,
       'trade_opened',
       'Trade opened',
-      `${symbol} position opened — ${formatUsd(marginAmount)} margin at ${session.leverage}x.`,
-      { sessionId, symbol, marginAmount, leverage: session.leverage }
+      `${symbol} ${direction === 'short' ? 'short' : 'long'} position opened — ${formatUsd(marginAmount)} margin at ${session.leverage}x.`,
+      { sessionId, symbol, direction, marginAmount, leverage: session.leverage }
     )
     return { position }
   }
@@ -816,7 +892,15 @@ export function AppProvider({ children }) {
           : s
       )
     )
-    logSessionAction(session.userId, sessionId, 'close_position', position.symbol, position.marginAmount, position.leverage, price, pnl)
+    logSessionAction(session.userId, sessionId, 'close_position', position.symbol, position.marginAmount, position.leverage, price, pnl, position.direction || 'long')
+    const owner = users.find((u) => u.id === session.userId)
+    logAudit({
+      action: 'session_position_closed',
+      actor: currentUser,
+      targetUserId: session.userId,
+      targetUserName: owner?.name,
+      details: { sessionId, symbol: position.symbol, direction: position.direction || 'long', marginAmount: position.marginAmount, leverage: position.leverage, exitPrice: price, pnl }
+    })
     notify(
       session.userId,
       pnl >= 0 ? 'trade_closed_profit' : 'trade_closed_loss',
@@ -851,7 +935,7 @@ export function AppProvider({ children }) {
   // Audit trail for session-scoped trades — same storage bucket and
   // shape family as the legacy logOrder(), just extended with
   // sessionId/leverage/pnl so both can share one "Trade history" view.
-  function logSessionAction(targetUserId, sessionId, type, symbol, marginAmount, leverage, price, pnl) {
+  function logSessionAction(targetUserId, sessionId, type, symbol, marginAmount, leverage, price, pnl, direction = 'long') {
     setOrders((prev) => [
       {
         id: Date.now(),
@@ -861,6 +945,7 @@ export function AppProvider({ children }) {
         executedByAdminName: currentUser?.name,
         type,
         symbol,
+        direction,
         marginAmount,
         leverage,
         price,
@@ -1082,11 +1167,12 @@ export function AppProvider({ children }) {
           const marginAmount = Math.round(rand(cash * 0.2, cash * 0.6))
           if (marginAmount <= 0 || marginAmount > cash) continue
           cash -= marginAmount
-          const position = { id: nextId(), symbol, entryPrice: prices[symbol], marginAmount, leverage, openedAt: startedAt.toISOString() }
+          const direction = Math.random() < 0.7 ? 'long' : 'short' // long-biased, same as real client behavior tends to skew
+          const position = { id: nextId(), symbol, direction, entryPrice: prices[symbol], marginAmount, leverage, openedAt: startedAt.toISOString() }
           positions.push(position)
           newOrders.push({
             id: nextId(), userId, sessionId, executedByAdminId: currentUser?.id, executedByAdminName: currentUser?.name,
-            type: 'open_position', symbol, marginAmount, leverage, price: prices[symbol], pnl: null, date: startedAt.toISOString()
+            type: 'open_position', symbol, direction, marginAmount, leverage, price: prices[symbol], pnl: null, date: startedAt.toISOString()
           })
         }
 
@@ -1360,11 +1446,12 @@ export function AppProvider({ children }) {
   // can't eat into money the client already committed, and a discount
   // expiring in the meantime can't retroactively change what was owed
   // when they acted.
-  function payFeeBalance(amount) {
-    if (!amount || amount <= 0) return { error: 'Enter an amount above zero.' }
-    const fees = getOutstandingFees(currentUser?.id)
-    if (fees.length === 0) return { error: 'No outstanding fees to pay.' }
-
+  // Shared by payFeeBalance (initial request) and correctTransactionAmount
+  // (re-running this same math when an admin fixes the actual amount
+  // received) — one allocation algorithm, never two copies that could
+  // drift apart from each other.
+  function allocateAgainstOutstandingFees(userId, amount) {
+    const fees = getOutstandingFees(userId)
     let remaining = amount
     const allocations = []
     for (const fee of fees) {
@@ -1375,7 +1462,15 @@ export function AppProvider({ children }) {
       allocations.push({ feeId: fee.id, amount: applied })
       remaining -= applied
     }
-    const spilloverAmount = Math.round(remaining * 100) / 100
+    return { allocations, spilloverAmount: Math.round(remaining * 100) / 100 }
+  }
+
+  function payFeeBalance(amount, meta = {}) {
+    if (!amount || amount <= 0) return { error: 'Enter an amount above zero.' }
+    const fees = getOutstandingFees(currentUser?.id)
+    if (fees.length === 0) return { error: 'No outstanding fees to pay.' }
+
+    const { allocations, spilloverAmount } = allocateAgainstOutstandingFees(currentUser.id, amount)
 
     setTransactions((prev) => [
       {
@@ -1386,6 +1481,14 @@ export function AppProvider({ children }) {
         amount,
         feeAllocations: allocations,
         spilloverAmount,
+        // Same "how you're sending it" fields a real deposit collects
+        // (see addTransaction's deposit branch) — a fee payment IS a
+        // deposit, just one earmarked for the Fee Balance first, so it
+        // needs the same reconciliation info an admin relies on for
+        // any other deposit: method, chain, and an optional reference.
+        depositMethod: meta.depositMethod || null,
+        depositChain: meta.depositChain || null,
+        depositReference: meta.depositReference || null,
         date: new Date().toISOString(),
         status: 'pending'
       },
@@ -1657,6 +1760,97 @@ export function AppProvider({ children }) {
         }
       }
     }
+
+    // Stamped once here, after every type-specific branch above has
+    // already run its own setTransactions update — admin-only info
+    // (see Transactions.jsx's detail view), never shown to the
+    // client, just who to ask if a client has a question about it.
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, reviewedByAdminId: currentUser?.id, reviewedByAdminName: currentUser?.name, reviewedAt: new Date().toISOString() } : t))
+    )
+  }
+
+  // Fixes the gap between "what the client typed" and "what actually
+  // arrived" — the honest answer to not having real deposit
+  // verification yet. Never silently overwrites: the original figure
+  // stays on the transaction as `requestedAmount`, screenshots and a
+  // note are the evidence trail, and every correction is audit-logged.
+  // Does NOT approve — that stays a separate, deliberate step, same
+  // as every other pending request on this platform.
+  function correctTransactionAmount(id, actualAmount, screenshots = [], note = '') {
+    const tx = transactions.find((t) => t.id === id)
+    if (!tx) return { error: 'Transaction not found.' }
+    if (tx.status !== 'pending') return { error: 'Only a pending request can be corrected.' }
+    if (tx.type !== 'deposit' && tx.type !== 'fee_payment') return { error: 'Only deposits and fee payments can be corrected.' }
+    if (!actualAmount || actualAmount <= 0) return { error: 'Enter the actual amount received.' }
+
+    const requestedAmount = tx.requestedAmount ?? tx.amount
+    const owner = users.find((u) => u.id === tx.userId)
+
+    if (tx.type === 'fee_payment') {
+      // The whole point of a correction on a fee payment: the fee
+      // allocation was computed against the WRONG amount at request
+      // time, so it has to be recomputed against the right one —
+      // patching just `amount` and leaving stale allocations in place
+      // would apply the old (wrong) split to the new (right) figure.
+      const { allocations, spilloverAmount } = allocateAgainstOutstandingFees(tx.userId, actualAmount)
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, amount: actualAmount, requestedAmount, feeAllocations: allocations, spilloverAmount, correctionEvidence: screenshots, correctionNote: note, correctedAt: new Date().toISOString() }
+            : t
+        )
+      )
+    } else {
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, amount: actualAmount, requestedAmount, correctionEvidence: screenshots, correctionNote: note, correctedAt: new Date().toISOString() }
+            : t
+        )
+      )
+    }
+
+    logAudit({
+      action: 'transaction_amount_corrected',
+      actor: currentUser,
+      targetUserId: tx.userId,
+      targetUserName: owner?.name,
+      details: { transactionId: id, type: tx.type, requestedAmount, actualAmount, note: note || undefined, screenshotCount: screenshots.length }
+    })
+    return { ok: true }
+  }
+
+  // One atomic action for a client disputing a correction — flags the
+  // transaction AND sends the support message in the same call, so
+  // the two can never end up out of sync (e.g. a message sent but the
+  // transaction never actually marked appealed, or vice versa).
+  function appealTransaction(id, note) {
+    const tx = transactions.find((t) => t.id === id)
+    if (!tx) return { error: 'Transaction not found.' }
+    if (tx.userId !== currentUser?.id) return { error: "You can only appeal your own transactions." }
+    if (tx.requestedAmount == null || tx.requestedAmount === tx.amount) return { error: 'Only a corrected transaction can be appealed.' }
+
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, appealed: true, appealedAt: new Date().toISOString() } : t))
+    )
+    const text = note?.trim()
+      ? `I requested ${formatUsd(tx.requestedAmount)} but it was confirmed as ${formatUsd(tx.amount)}. ${note.trim()}`
+      : `I requested ${formatUsd(tx.requestedAmount)} but it was confirmed as ${formatUsd(tx.amount)}. Please review.`
+    const result = createCase({
+      subject: `Appeal — Transaction #${id}`,
+      category: 'appeal',
+      body: text,
+      relatedTransactionId: id
+    })
+    logAudit({
+      action: 'transaction_appealed',
+      actor: currentUser,
+      targetUserId: tx.userId,
+      targetUserName: currentUser.name,
+      details: { transactionId: id, requestedAmount: tx.requestedAmount, confirmedAmount: tx.amount, caseId: result.case?.id }
+    })
+    return { ok: true, caseId: result.case?.id }
   }
 
   function rejectTransaction(id) {
@@ -1726,6 +1920,8 @@ export function AppProvider({ children }) {
     deleteTransaction,
     getOutstandingFees,
     approveTransaction,
+    correctTransactionAmount,
+    appealTransaction,
     rejectTransaction,
     referralCampaigns,
     createReferralCampaign,
@@ -1752,6 +1948,7 @@ export function AppProvider({ children }) {
     sessionScenarios,
     applySessionScenario,
     resetSessionScenario,
+    resetAllSessionScenarios,
     clearSessionScenario,
     getEffectivePricesForSession,
     fastForwardSession,

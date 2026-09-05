@@ -7,18 +7,18 @@ import { useSettings } from '../context/SettingsContext.jsx'
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState(false)
+  const [error, setError] = useState('')
   const { login } = useAuth()
   const { brand } = useSettings()
   const navigate = useNavigate()
 
   function handleSubmit(e) {
     e.preventDefault()
-    const user = login(email, password)
-    if (user) {
+    const result = login(email, password)
+    if (result.user) {
       navigate('/dashboard')
     } else {
-      setError(true)
+      setError(result.error)
     }
   }
 
@@ -45,7 +45,7 @@ export default function Login() {
           <h1>Welcome back</h1>
           <p className="login-sub">Log in to your account</p>
 
-          {error && <div className="form-error">That email and password combination wasn't found.</div>}
+          {error && <div className="form-error">{error}</div>}
 
           <label>Email</label>
           <div className="field-input-wrap">
@@ -55,6 +55,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@example.com"
+              autoComplete="username"
               required
             />
           </div>

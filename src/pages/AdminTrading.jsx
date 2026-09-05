@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, TrendingUp, TrendingDown, Activity, Plus } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
-import { useApp } from '../context/AppContext.jsx'
+import { useApp, positionEquity } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getClients } from '../config/clients.js'
 import { TIERS, ALL_TIERS, getTier } from '../config/tiers.js'
@@ -42,6 +42,7 @@ export default function AdminTrading() {
 
   const [search, setSearch] = useState('')
   const [tradeSymbol, setTradeSymbol] = useState(Object.keys(prices)[0])
+  const [tradeDirection, setTradeDirection] = useState('long')
   const [tradeMargin, setTradeMargin] = useState('')
   const [tradeError, setTradeError] = useState('')
   const [leverageInput, setLeverageInput] = useState('')
@@ -71,7 +72,7 @@ export default function AdminTrading() {
       setTradeError('Enter a margin amount above zero.')
       return
     }
-    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin)
+    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
     if (result.error) {
       setTradeError(result.error)
       return
@@ -193,7 +194,7 @@ export default function AdminTrading() {
         </div>
 
         {filteredSessions.length === 0 ? (
-          <div className="empty-state"><p>No active sessions right now.</p></div>
+          <div className="empty-state"><p>{activeSessions.length === 0 ? 'No active sessions right now.' : 'No active sessions match this search.'}</p></div>
         ) : (
           <div style={{ padding: '0 16px 16px' }}>
             {filteredSessions.map((s) => {
@@ -310,6 +311,24 @@ export default function AdminTrading() {
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 @ {formatMoney(effectivePrices[tradeSymbol])}
               </span>
+              <div className="segment-tabs" style={{ margin: 0, padding: 3 }}>
+                <button
+                  type="button"
+                  className={'segment-tab' + (tradeDirection === 'long' ? ' active tab-accent-success' : '')}
+                  style={{ padding: '7px 14px' }}
+                  onClick={() => setTradeDirection('long')}
+                >
+                  <TrendingUp size={14} /> Long
+                </button>
+                <button
+                  type="button"
+                  className={'segment-tab' + (tradeDirection === 'short' ? ' active tab-accent-danger' : '')}
+                  style={{ padding: '7px 14px' }}
+                  onClick={() => setTradeDirection('short')}
+                >
+                  <TrendingDown size={14} /> Short
+                </button>
+              </div>
               <input
                 type="number"
                 value={tradeMargin}
@@ -318,7 +337,7 @@ export default function AdminTrading() {
                 style={{ width: 170, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
               />
               <button className="tx-btn deposit" style={{ padding: '8px 14px', fontSize: 13 }} onClick={handleOpenPosition}>
-                Open position ({selectedSession.leverage}x)
+                Open {tradeDirection} position ({selectedSession.leverage}x)
               </button>
             </div>
 
@@ -328,13 +347,19 @@ export default function AdminTrading() {
               <div style={{ padding: 16 }}>
                 {selectedSession.positions.map((p) => {
                   const currentPrice = effectivePrices[p.symbol]
-                  const livePnl = p.marginAmount * p.leverage * ((currentPrice - p.entryPrice) / p.entryPrice)
+                  const livePnl = positionEquity(p, effectivePrices) - p.marginAmount
                   const isProfit = livePnl >= 0
+                  const isShort = p.direction === 'short'
                   return (
                     <div key={p.id} className={'entity-card' + (isProfit ? ' entity-card-accent-profit' : ' entity-card-accent-loss')}>
                       <div className="icon-badge">{isProfit ? <TrendingUp size={17} /> : <TrendingDown size={17} />}</div>
                       <div className="entity-card-body">
-                        <div className="entity-card-title">{p.symbol} · {formatMoney(p.marginAmount)} margin</div>
+                        <div className="entity-card-title">
+                          {p.symbol} · {formatMoney(p.marginAmount)} margin
+                          <span className={'status-pill ' + (isShort ? 'status-rejected' : 'status-approved')} style={{ marginLeft: 8, fontSize: 10.5 }}>
+                            {isShort ? 'short' : 'long'}
+                          </span>
+                        </div>
                         <div className="entity-card-meta">
                           <span>Entry {formatMoney(p.entryPrice)}</span>
                           <span>Now {formatMoney(currentPrice)}</span>
