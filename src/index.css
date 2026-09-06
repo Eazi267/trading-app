@@ -216,6 +216,17 @@ h1, h2, h3,
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  /* Explicit, not incidental: CSS's overflow spec says setting only
+     one axis (overflow-y here) forces the OTHER axis to compute as
+     "auto" too if it was "visible" — you can't actually have one
+     axis scrollable and the other genuinely unconstrained. Without
+     this, the sidebar silently gained a horizontal scroll context,
+     and the uppercase, letter-spaced section labels (TRADING, FUNDS,
+     etc.) sat right at the edge of the 230px width and triggered it —
+     showing just their tail end with the rest scrolled out of view,
+     while normal icon+text nav rows happened to fit and looked fine.
+     This removes that whole class of bug outright. */
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
 
