@@ -1883,6 +1883,19 @@ tbody tr:hover td:last-child {
     flex-wrap: wrap;
   }
 
+  /* Same overlap risk as .entity-card, different shape: a panel
+     header is a title (h3) plus a trailing link/button
+     (justify-content:space-between, no wrap) — used in dozens of
+     panels app-wide (Dashboard's "BTC/USD — live" + "Full markets",
+     "Open positions" + "Manage investments", etc). Neither side
+     shrinks below its own text width by default, so on a narrow
+     phone they don't reflow, they overlap directly. Wrapping here
+     stacks the trailing link under the title instead. */
+  .panel-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
   .icon-btn {
     width: 40px;
     height: 40px;
