@@ -123,82 +123,6 @@ h1, h2, h3,
   display: none;
 }
 
-/* Below 860px (same breakpoint the rest of the app already uses —
-   see .tx-layout, .home-hero), the sidebar stops taking up flex
-   space and becomes a fixed off-canvas drawer instead: hidden by
-   default, slides in from the left when opened via the hamburger
-   button Topbar renders on mobile, with a dimmed backdrop behind it
-   that closes it on tap. Nothing above 860px changes — the sidebar
-   stays exactly as it always was on tablet/desktop. */
-@media (max-width: 860px) {
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 200;
-    transform: translateX(-100%);
-    transition: transform 0.22s var(--ease);
-    box-shadow: 20px 0 40px rgba(0, 0, 0, 0.4);
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
-  }
-
-  .sidebar-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 199;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.22s var(--ease);
-  }
-
-  .sidebar-backdrop.open {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .icon-btn.mobile-menu-btn {
-    display: flex;
-  }
-
-  .topbar-row {
-    padding: 14px 16px;
-    flex-wrap: wrap;
-  }
-
-  .mobile-menu-btn {
-    order: 1;
-  }
-
-  .topbar-right {
-    order: 2;
-    margin-left: auto;
-  }
-
-  .badge-demo {
-    order: 3;
-    flex-basis: 100%;
-    margin-top: 8px;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .page-content {
-    padding: 10px 16px 32px;
-  }
-
-  .breadcrumb {
-    padding-left: 16px;
-  }
-}
-
 /* Sidebar */
 .sidebar {
   width: 230px;
@@ -1883,19 +1807,6 @@ tbody tr:hover td:last-child {
     flex-wrap: wrap;
   }
 
-  /* Same overlap risk as .entity-card, different shape: a panel
-     header is a title (h3) plus a trailing link/button
-     (justify-content:space-between, no wrap) — used in dozens of
-     panels app-wide (Dashboard's "BTC/USD — live" + "Full markets",
-     "Open positions" + "Manage investments", etc). Neither side
-     shrinks below its own text width by default, so on a narrow
-     phone they don't reflow, they overlap directly. Wrapping here
-     stacks the trailing link under the title instead. */
-  .panel-head {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
   .icon-btn {
     width: 40px;
     height: 40px;
@@ -1904,6 +1815,87 @@ tbody tr:hover td:last-child {
   .configurator-panel {
     width: 100vw;
     right: -100vw;
+  }
+
+  /* Moved here from a block near the top of this file, where it sat
+     BEFORE the base (unconditional) .sidebar/.topbar-row/.page-content
+     rules further down. Media queries don't add specificity — when
+     two rules for the same selector tie on specificity, the one that
+     comes LATER in the file wins, regardless of which one is behind a
+     media query. That earlier block's overrides were being silently
+     overwritten by their own later, unconditional base rules and were
+     never actually taking effect on any real device. This is why the
+     mobile sidebar never became a true fixed overlay and the "gutter"
+     bug kept resurfacing across multiple rounds of testing — the fix
+     was correct each time, just placed somewhere the cascade would
+     always undo it. Every mobile override in this file now lives in
+     this one block, after everything it overrides, so this class of
+     bug can't happen again by construction. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.22s var(--ease);
+    box-shadow: 20px 0 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 199;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s var(--ease);
+  }
+
+  .sidebar-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .icon-btn.mobile-menu-btn {
+    display: flex;
+  }
+
+  .topbar-row {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+  }
+
+  .mobile-menu-btn {
+    order: 1;
+  }
+
+  .topbar-right {
+    order: 2;
+    margin-left: auto;
+  }
+
+  .badge-demo {
+    order: 3;
+    flex-basis: 100%;
+    margin-top: 8px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page-content {
+    padding: 10px 16px 32px;
+  }
+
+  .breadcrumb {
+    padding-left: 16px;
   }
 }
 /* ---------------------------------------------
