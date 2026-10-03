@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Copy, Check, Gift, Users } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -18,6 +18,15 @@ export default function Referral() {
   const { transactions, getActiveReferralCampaign } = useApp()
   const { settings } = useSettings()
   const [copied, setCopied] = useState(false)
+  // getReferrals is a real network call now, not a synchronous local
+  // filter — fetched once on mount (and whenever the user changes)
+  // rather than called during render.
+  const [referrals, setReferrals] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    getReferrals(currentUser.id).then((result) => { if (!cancelled) setReferrals(result) })
+    return () => { cancelled = true }
+  }, [currentUser.id, getReferrals])
 
   if (!settings.showReferrals) {
     return (
@@ -28,7 +37,6 @@ export default function Referral() {
   }
 
   const referralLink = `${window.location.origin}/signup?ref=${currentUser.referralCode}`
-  const referrals = getReferrals(currentUser.id)
   const liveCampaign = getActiveReferralCampaign()
   // Bonuses this specific client has actually earned — real
   // transactions, not a counter, so it can never show a number that

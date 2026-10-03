@@ -1,13 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { useAuth } from './AuthContext.jsx'
 import { useAudit } from './AuditContext.jsx'
 import { useEmail } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
 import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
-import { useSupport } from './SupportContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
+import { apiRequest, getToken } from '../api/client.js'
 
 const AppContext = createContext(null)
 
@@ -126,7 +126,9 @@ export function AppProvider({ children }) {
   const { sendEmail } = useEmail()
   const { settings } = useSettings()
   const { notify } = useNotifications()
-  const { createCase } = useSupport()
+  // useSupport() no longer needed here — appealTransaction now calls
+  // the backend directly (see server/README.md Batch 4/5) instead of
+  // creating a support case locally via createCase().
   const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
   const [prices, setPrices] = useState(STARTING_PRICES)
@@ -162,19 +164,19 @@ export function AppProvider({ children }) {
 
   const [watchlist, setWatchlist] = useState(STARTING_WATCHLIST)
 
-  const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('pulse_transactions')
-    return saved ? JSON.parse(saved) : []
-  })
+  const [transactions, setTransactions] = useState([])
 
   // Admin-defined referral bonus campaigns (e.g. "Christmas Bonus").
-  // A campaign is data, not code — unlike tiers.js (fixed, developer-
-  // edited), campaigns are created/edited by an admin at runtime, so
-  // they live here alongside transactions/sessions, not in config/.
-  const [referralCampaigns, setReferralCampaigns] = useState(() => {
-    const saved = localStorage.getItem('pulse_referral_campaigns')
-    return saved ? JSON.parse(saved) : []
-  })
+  // Real backend now — see server/README.md Batch 8. Bonus PAYOUT
+  // itself is no longer computed here at all: the backend pays it
+  // automatically the instant a referred user's first deposit is
+  // approved (see routes/transactions.js's approve handler), so the
+  // old isFirstApprovedDeposit()/payout-creation logic that used to
+  // live inside approveTransaction() below is gone, not ported —
+  // keeping it would have meant either double-paying bonuses or two
+  // copies of "is this really their first deposit" logic that could
+  // drift apart.
+  const [referralCampaigns, setReferralCampaigns] = useState([])
 
   // Keyed by nothing — a flat list, each entry tagged with userId,
   // same pattern as orders/transactions. A session records a tier
@@ -195,13 +197,28 @@ export function AppProvider({ children }) {
     }))
   })
 
-  useEffect(() => {
-    localStorage.setItem('pulse_transactions', JSON.stringify(transactions))
-  }, [transactions])
+  // Real backend now (see server/README.md) — fetched on load and
+  // refetched after any mutating action, rather than kept in sync
+  // with localStorage. currentUser comes from AuthContext; an admin
+  // gets everyone's transactions (GET /api/transactions), a client
+  // gets only their own (GET /api/transactions/mine) — same split as
+  // the backend routes themselves.
+  const refreshTransactions = useCallback(async () => {
+    if (!getToken() || !currentUser) return
+    const path = currentUser.role === 'admin' ? '/api/transactions' : '/api/transactions/mine'
+    const result = await apiRequest(path)
+    if (result.transactions) setTransactions(result.transactions)
+  }, [currentUser])
 
-  useEffect(() => {
-    localStorage.setItem('pulse_referral_campaigns', JSON.stringify(referralCampaigns))
-  }, [referralCampaigns])
+  useEffect(() => { refreshTransactions() }, [refreshTransactions])
+
+  const refreshReferralCampaigns = useCallback(async () => {
+    if (!getToken() || currentUser?.role !== 'admin') return
+    const result = await apiRequest('/api/referrals/campaigns')
+    if (result.campaigns) setReferralCampaigns(result.campaigns)
+  }, [currentUser])
+
+  useEffect(() => { refreshReferralCampaigns() }, [refreshReferralCampaigns])
 
   useEffect(() => {
     localStorage.setItem('pulse_sessions', JSON.stringify(sessions))
@@ -1248,7 +1265,7 @@ export function AppProvider({ children }) {
   // to gate a withdrawal on KYC status: nothing admin-initiated ever
   // passes through here, so this can never accidentally block a
   // legitimate admin action.
-  function addTransaction(type, amount, details = {}) {
+  async function addTransaction(type, amount, details = {}) {
     if (type === 'withdrawal' && (settings.kycEnabled || currentUser?.kycRequired) && currentUser?.kyc?.status !== 'verified') {
       return { error: 'Identity verification is required before you can withdraw. Submit your document on the Verification page.' }
     }
@@ -1256,6 +1273,12 @@ export function AppProvider({ children }) {
     // checked against getOutstandingFees (owed > 0), not a boolean
     // flag, so a partial Fee Balance payment doesn't quietly unlock
     // things early: it stays locked until the full amount is paid.
+    // NOTE: this and the KYC check above are client-side UX only —
+    // the backend's POST /api/transactions doesn't independently
+    // enforce either yet, so a technically savvy client could still
+    // bypass them by calling the API directly. Same category of gap
+    // as the original security discussion; worth a hardening pass
+    // before this handles real money.
     if (type === 'withdrawal' && getOutstandingFees(currentUser?.id).length > 0) {
       return { error: 'You have an outstanding fee. Clear it from your Fee Balance before withdrawing.' }
     }
@@ -1277,43 +1300,34 @@ export function AppProvider({ children }) {
         return { error: 'Choose a deposit method.' }
       }
     }
-    // Crypto deposits get an honest verification status attached —
-    // 'manual' when the toggle is off (current default: every
-    // deposit is reviewed by a person, same as today), or whatever
-    // requestDepositVerification() actually returns when it's on.
-    // Right now that's always 'unavailable' — see that file for why
-    // — so this never claims a check happened that didn't.
+
+    // The blockchain-verification-stub check stays purely client-side
+    // — it's an honest "not really connected" placeholder (see
+    // services/blockchainVerification.js), and the backend has no
+    // column to persist it to. Shown as immediate feedback only; not
+    // sent to the server, not part of the stored record.
     let verification = null
     if (type === 'deposit' && details.depositMethod !== 'bank') {
       verification = settings.blockchainVerificationEnabled
         ? requestDepositVerification({ method: details.depositMethod, chain: details.depositChain, amount })
         : { status: 'manual', reason: null }
     }
-    setTransactions((prev) => [
-      {
-        id: Date.now(),
-        userId: currentUser?.id,
-        userName: currentUser?.name,
-        type,
-        amount,
-        date: new Date().toISOString(),
-        status: 'pending',
-        ...(type === 'withdrawal' ? {
-          withdrawalMethod: details.withdrawalMethod,
-          withdrawalChain: details.withdrawalChain || null,
-          destinationAddress: details.destinationAddress?.trim() || null
-        } : {}),
-        ...(type === 'deposit' ? {
-          depositMethod: details.depositMethod,
-          depositChain: details.depositChain || null,
-          depositReference: details.depositReference?.trim() || null,
-          verificationStatus: verification?.status || null,
-          verificationNote: verification?.reason || null
-        } : {})
-      },
-      ...prev
-    ])
-    return { ok: true }
+
+    // destinationAddress is deliberately NOT sent/stored per
+    // transaction — per the wallet-binding architecture, a crypto
+    // withdrawal's destination is always the client's one bound
+    // wallet address (see AuthContext's bindWallet), never a
+    // free-typed value re-entered per withdrawal. Anywhere the UI
+    // needs to show "sent to", it should read currentUser.boundWallet
+    // .address rather than a per-transaction field.
+    const body = type === 'withdrawal'
+      ? { type, amount, method: details.withdrawalMethod, chain: details.withdrawalChain || null }
+      : { type, amount, method: details.depositMethod, chain: details.depositChain || null, note: details.depositReference?.trim() || undefined }
+
+    const result = await apiRequest('/api/transactions', { method: 'POST', body })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true, verification }
   }
 
   // ADMIN-ONLY: charges a client a fee, immediately — this is
@@ -1331,60 +1345,29 @@ export function AppProvider({ children }) {
   // paid, that session's capped_profit_release becomes approvable
   // for the FULL amount, not just the tier-capped portion. See
   // isSessionUnlocked() and approveTransaction()'s guard below.
-  function applyFee(targetUserId, amount, note, discount, linkedSessionId = null) {
+  async function applyFee(targetUserId, amount, note, discount, linkedSessionId = null) {
     if (!amount || amount <= 0) return { error: 'Enter a fee amount above zero.' }
     if (discount?.discountAmount > 0) {
       if (discount.discountAmount >= amount) return { error: 'Discount must be less than the fee amount.' }
       if (!discount.durationHours || discount.durationHours <= 0) return { error: 'Enter how long the discount should last.' }
     }
-
-    const owner = users.find((u) => u.id === targetUserId)
-    const hasDiscount = discount?.discountAmount > 0
-    const discountExpiresAt = hasDiscount ? new Date(Date.now() + discount.durationHours * 60 * 60 * 1000).toISOString() : null
-
-    setTransactions((prev) => [
-      {
-        id: Date.now(),
-        userId: targetUserId,
-        userName: owner?.name,
-        type: 'fee',
+    // Audit logging and the client notification both now happen
+    // server-side (routes/fees.js's POST / and utils/notifications.js)
+    // — removed here rather than kept as a second copy that could
+    // say something slightly different from what the backend logs.
+    const result = await apiRequest('/api/fees', {
+      method: 'POST',
+      body: {
+        targetUserId,
         amount,
-        note: note || null,
-        date: new Date().toISOString(),
-        status: 'approved',
-        // A fee is recorded immediately as an outstanding invoice, but
-        // never debits the main balance directly (see
-        // getAccountBalance) — it's covered by whatever the client
-        // deposits toward their Fee Balance (see payFeeBalance), which
-        // reduces amountPaid here until it's fully covered.
-        feeStatus: 'outstanding',
-        amountPaid: 0,
-        discountAmount: hasDiscount ? discount.discountAmount : null,
-        discountExpiresAt,
-        linkedSessionId: linkedSessionId || null,
-        executedByAdminName: currentUser?.name
-      },
-      ...prev
-    ])
-    const owed = hasDiscount ? amount - discount.discountAmount : amount
-    logAudit({
-      action: 'fee_charged',
-      actor: currentUser,
-      targetUserId,
-      targetUserName: owner?.name ?? null,
-      details: { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt, linkedSessionId: linkedSessionId || null }
+        note: note || undefined,
+        discountAmount: discount?.discountAmount > 0 ? discount.discountAmount : undefined,
+        durationHours: discount?.discountAmount > 0 ? discount.durationHours : undefined,
+        linkedSessionId: linkedSessionId || undefined
+      }
     })
-    notify(
-      targetUserId,
-      'fee_charged',
-      'Fee charged',
-      hasDiscount
-        ? `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} A discount brings it to ${formatUsd(owed)} if paid within ${discount.durationHours} hours — after that it returns to the full amount.`
-        : linkedSessionId
-        ? `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} Paying it in full unlocks the extra profit above your tier cap on that session.`
-        : `A fee of ${formatUsd(amount)} was added to your account${note ? `: ${note}` : '.'} It won't affect your balance until paid — deposit that exact amount to clear it.`,
-      { amount, note, discountAmount: hasDiscount ? discount.discountAmount : null, discountExpiresAt }
-    )
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
     return { ok: true }
   }
 
@@ -1398,11 +1381,11 @@ export function AppProvider({ children }) {
   }
 
   // ADMIN-ONLY: adds a time-limited discount to a fee that's already
-  // outstanding. Just two fields (amount off + an expiry timestamp) —
-  // getFeeOwedAmount() checks the expiry fresh every time it's read,
-  // so there's no background timer process; the discount simply
-  // stops applying once real time passes discountExpiresAt.
-  function applyDiscountToFee(feeId, discountAmount, durationHours) {
+  // outstanding. utils/fees.js's feeOwedAmount() on the backend checks
+  // the expiry fresh every time it's read, so there's no background
+  // timer process; the discount simply stops applying once real time
+  // passes discountExpiresAt.
+  async function applyDiscountToFee(feeId, discountAmount, durationHours) {
     const fee = transactions.find((t) => t.id === feeId && t.type === 'fee')
     if (!fee) return { error: 'Fee not found.' }
     if (fee.feeStatus !== 'outstanding') return { error: 'Only an outstanding fee can be discounted.' }
@@ -1410,24 +1393,9 @@ export function AppProvider({ children }) {
     if (discountAmount >= fee.amount) return { error: 'Discount must be less than the fee amount.' }
     if (!durationHours || durationHours <= 0) return { error: 'Enter how long the discount should last.' }
 
-    const discountExpiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString()
-    setTransactions((prev) => prev.map((t) => (t.id === feeId ? { ...t, discountAmount, discountExpiresAt } : t)))
-
-    const owed = fee.amount - discountAmount
-    logAudit({
-      action: 'fee_discount_applied',
-      actor: currentUser,
-      targetUserId: fee.userId,
-      targetUserName: fee.userName ?? null,
-      details: { feeId, discountAmount, discountExpiresAt }
-    })
-    notify(
-      fee.userId,
-      'fee_charged',
-      'Discount applied to your fee',
-      `Your outstanding ${formatUsd(fee.amount)} fee is now ${formatUsd(owed)} if paid within ${durationHours} hours — after that it returns to the full amount.`,
-      { feeId, discountAmount, discountExpiresAt }
-    )
+    const result = await apiRequest(`/api/fees/${feeId}/discount`, { method: 'POST', body: { discountAmount, durationHours } })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
     return { ok: true }
   }
 
@@ -1450,85 +1418,55 @@ export function AppProvider({ children }) {
   // (re-running this same math when an admin fixes the actual amount
   // received) — one allocation algorithm, never two copies that could
   // drift apart from each other.
-  function allocateAgainstOutstandingFees(userId, amount) {
-    const fees = getOutstandingFees(userId)
-    let remaining = amount
-    const allocations = []
-    for (const fee of fees) {
-      if (remaining <= 0) break
-      const owed = getFeeOwedAmount(fee)
-      if (owed <= 0) continue
-      const applied = Math.min(remaining, owed)
-      allocations.push({ feeId: fee.id, amount: applied })
-      remaining -= applied
-    }
-    return { allocations, spilloverAmount: Math.round(remaining * 100) / 100 }
-  }
+  // Allocation logic moved server-side — see utils/fees.js on the
+  // backend (payFeeBalance and correctTransactionAmount below both
+  // used to share this local copy; both now call the backend, which
+  // has its own single shared allocateAgainstOutstandingFees()).
 
-  function payFeeBalance(amount, meta = {}) {
+  async function payFeeBalance(amount, meta = {}) {
     if (!amount || amount <= 0) return { error: 'Enter an amount above zero.' }
     const fees = getOutstandingFees(currentUser?.id)
     if (fees.length === 0) return { error: 'No outstanding fees to pay.' }
 
-    const { allocations, spilloverAmount } = allocateAgainstOutstandingFees(currentUser.id, amount)
-
-    setTransactions((prev) => [
-      {
-        id: Date.now(),
-        userId: currentUser.id,
-        userName: currentUser.name,
-        type: 'fee_payment',
-        amount,
-        feeAllocations: allocations,
-        spilloverAmount,
-        // Same "how you're sending it" fields a real deposit collects
-        // (see addTransaction's deposit branch) — a fee payment IS a
-        // deposit, just one earmarked for the Fee Balance first, so it
-        // needs the same reconciliation info an admin relies on for
-        // any other deposit: method, chain, and an optional reference.
-        depositMethod: meta.depositMethod || null,
-        depositChain: meta.depositChain || null,
-        depositReference: meta.depositReference || null,
-        date: new Date().toISOString(),
-        status: 'pending'
-      },
-      ...prev
-    ])
-    return { ok: true, amount, spilloverAmount }
+    // Allocation against outstanding fees (oldest first) is now
+    // computed and locked in SERVER-SIDE, at submission time (see
+    // utils/fees.js's allocateAgainstOutstandingFees on the backend)
+    // — the old client-side copy of this logic is gone, not kept as
+    // a preview, since a client-computed allocation could disagree
+    // with what the server actually applies once approved.
+    const result = await apiRequest('/api/fees/pay', {
+      method: 'POST',
+      body: { amount, method: meta.depositMethod || undefined, chain: meta.depositChain || undefined, note: meta.depositReference || undefined }
+    })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true, amount, spilloverAmount: result.transaction?.spilloverAmount }
   }
 
   // Every fee still marked outstanding for this user, oldest first —
-  // this ordering is what payFeeBalance's allocation follows (oldest
+  // this ordering is what the backend's allocation follows (oldest
   // debt gets covered first), and what the Balance page lists so a
-  // client can see exactly what makes up their Fee Balance.
+  // client can see exactly what makes up their Fee Balance. Stays a
+  // pure local filter — `transactions` already holds real fee data.
   function getOutstandingFees(userId) {
     return transactions
       .filter((t) => t.userId === userId && t.type === 'fee' && getFeeOwedAmount(t) > 0)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
   }
 
-  // ADMIN-ONLY: permanently removes a transaction record. This is
-  // for fixing genuine data errors — a duplicate left over from a
-  // fixed bug, a mistaken entry — not a way to make a balance look
-  // better by erasing real results. A reason is required, and the
-  // full transaction is kept inside the audit log entry's `details`
-  // even after the live record is gone, so there's always a record
-  // of exactly what was removed, by whom, and why.
-  function deleteTransaction(transactionId, reason) {
-    if (!reason?.trim()) return { error: 'Enter a reason for deleting this transaction.' }
-    const tx = transactions.find((t) => t.id === transactionId)
-    if (!tx) return { error: 'Transaction not found.' }
-
-    const targetUser = users.find((u) => u.id === tx.userId)
-    logAudit({
-      action: 'transaction_deleted',
-      actor: currentUser,
-      targetUserId: tx.userId,
-      targetUserName: targetUser?.name ?? tx.userName ?? null,
-      details: { reason: reason.trim(), deletedTransaction: tx }
-    })
-    setTransactions((prev) => prev.filter((t) => t.id !== transactionId))
-    return { ok: true }
+  // Hard-deleting a transaction record has no backend endpoint, on
+  // purpose — it directly contradicts the project's own "balances
+  // calculated from transaction records, never hand-edited" guarantee
+  // (see principles-and-architecture). Erasing a real record, even
+  // with an audit trail of what was erased, retroactively changes
+  // every balance calculation that summed over it with no trace left
+  // in the actual data. The real-world equivalent — a reversing
+  // entry that keeps both the original and the correction visible —
+  // is a genuine feature worth building, just not the same thing as
+  // this function did, so it's disabled rather than quietly wired to
+  // something unsafe or silently dropped.
+  async function deleteTransaction(transactionId, reason) {
+    return { error: 'Deleting transaction records isn\'t available — it would break balance history. If this was created in error, ask your admin about a reversing entry instead.' }
   }
 
   // ADMIN-ONLY: creates a referral bonus campaign — a bounded window
@@ -1538,60 +1476,48 @@ export function AppProvider({ children }) {
   // `active` AND currently inside their own date window ever pay out
   // (see getActiveReferralCampaign) — ended campaigns just stay as a
   // record, never deleted out from under past bonuses.
-  function createReferralCampaign({ name, bonusAmount, startDate, endDate, note }) {
+  async function createReferralCampaign({ name, bonusAmount, startDate, endDate, note }) {
     if (!name?.trim()) return { error: 'Give the campaign a name.' }
     if (!bonusAmount || bonusAmount <= 0) return { error: 'Enter a bonus amount above zero.' }
     if (!startDate || !endDate) return { error: 'Set a start and end date.' }
     if (new Date(endDate) < new Date(startDate)) return { error: 'End date must be on or after the start date.' }
 
-    const campaign = {
-      id: Date.now(),
-      name: name.trim(),
-      bonusAmount,
-      startDate,
-      endDate,
-      note: note?.trim() || null,
-      active: true,
-      createdAt: new Date().toISOString(),
-      createdByAdminName: currentUser?.name
-    }
-    setReferralCampaigns((prev) => [campaign, ...prev])
-    logAudit({
-      action: 'referral_campaign_created',
-      actor: currentUser,
-      details: { campaignId: campaign.id, name: campaign.name, bonusAmount, startDate, endDate }
+    // Audit logging now happens server-side (routes/referrals.js) —
+    // removed here rather than kept as a second copy.
+    const result = await apiRequest('/api/referrals/campaigns', {
+      method: 'POST',
+      body: { name: name.trim(), bonusAmount, startDate, endDate, note: note?.trim() || undefined }
     })
-    return { campaign }
+    if (result.error) return { error: result.error }
+    await refreshReferralCampaigns()
+    return { campaign: result.campaign }
   }
 
   // Admin can edit a campaign's terms (e.g. extend the end date,
   // adjust the bonus) — existing bonuses already paid out under the
   // old terms are untouched, since they're already-recorded
   // transactions, not something this recalculates retroactively.
-  function updateReferralCampaign(id, updates) {
-    setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
-    logAudit({
-      action: 'referral_campaign_updated',
-      actor: currentUser,
-      details: { campaignId: id, updatedFields: Object.keys(updates) }
-    })
+  async function updateReferralCampaign(id, updates) {
+    const result = await apiRequest(`/api/referrals/campaigns/${id}`, { method: 'PATCH', body: updates })
+    if (result.error) return { error: result.error }
+    await refreshReferralCampaigns()
+    return { ok: true }
   }
 
   // Toggle a campaign on/off without deleting it — an admin might
   // want to pause a campaign early, or reactivate a past one.
-  function setCampaignActive(id, active) {
-    setReferralCampaigns((prev) => prev.map((c) => (c.id === id ? { ...c, active } : c)))
-    logAudit({
-      action: active ? 'referral_campaign_activated' : 'referral_campaign_deactivated',
-      actor: currentUser,
-      details: { campaignId: id }
-    })
+  async function setCampaignActive(id, active) {
+    const result = await apiRequest(`/api/referrals/campaigns/${id}/active`, { method: 'POST', body: { active } })
+    if (result.error) return { error: result.error }
+    await refreshReferralCampaigns()
+    return { ok: true }
   }
 
   // The campaign (if any) actually live right now — `active` AND
   // today's date inside [startDate, endDate]. Referral bonuses only
   // ever check against this; everything else is just history the
-  // admin can look back on.
+  // admin can look back on. Stays a pure local check over
+  // already-fetched referralCampaigns.
   function getActiveReferralCampaign() {
     const now = new Date()
     return (
@@ -1601,173 +1527,42 @@ export function AppProvider({ children }) {
     )
   }
 
-  // Purely derived stats for the admin campaign list — never a
-  // separate counter that could drift from the real transactions.
+  // Real stats (count + totalPaid), computed server-side from actual
+  // referral_bonus transactions — routes/referrals.js's GET /campaigns
+  // already attaches `.stats` to every campaign it returns. Reading
+  // it here instead of recomputing locally (and instead of the old
+  // `t.campaignId` field, which was never how the backend actually
+  // stores it — see details.campaignId in sql/011_referrals.sql)
+  // means there's exactly one place this math lives.
   function getCampaignStats(campaignId) {
-    const paid = transactions.filter((t) => t.type === 'referral_bonus' && t.campaignId === campaignId)
-    return { count: paid.length, totalPaid: paid.reduce((sum, t) => sum + t.amount, 0) }
+    const campaign = referralCampaigns.find((c) => c.id === campaignId)
+    return campaign?.stats || { count: 0, totalPaid: 0 }
   }
 
-  // True only the FIRST time this user has ever had a deposit
-  // approved. This is the qualifying event for a referral bonus —
-  // same principle already used for tier assignment (nothing real
-  // happens at signup; a genuine funded deposit is what counts) —
-  // so a referral can't be gamed by creating an account and never
-  // depositing.
-  function isFirstApprovedDeposit(userId, excludingTransactionId) {
-    return !transactions.some(
-      (t) => t.userId === userId && t.type === 'deposit' && t.status === 'approved' && t.id !== excludingTransactionId
-    )
-  }
+  // isFirstApprovedDeposit() and the referral-bonus-creation logic
+  // that used to live inside approveTransaction() are both gone —
+  // the backend pays referral bonuses automatically the instant a
+  // referred user's first deposit is approved (see
+  // routes/transactions.js), so this frontend copy would either
+  // double-pay or need to somehow avoid racing the server's own
+  // check. One place for this logic, and it's the backend now.
 
-  function approveTransaction(id) {
+  // Collapses to one call now — the backend's POST
+  // /api/transactions/:id/approve already handles everything this
+  // used to do by hand: applying fee_payment allocations, crediting
+  // genuine spillover as a real deposit, paying out a referral bonus
+  // on a qualifying first deposit, and sending the client's
+  // notification. Keeping any of that logic here risked it disagreeing
+  // with what the server actually does once approved.
+  async function approveTransaction(id) {
     const tx = transactions.find((t) => t.id === id)
-
-    if (tx?.type === 'capped_profit_release' && !isSessionUnlocked(tx.sessionId)) {
+    if (tx?.type === 'capped_profit_release' && !isSessionUnlocked(tx.linkedSessionId)) {
       return { error: 'This client must pay a linked unlock fee before the extra profit above their tier cap can be released. Apply one from their account page.' }
     }
-
-    if (tx?.type === 'fee_payment') {
-      // Apply each locked-in allocation to its fee's cumulative
-      // amountPaid; a fee whose owed amount reaches zero flips to
-      // 'paid'. The fee_payment transaction itself never touches main
-      // balance — it's entirely absorbed here.
-      setTransactions((prev) =>
-        prev.map((t) => {
-          if (t.id === id) return { ...t, status: 'approved' }
-          const allocation = tx.feeAllocations?.find((a) => a.feeId === t.id)
-          if (allocation) {
-            const newAmountPaid = (t.amountPaid || 0) + allocation.amount
-            const stillOwed = getFeeOwedAmount({ ...t, amountPaid: newAmountPaid })
-            return { ...t, amountPaid: newAmountPaid, feeStatus: stillOwed <= 0 ? 'paid' : 'outstanding' }
-          }
-          return t
-        })
-      )
-      // Genuine excess beyond what was owed becomes a real, separate
-      // deposit — new money that wasn't needed to cover fees, so it
-      // credits the main balance like any other deposit.
-      if (tx.spilloverAmount > 0) {
-        setTransactions((prev) => [
-          {
-            id: Date.now() + 1,
-            userId: tx.userId,
-            userName: tx.userName,
-            type: 'deposit',
-            amount: tx.spilloverAmount,
-            note: 'Excess from fee payment',
-            date: new Date().toISOString(),
-            status: 'approved'
-          },
-          ...prev
-        ])
-      }
-      const coveredAmount = tx.amount - tx.spilloverAmount
-      notify(
-        tx.userId,
-        'fee_paid',
-        'Fee payment approved',
-        tx.spilloverAmount > 0
-          ? `Your payment of ${formatUsd(tx.amount)} cleared your Fee Balance (${formatUsd(coveredAmount)}) and the remaining ${formatUsd(tx.spilloverAmount)} was added to your balance.`
-          : `Your payment of ${formatUsd(tx.amount)} was applied to your Fee Balance.`,
-        { transactionId: id, amount: tx.amount, spilloverAmount: tx.spilloverAmount }
-      )
-      return
-    }
-
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: 'approved' } : t))
-    )
-
-    // Referral bonus check — ONLY on a genuine deposit being approved
-    // (fee_payment is its own separate type now, so this never needs
-    // to guard against it), and ONLY on that depositor's very first
-    // approved deposit ever (see isFirstApprovedDeposit). Pays out
-    // instantly and automatically once a campaign is live — no
-    // separate approval step needed, since the qualifying deposit
-    // itself already went through one.
-    if (tx?.type === 'deposit') {
-      const depositor = users.find((u) => u.id === tx.userId)
-      const campaign = getActiveReferralCampaign()
-      const alreadyPaid = transactions.some((t) => t.type === 'referral_bonus' && t.referredUserId === tx.userId)
-      if (depositor?.referredBy && campaign && !alreadyPaid && isFirstApprovedDeposit(tx.userId, tx.id)) {
-        const referrer = users.find((u) => u.id === depositor.referredBy)
-        // Second guard against the same thing signup() already
-        // prevents — a generated demo client should never be able to
-        // collect a real bonus, even if referredBy somehow got set
-        // some other way in the future.
-        if (referrer && !referrer.isDemoGenerated) {
-          setTransactions((prev) => [
-            {
-              id: Date.now() + 1,
-              userId: referrer.id,
-              userName: referrer.name,
-              type: 'referral_bonus',
-              amount: campaign.bonusAmount,
-              status: 'approved',
-              campaignId: campaign.id,
-              campaignName: campaign.name,
-              referredUserId: depositor.id,
-              referredUserName: depositor.name,
-              date: new Date().toISOString()
-            },
-            ...prev
-          ])
-          notify(
-            referrer.id,
-            'referral_bonus',
-            'Referral bonus earned!',
-            `${depositor.name} made their first deposit — you earned a ${formatUsd(campaign.bonusAmount)} bonus from the "${campaign.name}" campaign.`,
-            { amount: campaign.bonusAmount, campaignId: campaign.id, referredUserId: depositor.id }
-          )
-        }
-      }
-    }
-
-    if (tx) {
-      if (tx.type === 'capped_profit_release') {
-        notify(
-          tx.userId,
-          'capped_profit_released',
-          'Pending profit released',
-          `The extra ${formatUsd(tx.amount)} held above your tier cap was approved and added to your balance.`,
-          { transactionId: id, amount: tx.amount }
-        )
-      } else if (tx.type === 'session_settlement') {
-        notify(
-          tx.userId,
-          'session_settlement_certified',
-          tx.amount >= 0 ? 'Session profit certified' : 'Session loss certified',
-          `Your session result of ${tx.amount >= 0 ? '+' : ''}${formatUsd(tx.amount)} was certified and moved to your main balance.`,
-          { transactionId: id, amount: tx.amount, sessionId: tx.sessionId }
-        )
-      } else {
-        notify(
-          tx.userId,
-          tx.type === 'deposit' ? 'deposit_approved' : 'withdrawal_approved',
-          tx.type === 'deposit' ? 'Deposit approved' : 'Withdrawal approved',
-          `Your ${tx.type} of ${formatUsd(tx.amount)} was approved.`,
-          { transactionId: id, amount: tx.amount }
-        )
-        if (tx.type === 'deposit' || tx.type === 'withdrawal') {
-          const owner = users.find((u) => u.id === tx.userId)
-          sendEmail({
-            to: owner?.email,
-            subject: tx.type === 'deposit' ? 'Your deposit was approved' : 'Your withdrawal was approved',
-            body: `Hi ${owner?.name || ''},\n\nYour ${tx.type} of ${formatUsd(tx.amount)} has been approved and reflected in your account.\n\nThanks.`,
-            category: tx.type
-          }, settings.emailSendingEnabled)
-        }
-      }
-    }
-
-    // Stamped once here, after every type-specific branch above has
-    // already run its own setTransactions update — admin-only info
-    // (see Transactions.jsx's detail view), never shown to the
-    // client, just who to ask if a client has a question about it.
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, reviewedByAdminId: currentUser?.id, reviewedByAdminName: currentUser?.name, reviewedAt: new Date().toISOString() } : t))
-    )
+    const result = await apiRequest(`/api/transactions/${id}/approve`, { method: 'POST' })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true }
   }
 
   // Fixes the gap between "what the client typed" and "what actually
@@ -1777,122 +1572,68 @@ export function AppProvider({ children }) {
   // note are the evidence trail, and every correction is audit-logged.
   // Does NOT approve — that stays a separate, deliberate step, same
   // as every other pending request on this platform.
-  function correctTransactionAmount(id, actualAmount, screenshots = [], note = '') {
+  // Client-initiated: "I've sent this, here's my proof" — distinct
+  // from correctTransactionAmount's admin-initiated evidence (see
+  // that function above). Deliberately does NOT touch `status` — it
+  // stays 'pending' the whole time, same value it's always had, so
+  // nothing that filters/styles on status (the pending/resolved
+  // split, the 3 status-pill CSS classes) needs to know a 4th state
+  // exists. clientConfirmed is a separate flag the admin's pending
+  // queue reads to show "Awaiting review" instead of a plain request.
+  async function submitDepositProof(id, screenshots) {
     const tx = transactions.find((t) => t.id === id)
     if (!tx) return { error: 'Transaction not found.' }
-    if (tx.status !== 'pending') return { error: 'Only a pending request can be corrected.' }
-    if (tx.type !== 'deposit' && tx.type !== 'fee_payment') return { error: 'Only deposits and fee payments can be corrected.' }
-    if (!actualAmount || actualAmount <= 0) return { error: 'Enter the actual amount received.' }
-
-    const requestedAmount = tx.requestedAmount ?? tx.amount
-    const owner = users.find((u) => u.id === tx.userId)
-
-    if (tx.type === 'fee_payment') {
-      // The whole point of a correction on a fee payment: the fee
-      // allocation was computed against the WRONG amount at request
-      // time, so it has to be recomputed against the right one —
-      // patching just `amount` and leaving stale allocations in place
-      // would apply the old (wrong) split to the new (right) figure.
-      const { allocations, spilloverAmount } = allocateAgainstOutstandingFees(tx.userId, actualAmount)
-      setTransactions((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? { ...t, amount: actualAmount, requestedAmount, feeAllocations: allocations, spilloverAmount, correctionEvidence: screenshots, correctionNote: note, correctedAt: new Date().toISOString() }
-            : t
-        )
-      )
-    } else {
-      setTransactions((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? { ...t, amount: actualAmount, requestedAmount, correctionEvidence: screenshots, correctionNote: note, correctedAt: new Date().toISOString() }
-            : t
-        )
-      )
-    }
-
-    logAudit({
-      action: 'transaction_amount_corrected',
-      actor: currentUser,
-      targetUserId: tx.userId,
-      targetUserName: owner?.name,
-      details: { transactionId: id, type: tx.type, requestedAmount, actualAmount, note: note || undefined, screenshotCount: screenshots.length }
-    })
+    if (!screenshots || screenshots.length === 0) return { error: 'Add at least one screenshot.' }
+    const result = await apiRequest(`/api/transactions/${id}/proof`, { method: 'POST', body: { screenshots } })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
     return { ok: true }
   }
 
-  // One atomic action for a client disputing a correction — flags the
-  // transaction AND sends the support message in the same call, so
-  // the two can never end up out of sync (e.g. a message sent but the
-  // transaction never actually marked appealed, or vice versa).
-  function appealTransaction(id, note) {
+  // Deposit/withdrawal only — fee_payment correction needs its
+  // allocation recomputed too, which the backend deliberately doesn't
+  // support yet (see server/sql/004_transaction_corrections.sql) —
+  // the server returns a clear error for that case rather than this
+  // function silently guessing at a client-side recompute.
+  async function correctTransactionAmount(id, actualAmount, screenshots = [], note = '') {
+    const tx = transactions.find((t) => t.id === id)
+    if (!tx) return { error: 'Transaction not found.' }
+    if (!actualAmount || actualAmount <= 0) return { error: 'Enter the actual amount received.' }
+
+    const result = await apiRequest(`/api/transactions/${id}/correct`, {
+      method: 'POST',
+      body: { actualAmount, screenshots, note: note || undefined }
+    })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true }
+  }
+
+  // One call now — the backend's POST /:id/appeal creates the linked
+  // support case itself (see server/sql/005_support.sql), so this no
+  // longer needs to separately call createCase() and hope the two
+  // stay in sync.
+  async function appealTransaction(id, note) {
     const tx = transactions.find((t) => t.id === id)
     if (!tx) return { error: 'Transaction not found.' }
     if (tx.userId !== currentUser?.id) return { error: "You can only appeal your own transactions." }
     if (tx.requestedAmount == null || tx.requestedAmount === tx.amount) return { error: 'Only a corrected transaction can be appealed.' }
 
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, appealed: true, appealedAt: new Date().toISOString() } : t))
-    )
-    const text = note?.trim()
-      ? `I requested ${formatUsd(tx.requestedAmount)} but it was confirmed as ${formatUsd(tx.amount)}. ${note.trim()}`
-      : `I requested ${formatUsd(tx.requestedAmount)} but it was confirmed as ${formatUsd(tx.amount)}. Please review.`
-    const result = createCase({
-      subject: `Appeal — Transaction #${id}`,
-      category: 'appeal',
-      body: text,
-      relatedTransactionId: id
-    })
-    logAudit({
-      action: 'transaction_appealed',
-      actor: currentUser,
-      targetUserId: tx.userId,
-      targetUserName: currentUser.name,
-      details: { transactionId: id, requestedAmount: tx.requestedAmount, confirmedAmount: tx.amount, caseId: result.case?.id }
-    })
-    return { ok: true, caseId: result.case?.id }
+    const result = await apiRequest(`/api/transactions/${id}/appeal`, { method: 'POST', body: { note } })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true, caseId: result.caseId }
   }
 
-  function rejectTransaction(id) {
-    const tx = transactions.find((t) => t.id === id)
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: 'rejected' } : t))
-    )
-    if (tx) {
-      if (tx.type === 'capped_profit_release') {
-        notify(
-          tx.userId,
-          'balance_update',
-          'Pending profit not released',
-          `The extra ${formatUsd(tx.amount)} held above your tier cap was not approved for release.`,
-          { transactionId: id, amount: tx.amount }
-        )
-      } else if (tx.type === 'session_settlement') {
-        notify(
-          tx.userId,
-          'balance_update',
-          'Session result not certified',
-          `Your session result of ${tx.amount >= 0 ? '+' : ''}${formatUsd(tx.amount)} was not certified and wasn't added to your balance. Contact support if this is unexpected.`,
-          { transactionId: id, amount: tx.amount, sessionId: tx.sessionId }
-        )
-      } else if (tx.type === 'fee_payment') {
-        notify(
-          tx.userId,
-          'balance_update',
-          'Fee payment rejected',
-          `Your Fee Balance payment of ${formatUsd(tx.amount)} was rejected. Contact support if this is unexpected.`,
-          { transactionId: id, amount: tx.amount }
-        )
-      } else {
-        notify(
-          tx.userId,
-          'balance_update',
-          `${tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} request rejected`,
-          `Your ${tx.type} request of ${formatUsd(tx.amount)} was rejected. Contact support if this is unexpected.`,
-          { transactionId: id, amount: tx.amount }
-        )
-      }
-    }
+  // Notification now happens server-side (routes/transactions.js
+  // doesn't currently send one on reject — see server/README.md;
+  // worth adding in a future batch, not silently duplicated here in
+  // the meantime).
+  async function rejectTransaction(id, reason) {
+    const result = await apiRequest(`/api/transactions/${id}/reject`, { method: 'POST', body: { reason } })
+    if (result.error) return { error: result.error }
+    await refreshTransactions()
+    return { ok: true }
   }
 
   // Convenience value for the logged-in user specifically — same
@@ -1905,6 +1646,8 @@ export function AppProvider({ children }) {
     accent,
     setAccent: setAccentState,
     prices,
+    refreshTransactions,
+    refreshReferralCampaigns,
     history,
     priceFeedStatus,
     getRecentRange,
@@ -1921,6 +1664,7 @@ export function AppProvider({ children }) {
     getOutstandingFees,
     approveTransaction,
     correctTransactionAmount,
+    submitDepositProof,
     appealTransaction,
     rejectTransaction,
     referralCampaigns,

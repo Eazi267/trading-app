@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search, Zap, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search, Zap, Clock, ArrowUpRight, ArrowDownRight, ChevronDown, History, Camera } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAudit } from '../context/AuditContext.jsx'
 
@@ -67,38 +67,74 @@ const ACTION_ICONS = {
   session_leverage_changed: Zap,
   session_duration_changed: Clock,
   session_position_opened: ArrowUpRight,
-  session_position_closed: ArrowDownRight
+  session_position_closed: ArrowDownRight,
+  deposit_proof_submitted: Camera
 }
 function iconFor(action) {
   if (action.startsWith('referral_campaign')) return Gift
   return ACTION_ICONS[action] || ClipboardList
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+// Comparator per sort mode. 'newest'/'oldest' sort the timestamp;
+// 'client'/'action' group alphabetically and use timestamp (newest
+// first) as the tiebreaker within a group, so entries for the same
+// client or action still read chronologically once grouped.
+const SORTERS = {
+  newest: (a, b) => new Date(b.timestamp) - new Date(a.timestamp),
+  oldest: (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+  client: (a, b) =>
+    (a.targetUserName || '').localeCompare(b.targetUserName || '') ||
+    new Date(b.timestamp) - new Date(a.timestamp),
+  action: (a, b) =>
+    formatAction(a.action).localeCompare(formatAction(b.action)) ||
+    new Date(b.timestamp) - new Date(a.timestamp)
+}
+
 export default function AdminAuditLog() {
   const { auditLog } = useAudit()
   const [actionFilter, setActionFilter] = useState('all')
+  const [clientFilter, setClientFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('newest')
   const [search, setSearch] = useState('')
+  const [showOlder, setShowOlder] = useState(false)
 
-  // Built from whatever actions actually appear in the log, so this
-  // list never goes stale as new logAudit() call sites get added
-  // elsewhere — no hardcoded action list to maintain here.
+  // Built from whatever actions/clients actually appear in the log,
+  // so these lists never go stale as new logAudit() call sites (or
+  // new clients) get added elsewhere — no hardcoded list to maintain.
   const actionTypes = useMemo(
     () => Array.from(new Set(auditLog.map((e) => e.action))).sort(),
+    [auditLog]
+  )
+  const clientNames = useMemo(
+    () => Array.from(new Set(auditLog.filter((e) => e.targetUserName).map((e) => e.targetUserName))).sort(),
     [auditLog]
   )
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return auditLog.filter((e) => {
-      if (actionFilter !== 'all' && e.action !== actionFilter) return false
-      if (!q) return true
-      return (
-        e.actorName?.toLowerCase().includes(q) ||
-        e.targetUserName?.toLowerCase().includes(q) ||
-        formatAction(e.action).toLowerCase().includes(q)
-      )
-    })
-  }, [auditLog, actionFilter, search])
+    return auditLog
+      .filter((e) => {
+        if (actionFilter !== 'all' && e.action !== actionFilter) return false
+        if (clientFilter !== 'all' && e.targetUserName !== clientFilter) return false
+        if (!q) return true
+        return (
+          e.actorName?.toLowerCase().includes(q) ||
+          e.targetUserName?.toLowerCase().includes(q) ||
+          formatAction(e.action).toLowerCase().includes(q)
+        )
+      })
+      .sort(SORTERS[sortBy])
+  }, [auditLog, actionFilter, clientFilter, sortBy, search])
+
+  // Entries over a week old collapse behind "Show older history" —
+  // long-lived clients/actions can accumulate hundreds of entries,
+  // and the last 7 days is what an admin actually needs on load.
+  // Split (not truncated) so nothing is ever lost, just deferred.
+  const cutoff = Date.now() - WEEK_MS
+  const recent = filtered.filter((e) => new Date(e.timestamp).getTime() >= cutoff)
+  const older = filtered.filter((e) => new Date(e.timestamp).getTime() < cutoff)
 
   return (
     <Layout pageTitle="Audit Log">
@@ -130,6 +166,26 @@ export default function AdminAuditLog() {
               <option key={a} value={a}>{formatAction(a)}</option>
             ))}
           </select>
+          <select
+            value={clientFilter}
+            onChange={(e) => setClientFilter(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+          >
+            <option value="all">All clients</option>
+            {clientNames.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+          >
+            <option value="newest">Sort: Newest first</option>
+            <option value="oldest">Sort: Oldest first</option>
+            <option value="client">Sort: Client name</option>
+            <option value="action">Sort: Action type</option>
+          </select>
         </div>
       </div>
 
@@ -142,29 +198,61 @@ export default function AdminAuditLog() {
             No audit entries match this filter.
           </div>
         ) : (
-          <div style={{ padding: 16 }}>
-            {filtered.map((e) => {
-              const Icon = iconFor(e.action)
-              return (
-                <div key={e.id} className="entity-card">
-                  <div className="icon-badge"><Icon size={17} /></div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">{formatAction(e.action)}</div>
-                    <div className="entity-card-meta">
-                      <span>{formatDate(e.timestamp)}</span>
-                      <span>By {e.actorName}</span>
-                      {e.targetUserName && (
-                        <span>Client: <Link to={`/admin/users/${e.targetUserId}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{e.targetUserName}</Link></span>
-                      )}
-                    </div>
-                    <DetailChips details={e.details} />
-                  </div>
+          <>
+            <div style={{ padding: 16 }} className={sortBy === 'newest' || sortBy === 'oldest' ? 'stagger-in' : ''}>
+              {recent.map((e) => (
+                <AuditEntryRow key={e.id} entry={e} />
+              ))}
+              {recent.length === 0 && older.length > 0 && (
+                <div style={{ padding: '12px 4px', color: 'var(--text-muted)', fontSize: 13 }}>
+                  Nothing in the last 7 days for this filter.
                 </div>
-              )
-            })}
-          </div>
+              )}
+            </div>
+            {older.length > 0 && (
+              <div style={{ padding: '0 16px 16px' }}>
+                <button
+                  type="button"
+                  className="tx-btn"
+                  onClick={() => setShowOlder((v) => !v)}
+                  style={{ width: '100%', justifyContent: 'center', padding: '9px 10px', fontSize: 12.5 }}
+                >
+                  <History size={13} />
+                  {showOlder ? 'Hide' : 'Show'} older history ({older.length} entr{older.length === 1 ? 'y' : 'ies'} over a week old)
+                  <ChevronDown size={12} style={{ transform: showOlder ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease)' }} />
+                </button>
+                {showOlder && (
+                  <div style={{ paddingTop: 12 }}>
+                    {older.map((e) => (
+                      <AuditEntryRow key={e.id} entry={e} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </Layout>
+  )
+}
+
+function AuditEntryRow({ entry: e }) {
+  const Icon = iconFor(e.action)
+  return (
+    <div className="entity-card">
+      <div className="icon-badge"><Icon size={17} /></div>
+      <div className="entity-card-body">
+        <div className="entity-card-title">{formatAction(e.action)}</div>
+        <div className="entity-card-meta">
+          <span>{formatDate(e.timestamp)}</span>
+          <span>By {e.actorName}</span>
+          {e.targetUserName && (
+            <span>Client: <Link to={`/admin/users/${e.targetUserId}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{e.targetUserName}</Link></span>
+          )}
+        </div>
+        <DetailChips details={e.details} />
+      </div>
+    </div>
   )
 }

@@ -9,7 +9,13 @@ import { hasPermission } from '../config/adminTiers.js'
 // Trading Console by typing the URL directly, since the sidebar
 // hiding the link is only ever a convenience, not a real boundary.
 export default function ProtectedRoute({ children, requireRole, requirePermission }) {
-  const { currentUser } = useAuth()
+  const { currentUser, loading } = useAuth()
+
+  // While the session-restore check (GET /api/auth/me) is still in
+  // flight on first load, currentUser is legitimately null even for
+  // someone who IS logged in — redirecting here would bounce a
+  // returning user to /login for a split second on every refresh.
+  if (loading) return null
 
   if (!currentUser) {
     return <Navigate to="/login" replace />

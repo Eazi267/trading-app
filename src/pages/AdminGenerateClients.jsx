@@ -33,15 +33,21 @@ export default function AdminGenerateClients() {
 
   const existingDemoCount = users.filter((u) => u.isDemoGenerated).length
 
-  function handleGenerate() {
+  async function handleGenerate() {
     setError('')
     setResult(null)
     setClearedCount(null)
-    const { users: newUsers, error: genError } = generateDemoClients(parseInt(count, 10))
+    const { users: newUsers, error: genError } = await generateDemoClients(parseInt(count, 10))
     if (genError) {
       setError(genError)
       return
     }
+    // generateDemoActivity still writes fake transactions/sessions
+    // into AppContext's own local arrays — AppContext isn't wired to
+    // the real backend yet (that's the next wiring batch), so demo
+    // activity for these now-real accounts is local-only for now,
+    // same as it's always been. Nothing broken by this batch, just
+    // not yet consistent with the real user records it's attached to.
     const stats = generateDemoActivity(
       newUsers.map((u) => u.id),
       { minDeposit: parseFloat(minDeposit), maxDeposit: parseFloat(maxDeposit) }
@@ -49,8 +55,8 @@ export default function AdminGenerateClients() {
     setResult(stats)
   }
 
-  function handleClear() {
-    const removedIds = removeDemoClients()
+  async function handleClear() {
+    const { removedIds } = await removeDemoClients()
     purgeDataForUsers(removedIds)
     setClearedCount(removedIds.length)
     setResult(null)

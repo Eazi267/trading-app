@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { Mail, Lock, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
+import { Mail, User, Gift, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { COUNTRIES, guessCountryFromTimezone } from '../config/currencies.js'
+import PasswordField from '../components/PasswordField.jsx'
 
 export default function Signup() {
   const [searchParams] = useSearchParams()
@@ -24,9 +25,10 @@ export default function Signup() {
   const { brand } = useSettings()
   const navigate = useNavigate()
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    const result = signup({ name, email, password, referralCodeUsed, country })
+    setError('')
+    const result = await signup({ name, email, password, referralCodeUsed, country })
     if (result.error) setError(result.error)
     else navigate('/dashboard')
   }
@@ -68,10 +70,13 @@ export default function Signup() {
           </div>
 
           <label>Password</label>
-          <div className="field-input-wrap">
-            <Lock size={16} />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
-          </div>
+          <PasswordField
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+            minLength={6}
+          />
 
           <label>Country</label>
           <div className="field-input-wrap">

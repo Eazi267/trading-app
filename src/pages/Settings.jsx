@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { useSupport } from '../context/SupportContext.jsx'
 import { CURRENCIES, COUNTRY_CURRENCY, COUNTRIES } from '../config/currencies.js'
 import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
+import PasswordField from '../components/PasswordField.jsx'
+import CopyButton from '../components/CopyButton.jsx'
 
 const METHOD_ICONS = { usdt: Coins, btc: Bitcoin }
 
@@ -23,8 +25,8 @@ export default function Settings() {
   const [walletError, setWalletError] = useState('')
   const [unlinkSent, setUnlinkSent] = useState(false)
 
-  function handleBindWallet() {
-    const result = bindWallet(walletMethod, CRYPTO_CHAINS[walletMethod] ? walletChain : null, walletAddress)
+  async function handleBindWallet() {
+    const result = await bindWallet(walletMethod, CRYPTO_CHAINS[walletMethod] ? walletChain : null, walletAddress)
     if (result.error) return setWalletError(result.error)
     setWalletError('')
   }
@@ -79,10 +81,10 @@ export default function Settings() {
     reader.readAsDataURL(file)
   }
 
-  function handleSave() {
+  async function handleSave() {
     const { _currencyTouched, ...profileFields } = form
-    updateProfile(profileFields)
-    setSaved(true)
+    const result = await updateProfile(profileFields)
+    if (!result.error) setSaved(true)
   }
 
   function handlePwChange(field, value) {
@@ -91,12 +93,12 @@ export default function Settings() {
     setPwSaved(false)
   }
 
-  function handlePasswordSave() {
+  async function handlePasswordSave() {
     if (pwForm.next !== pwForm.confirm) {
       setPwError('New passwords do not match.')
       return
     }
-    const result = changePassword(pwForm.current, pwForm.next)
+    const result = await changePassword(pwForm.current, pwForm.next)
     if (result.error) {
       setPwError(result.error)
       return
@@ -114,7 +116,10 @@ export default function Settings() {
         <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Account ID</div>
-            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>{currentUser.uid}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>{currentUser.uid}</span>
+              <CopyButton value={currentUser.uid} label="Copy account ID" />
+            </div>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'right', maxWidth: 220 }}>
             Have this ready when contacting support — it identifies your account precisely and can help you back in if you're ever locked out.
@@ -142,7 +147,10 @@ export default function Settings() {
                     {METHOD_LABELS[currentUser.boundWallet.method] || currentUser.boundWallet.method}
                     {currentUser.boundWallet.chain ? ` · ${currentUser.boundWallet.chain}` : ''}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{currentUser.boundWallet.address}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{currentUser.boundWallet.address}</span>
+                    <CopyButton value={currentUser.boundWallet.address} label="Copy wallet address" />
+                  </div>
                 </div>
               </div>
               {unlinkSent ? (
@@ -271,13 +279,13 @@ export default function Settings() {
           {pwError && <div className="form-error" style={{ marginBottom: 14 }}>{pwError}</div>}
 
           <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Current password</label>
-          <input type="password" value={pwForm.current} onChange={(e) => handlePwChange('current', e.target.value)} style={inputStyle} />
+          <PasswordField variant="plain" value={pwForm.current} onChange={(e) => handlePwChange('current', e.target.value)} style={inputStyle} autoComplete="current-password" />
 
           <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>New password</label>
-          <input type="password" value={pwForm.next} onChange={(e) => handlePwChange('next', e.target.value)} style={inputStyle} minLength={6} />
+          <PasswordField variant="plain" value={pwForm.next} onChange={(e) => handlePwChange('next', e.target.value)} style={inputStyle} minLength={6} autoComplete="new-password" />
 
           <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>Confirm new password</label>
-          <input type="password" value={pwForm.confirm} onChange={(e) => handlePwChange('confirm', e.target.value)} style={inputStyle} minLength={6} />
+          <PasswordField variant="plain" value={pwForm.confirm} onChange={(e) => handlePwChange('confirm', e.target.value)} style={inputStyle} minLength={6} autoComplete="new-password" />
 
           <button className="btn-primary" style={{ marginTop: 18, width: '100%' }} onClick={handlePasswordSave}>
             Update password

@@ -105,6 +105,18 @@ const DEFAULT_SETTINGS = {
   // admin's own verification outside this app, not on anything this
   // app can confirm.
   depositMethods: { usdt: true, btc: true, bank: true },
+
+  // Per crypto-method + per-network reference info shown as a card
+  // beneath the payment method picker on the client Deposit tab —
+  // admin-authored free text only (e.g. "here's what a real
+  // USDT-TRC20 contract address looks like, don't send to
+  // lookalikes", network-specific warnings, fee notes). Deliberately
+  // NOT a company receiving address — see the depositMethods comment
+  // above for why Pulse never displays one. Keyed by method then
+  // chain name (e.g. cryptoDepositInfo.usdt['TRC20 (Tron)']); methods
+  // with no chain concept (bank) don't use this.
+  cryptoDepositInfo: {},
+
   withdrawalMin: 10,
   withdrawalMax: 100000,
   withdrawalInstructions: '',

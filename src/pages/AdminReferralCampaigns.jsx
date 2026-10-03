@@ -55,10 +55,10 @@ export default function AdminReferralCampaigns() {
 
   const liveCampaign = getActiveReferralCampaign()
 
-  function handleCreate() {
+  async function handleCreate() {
     setError('')
     setCreated(false)
-    const result = createReferralCampaign({
+    const result = await createReferralCampaign({
       name,
       bonusAmount: parseFloat(bonusAmount),
       startDate,

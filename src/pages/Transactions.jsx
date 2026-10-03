@@ -54,6 +54,7 @@ function AdminTransactionsView() {
   const trend = getDepositWithdrawTrend(transactions, trendDays)
   const [correctingId, setCorrectingId] = useState(null)
   const [correctionDraft, setCorrectionDraft] = useState({ amount: '', screenshots: [], note: '' })
+  const [correctionError, setCorrectionError] = useState('')
   const [viewingTx, setViewingTx] = useState(null)
 
   function startCorrecting(t) {
@@ -61,10 +62,15 @@ function AdminTransactionsView() {
     setCorrectionDraft({ amount: t.amount, screenshots: t.correctionEvidence || [], note: t.correctionNote || '' })
   }
 
-  function saveCorrection(id) {
+  async function saveCorrection(id) {
     const value = parseFloat(correctionDraft.amount)
     if (!value || value <= 0) return
-    correctTransactionAmount(id, value, correctionDraft.screenshots, correctionDraft.note)
+    const result = await correctTransactionAmount(id, value, correctionDraft.screenshots, correctionDraft.note)
+    if (result.error) {
+      setCorrectionError(result.error)
+      return
+    }
+    setCorrectionError('')
     setCorrectingId(null)
   }
 
@@ -121,14 +127,28 @@ function AdminTransactionsView() {
           <div style={{ padding: 16 }} className="stagger-in">
             {pending.map((t) => {
               const isLockedExcess = t.type === 'capped_profit_release' && !isSessionUnlocked(t.sessionId)
-              const canCorrect = (t.type === 'deposit' || t.type === 'fee_payment') && !isLockedExcess
+              // fee_payment correction isn't offered here anymore — the
+              // backend deliberately doesn't support it yet (it needs
+              // fee-pool allocation recomputed too; see
+              // server/sql/004_transaction_corrections.sql), so
+              // offering the button would just lead to an error every
+              // time. Deposit only, for now — withdrawal correction
+              // exists server-side too, matching that scope exactly.
+              const canCorrect = (t.type === 'deposit' || t.type === 'withdrawal') && !isLockedExcess
               const isCorrecting = correctingId === t.id
               const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
               return (
                 <div key={t.id} className="entity-card entity-card-accent-pending" style={{ flexWrap: 'wrap' }}>
                   <div className="icon-badge">{t.type === 'deposit' ? <ArrowDownCircle size={17} /> : t.type === 'fee_payment' ? <Receipt size={17} /> : <ArrowUpCircle size={17} />}</div>
                   <div className="entity-card-body">
-                    <div className="entity-card-title">{t.userName} · {formatType(t.type)}</div>
+                    <div className="entity-card-title">
+                      {t.userName} · {formatType(t.type)}
+                      {t.clientConfirmed && (
+                        <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 7px', borderRadius: 999, background: 'var(--accent-bg)', color: 'var(--accent-bright)', verticalAlign: 1 }}>
+                          Awaiting review
+                        </span>
+                      )}
+                    </div>
                     <div className="entity-card-meta">
                       <span>{formatDate(t.date)}</span>
                       {t.type === 'fee_payment' && (
@@ -150,6 +170,15 @@ function AdminTransactionsView() {
                         </span>
                       )}
                     </div>
+                    {t.clientConfirmed && t.clientProofEvidence?.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        {t.clientProofEvidence.map((img, i) => (
+                          <a key={i} href={img} target="_blank" rel="noreferrer" className="file-drop-preview" style={{ margin: 0 }}>
+                            <img src={img} alt={`Client proof ${i + 1}`} style={{ maxWidth: 70, maxHeight: 56 }} />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, flex: 'none' }}>{formatMoney(t.amount)}</div>
                   <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
@@ -177,8 +206,9 @@ function AdminTransactionsView() {
                     <div style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                       <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>
                         Fix this before approving if the client sent more or less than they requested — the amount
-                        below is what actually lands on their balance{t.type === 'fee_payment' ? ' and fee allocation' : ''}, not what they typed.
+                        below is what actually lands on their balance, not what they typed.
                       </p>
+                      {correctionError && <div className="form-error" style={{ marginBottom: 10 }}>{correctionError}</div>}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
                         <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                           Actual amount received (USD)
@@ -304,12 +334,12 @@ export default function Transactions() {
     setSearchParams({}, { replace: true })
   }
 
-  function handleSubmit(type) {
+  async function handleSubmit(type) {
     const value = parseFloat(amount)
     if (!value || value <= 0) return setFormError('Enter an amount greater than zero.')
 
     if (feeMode) {
-      const result = payFeeBalance(value, { depositMethod, depositReference, depositChain: CRYPTO_CHAINS[depositMethod] ? depositChain : null })
+      const result = await payFeeBalance(value, { depositMethod, depositReference, depositChain: CRYPTO_CHAINS[depositMethod] ? depositChain : null })
       if (result?.error) return setFormError(result.error)
       navigate('/balance')
       return
@@ -323,7 +353,7 @@ export default function Transactions() {
       return setFormError('Bind a withdrawal wallet in Settings before your first crypto withdrawal.')
     }
     setFormError('')
-    const result = addTransaction(
+    const result = await addTransaction(
       type,
       value,
       type === 'withdrawal'
@@ -341,7 +371,7 @@ export default function Transactions() {
     )
     if (result?.error) return setFormError(result.error)
     if (type === 'deposit' && value >= LARGE_ACCOUNT_THRESHOLD) {
-      flagForReview(currentUser.id)
+      await flagForReview(currentUser.id)
     }
     setAmount('')
     setDestinationAddress('')
@@ -492,6 +522,11 @@ export default function Transactions() {
                         ))}
                       </select>
                     )}
+                    {settings.cryptoDepositInfo?.[depositMethod]?.[depositChain] && (
+                      <div style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, whiteSpace: 'pre-wrap' }}>
+                        {settings.cryptoDepositInfo[depositMethod][depositChain]}
+                      </div>
+                    )}
                     <input
                       type="text"
                       value={depositReference}
@@ -611,6 +646,9 @@ export default function Transactions() {
                       <div className="entity-card-title">{formatType(t.type)}</div>
                       <div className="entity-card-meta">
                         <span>{formatDate(t.date)}</span>
+                        {t.status === 'pending' && t.clientConfirmed && (
+                          <span style={{ color: 'var(--accent-bright)' }}>Proof submitted — awaiting review</span>
+                        )}
                         {wasCorrected && (
                           <span style={{ color: 'var(--accent-bright)' }}>
                             You requested {formatMoney(t.requestedAmount)} — your account manager confirmed {formatMoney(t.amount)} was received

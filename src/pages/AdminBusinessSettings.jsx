@@ -10,6 +10,7 @@ import FileDropInput from '../components/FileDropInput.jsx'
 import ToggleSwitch from '../components/ToggleSwitch.jsx'
 import { useSettings, LOGO_ICONS } from '../context/SettingsContext.jsx'
 import { CURRENCIES } from '../config/currencies.js'
+import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
 
 const METHOD_ICONS = { usdt: Coins, btc: Bitcoin, bank: Landmark }
 
@@ -150,6 +151,12 @@ export default function AdminBusinessSettings() {
 
   // --- Deposit / withdrawal ---
   const [depositCfg, setDepositCfg] = useState({ depositMin: settings.depositMin, depositMax: settings.depositMax, depositInstructions: settings.depositInstructions })
+  // Local draft of the per-method/per-network reference text, keyed
+  // the same way settings.cryptoDepositInfo is (method -> chain ->
+  // text). Edited freely here, only written back to settings on Save
+  // — same "draft state, commit on save" pattern as depositCfg above.
+  const [cryptoInfoDraft, setCryptoInfoDraft] = useState(settings.cryptoDepositInfo || {})
+  const [cryptoInfoSaved, flashCryptoInfo] = useSavedFlag()
   const [withdrawalCfg, setWithdrawalCfg] = useState({ withdrawalMin: settings.withdrawalMin, withdrawalMax: settings.withdrawalMax, withdrawalInstructions: settings.withdrawalInstructions })
   const [depositSaved, flashDeposit] = useSavedFlag()
   const [withdrawalSaved, flashWithdrawal] = useSavedFlag()
@@ -520,6 +527,38 @@ export default function AdminBusinessSettings() {
             clients on the platform. Coordinate actual payment details through your own channels, then approve
             the deposit here once received.
           </p>
+        </div>
+
+        <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+          <div style={{ ...labelStyle, marginBottom: 4 }}>Network reference info (shown to clients)</div>
+          <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '0 0 10px' }}>
+            Optional card shown under the payment method picker once a client selects a crypto method and network —
+            e.g. what a genuine contract address looks like, lookalike-token warnings, or network-specific notes.
+            Reference info only: this never becomes a receiving address clients send funds to.
+          </p>
+          {Object.keys(CRYPTO_CHAINS).map((method) => (
+            <div key={method} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>{METHOD_LABELS[method]}</div>
+              {CRYPTO_CHAINS[method].map((chain) => (
+                <label key={chain} style={{ ...labelStyle, display: 'block', marginBottom: 8 }}>
+                  {chain}
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Genuine USDT-TRC20 contract: TXLAQ... — never send to an address that doesn't match this."
+                    value={cryptoInfoDraft[method]?.[chain] || ''}
+                    onChange={(e) =>
+                      setCryptoInfoDraft((prev) => ({
+                        ...prev,
+                        [method]: { ...prev[method], [chain]: e.target.value }
+                      }))
+                    }
+                    style={{ ...inputStyle, resize: 'vertical' }}
+                  />
+                </label>
+              ))}
+            </div>
+          ))}
+          <ModalSaveButton onClick={() => { updateSettings({ cryptoDepositInfo: cryptoInfoDraft }); flashCryptoInfo() }} saved={cryptoInfoSaved} />
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>

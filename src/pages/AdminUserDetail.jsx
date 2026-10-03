@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine, Receipt, Wallet } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import CollapsiblePanel, { useShowMore } from '../components/CollapsiblePanel.jsx'
+import CopyButton from '../components/CopyButton.jsx'
 import ToggleSwitch from '../components/ToggleSwitch.jsx'
 import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
 import { useApp, getFeeOwedAmount, positionEquity } from '../context/AppContext.jsx'
@@ -182,7 +183,7 @@ export default function AdminUserDetail() {
     setDurationInput('')
   }
 
-  function handleApplyFee() {
+  async function handleApplyFee() {
     setFeeError('')
     const amount = parseFloat(feeAmount)
     if (!amount || amount <= 0) {
@@ -192,7 +193,7 @@ export default function AdminUserDetail() {
     const discount = feeDiscountEnabled
       ? { discountAmount: parseFloat(feeDiscountAmount), durationHours: parseFloat(feeDiscountHours) }
       : null
-    const result = applyFee(userId, amount, feeNote.trim(), discount, feeLinkedSessionId ? Number(feeLinkedSessionId) : null)
+    const result = await applyFee(userId, amount, feeNote.trim(), discount, feeLinkedSessionId ? Number(feeLinkedSessionId) : null)
     if (result.error) {
       setFeeError(result.error)
       return
@@ -205,9 +206,9 @@ export default function AdminUserDetail() {
     setFeeDiscountHours('')
   }
 
-  function handleApplyDiscountToExisting(feeId) {
+  async function handleApplyDiscountToExisting(feeId) {
     setExistingDiscountError('')
-    const result = applyDiscountToFee(feeId, parseFloat(existingDiscountAmount), parseFloat(existingDiscountHours))
+    const result = await applyDiscountToFee(feeId, parseFloat(existingDiscountAmount), parseFloat(existingDiscountHours))
     if (result.error) {
       setExistingDiscountError(result.error)
       return
@@ -217,9 +218,9 @@ export default function AdminUserDetail() {
     setExistingDiscountHours('')
   }
 
-  function handleDeleteTransaction(txId) {
+  async function handleDeleteTransaction(txId) {
     setDeleteError('')
-    const result = deleteTransaction(txId, deleteReason)
+    const result = await deleteTransaction(txId, deleteReason)
     if (result.error) {
       setDeleteError(result.error)
       return
@@ -256,7 +257,8 @@ export default function AdminUserDetail() {
 
       <h1 className="page-title">{targetUser.name}</h1>
       <p className="page-sub">
-        {targetUser.email} · UID <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{targetUser.uid}</span> — trade inside their active sessions below.
+        {targetUser.email} · UID <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{targetUser.uid}</span>
+        <CopyButton value={targetUser.uid} label="Copy UID" size={12} style={{ marginLeft: 2, marginRight: 2 }} /> — trade inside their active sessions below.
       </p>
 
       <div className="panel" style={{ marginBottom: 16 }}>
@@ -482,7 +484,7 @@ export default function AdminUserDetail() {
                     <button
                       className="tx-btn withdraw"
                       style={{ padding: '8px 14px', fontSize: 13 }}
-                      onClick={() => { const r = reviewKycSubmission(userId, false, kycRejectReason); if (!r.error) setKycRejectReason('') }}
+                      onClick={async () => { const r = await reviewKycSubmission(userId, false, kycRejectReason); if (!r.error) setKycRejectReason('') }}
                     >
                       Reject
                     </button>
@@ -528,7 +530,7 @@ export default function AdminUserDetail() {
                 <button
                   className="tx-btn withdraw"
                   style={{ padding: '8px 14px', fontSize: 13 }}
-                  onClick={() => { const r = reviewEnhancedKyc(userId, false, enhancedRejectReason); if (!r.error) setEnhancedRejectReason('') }}
+                  onClick={async () => { const r = await reviewEnhancedKyc(userId, false, enhancedRejectReason); if (!r.error) setEnhancedRejectReason('') }}
                 >
                   Reject
                 </button>

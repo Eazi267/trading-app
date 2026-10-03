@@ -39,7 +39,8 @@ export default function KycVerification() {
     if (!frontImage) return setError(`Upload the front of your ${DOC_LABELS[documentType] || documentType}.`)
     if (needsBackSide && !backImage) return setError('Upload the back of your document too.')
 
-    submitKycDocument({ documentType, frontImageDataUrl: frontImage, backImageDataUrl: needsBackSide ? backImage : null })
+    const result = await submitKycDocument({ documentType, frontImageDataUrl: frontImage, backImageDataUrl: needsBackSide ? backImage : null })
+    if (result.error) return setError(result.error)
     setFrontImage(null)
     setBackImage(null)
   }
@@ -47,7 +48,7 @@ export default function KycVerification() {
   async function handleSubmitEnhanced() {
     setEnhancedError('')
     if (!enhancedImage) return setEnhancedError('Upload a proof of address document.')
-    const result = submitEnhancedKyc({ frontImageDataUrl: enhancedImage })
+    const result = await submitEnhancedKyc({ frontImageDataUrl: enhancedImage })
     if (result.error) return setEnhancedError(result.error)
     setEnhancedImage(null)
   }

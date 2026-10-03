@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Receipt, ShieldAlert, Send } from 'lucide-react'
+import { Receipt, ShieldAlert, Send, Camera } from 'lucide-react'
 import Modal from './Modal.jsx'
+import ScreenshotUploader from './ScreenshotUploader.jsx'
+import CopyButton from './CopyButton.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { METHOD_LABELS } from '../config/paymentMethods.js'
@@ -24,25 +26,36 @@ function formatType(type) {
 // apart from each other on exactly the question this feature is
 // about (data transparency).
 export default function TransactionDetailModal({ transaction, isAdmin, onClose }) {
-  const { appealTransaction } = useApp()
+  const { appealTransaction, submitDepositProof } = useApp()
   const { currentUser } = useAuth()
   const [appealNote, setAppealNote] = useState('')
   const [appealSent, setAppealSent] = useState(false)
   const [appealCaseId, setAppealCaseId] = useState(null)
   const [appealError, setAppealError] = useState('')
+  const [proofShots, setProofShots] = useState([])
+  const [proofError, setProofError] = useState('')
+  const [submittingProof, setSubmittingProof] = useState(false)
 
   if (!transaction) return null
   const t = transaction
   const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
   const isOwner = !isAdmin && currentUser?.id === t.userId
   const canAppeal = isOwner && wasCorrected && !t.appealed
+  const canSubmitProof = isOwner && t.status === 'pending' && (t.type === 'deposit' || t.type === 'fee_payment') && !t.clientConfirmed
 
-  function handleAppeal() {
-    const result = appealTransaction(t.id, appealNote)
+  async function handleAppeal() {
+    const result = await appealTransaction(t.id, appealNote)
     if (result.error) return setAppealError(result.error)
     setAppealError('')
     setAppealSent(true)
     setAppealCaseId(result.caseId)
+  }
+
+  async function handleSubmitProof() {
+    const result = await submitDepositProof(t.id, proofShots)
+    if (result.error) return setProofError(result.error)
+    setProofError('')
+    setSubmittingProof(false)
   }
 
   return (
@@ -64,7 +77,10 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13.5 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-muted)' }}>Transaction ID</span>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>#{t.id}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>#{t.id}</span>
+                <CopyButton value={String(t.id)} label="Copy transaction ID" size={12} />
+              </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-muted)' }}>Date &amp; time</span>
@@ -100,6 +116,49 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
             )}
           </div>
         </div>
+
+        {t.clientConfirmed && (
+          <div style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-dark)', borderRadius: 10, padding: 12 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent-bright)', marginBottom: 4 }}>
+              {isOwner ? "You've marked this as sent" : 'Client marked this as sent'}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text)' }}>
+              {isOwner
+                ? "Your proof has been submitted — your account manager will review it shortly."
+                : 'Awaiting your review — check the proof below before approving or correcting.'}
+            </div>
+            {t.clientProofEvidence?.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {t.clientProofEvidence.map((img, i) => (
+                  <a key={i} href={img} target="_blank" rel="noreferrer" className="file-drop-preview" style={{ margin: 0 }}>
+                    <img src={img} alt={`Proof ${i + 1}`} style={{ maxWidth: 110, maxHeight: 90 }} />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {canSubmitProof && (
+          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+            {!submittingProof ? (
+              <button className="tx-btn deposit" style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setSubmittingProof(true)}>
+                <Camera size={14} /> I've completed this {t.type === 'fee_payment' ? 'payment' : 'deposit'}
+              </button>
+            ) : (
+              <>
+                <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 10 }}>
+                  Attach a screenshot showing the transfer went through — your account manager reviews it before approving.
+                </div>
+                <ScreenshotUploader label="Proof of payment" images={proofShots} onChange={setProofShots} />
+                {proofError && <div className="form-error" style={{ marginTop: 8 }}>{proofError}</div>}
+                <button className="tx-btn deposit" style={{ marginTop: 10, padding: '8px 16px', fontSize: 13 }} onClick={handleSubmitProof}>
+                  Submit proof
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {wasCorrected && (
           <div style={{ background: 'var(--accent-bg)', border: '1px solid var(--accent-dark)', borderRadius: 10, padding: 12 }}>

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Mail, Lock, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
+import { Mail, ArrowRight, ShieldCheck, TrendingUp, Globe2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
+import PasswordField from '../components/PasswordField.jsx'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -12,9 +13,10 @@ export default function Login() {
   const { brand } = useSettings()
   const navigate = useNavigate()
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    const result = login(email, password)
+    setError('')
+    const result = await login(email, password)
     if (result.user) {
       navigate('/dashboard')
     } else {
@@ -61,16 +63,12 @@ export default function Login() {
           </div>
 
           <label>Password</label>
-          <div className="field-input-wrap">
-            <Lock size={16} />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
+          <PasswordField
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+          />
 
           <button type="submit" className="btn-primary">
             Log in <ArrowRight size={16} />

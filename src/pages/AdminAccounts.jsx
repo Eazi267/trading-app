@@ -23,9 +23,9 @@ export default function AdminAccounts() {
   const q = search.trim().toLowerCase()
   const filtered = q ? admins.filter((a) => a.name?.toLowerCase().includes(q) || a.email?.toLowerCase().includes(q)) : admins
 
-  function handleCreate() {
+  async function handleCreate() {
     setError('')
-    const result = createAdmin({ name: name.trim(), email: email.trim(), password, adminTier })
+    const result = await createAdmin({ name: name.trim(), email: email.trim(), password, adminTier })
     if (result.error) return setError(result.error)
     setCreated(true)
     setName('')
