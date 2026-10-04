@@ -77,12 +77,8 @@ async function loadOwnedOrAdminSession(req, res, requirePerm = 'trade') {
 router.post('/', requireAuth, async (req, res) => {
   const { targetUserId, tierId, amount, durationDays } = req.body || {}
   const ownerId = targetUserId || req.user.id
+  const isSelfService = ownerId === req.user.id
   if (targetUserId && targetUserId !== req.user.id) {
-    // req.user is already the fresh DB row loaded by requireAuth —
-    // no need to re-query it, just check the same permission table
-    // requirePermission's middleware uses, since this route only
-    // needs the check conditionally (self-service session start
-    // needs no special permission at all).
     if (!hasPermission({ role: req.user.role, adminTier: req.user.admin_tier }, 'trade')) {
       return res.status(403).json({ error: 'Not authorized to start a session for another user.' })
     }
@@ -98,24 +94,139 @@ router.post('/', requireAuth, async (req, res) => {
   const { available } = await getAvailableBalance(ownerId)
   if (numAmount > available) return res.status(400).json({ error: 'Amount exceeds available balance.' })
 
+  // Managed mode only applies when the CLIENT is committing to their
+  // own session — an admin starting one on a client's behalf always
+  // goes straight to active, since the admin IS the human sign-off
+  // this mode exists to require. Read from the real settings table
+  // (Batch 3), not a value the client could pass in the request body.
+  const { rows: settingsRows } = await pool.query('SELECT data FROM settings WHERE id = 1')
+  const isManaged = settingsRows[0]?.data?.investmentMode === 'managed' && isSelfService
+
   const resolvedDuration = clampDuration(tierId, durationDays || tier.durationDays)
-  const startedAt = new Date()
-  const expiresAt = new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
+  const startedAt = isManaged ? null : new Date()
+  const expiresAt = isManaged ? null : new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
 
   const { rows } = await pool.query(
     `INSERT INTO trading_sessions (user_id, tier_id, amount, cash, leverage, duration_days, status, started_at, expires_at, initiated_by_id)
-     VALUES ($1, $2, $3, $3, $4, $5, 'active', $6, $7, $8) RETURNING *`,
-    [ownerId, tierId, numAmount.toFixed(2), tier.defaultLeverage, resolvedDuration, startedAt, expiresAt, req.user.id]
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [ownerId, tierId, numAmount.toFixed(2), tier.defaultLeverage, resolvedDuration, isManaged ? 'awaiting_start' : 'active', startedAt, expiresAt, req.user.id]
   )
+  const session = rows[0]
 
   await logAudit({
-    action: 'session_started',
+    action: isManaged ? 'session_committed_awaiting_start' : 'session_started',
     actor: req.user,
     targetUserId: ownerId,
-    details: { sessionId: rows[0].id, tierId, amount: numAmount, durationDays: resolvedDuration }
+    details: { sessionId: session.id, tierId, amount: numAmount, durationDays: resolvedDuration }
   })
+  if (isManaged) {
+    await notify(
+      ownerId,
+      'session_awaiting_start',
+      'Investment committed — awaiting start',
+      `Your $${numAmount.toFixed(2)} commitment to ${tier.name} is reserved and no longer available, but the session won't begin until your account manager starts it.`,
+      { sessionId: session.id, tierId, amount: numAmount }
+    )
+  }
 
-  res.status(201).json({ session: publicSession(rows[0]) })
+  res.status(201).json({ session: publicSession(session) })
+})
+
+// ADMIN-ONLY: begins a session a client committed to under Managed
+// investment mode — starts the timer now, for the duration the
+// client originally chose. Funds were already reserved (held as
+// 'pending' by getAvailableBalance) the moment the client committed;
+// this just starts the clock.
+router.post('/:id/begin', requireAuth, requirePermission('trade'), async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM trading_sessions WHERE id = $1', [req.params.id])
+  const session = rows[0]
+  if (!session || session.status !== 'awaiting_start') return res.status(400).json({ error: 'Session is not awaiting start.' })
+
+  const startedAt = new Date()
+  const expiresAt = new Date(startedAt.getTime() + session.duration_days * 24 * 60 * 60 * 1000)
+  const { rows: updated } = await pool.query(
+    `UPDATE trading_sessions SET status = 'active', started_at = $1, expires_at = $2 WHERE id = $3 RETURNING *`,
+    [startedAt, expiresAt, session.id]
+  )
+
+  await logAudit({ action: 'session_started_by_admin', actor: req.user, targetUserId: session.user_id, details: { sessionId: session.id, amount: Number(session.amount) } })
+  await notify(
+    session.user_id,
+    'session_started',
+    'Your investment has started',
+    `Your $${Number(session.amount).toFixed(2)} commitment is now active and running for ${session.duration_days} day${session.duration_days === 1 ? '' : 's'}.`,
+    { sessionId: session.id }
+  )
+
+  res.json({ session: publicSession(updated[0]) })
+})
+
+// Cancels a commitment still awaiting admin start. Managed mode never
+// created a transaction when the client committed — it only reserved
+// the amount by existing as a pending session (see utils/balance.js) —
+// so cancelling is simply flipping status; the amount becomes
+// available again immediately, no refund transaction needed since
+// nothing was ever debited.
+router.post('/:id/cancel', requireAuth, async (req, res) => {
+  const session = await loadOwnedOrAdminSession(req, res)
+  if (!session) return
+  if (session.status !== 'awaiting_start') return res.status(400).json({ error: 'Session is not awaiting start.' })
+
+  const { rows: updated } = await pool.query(
+    `UPDATE trading_sessions SET status = 'cancelled', closed_at = now() WHERE id = $1 RETURNING *`,
+    [session.id]
+  )
+
+  await logAudit({ action: 'session_commitment_cancelled', actor: req.user, targetUserId: session.user_id, details: { sessionId: session.id, amount: Number(session.amount) } })
+  if (req.user.role === 'admin' && req.user.id !== session.user_id) {
+    await notify(
+      session.user_id,
+      'session_cancelled',
+      'Investment commitment cancelled',
+      `Your $${Number(session.amount).toFixed(2)} commitment was cancelled by your account manager and is available again.`,
+      { sessionId: session.id }
+    )
+  }
+
+  res.json({ session: publicSession(updated[0]) })
+})
+
+// ADMIN-ONLY, testing tool. Pulls a session's real expires_at closer
+// by the given number of hours so a demo doesn't need to wait out
+// real tier durations (2-14 days) — the same 5-second auto-expiry
+// sweep (jobs/autoExpiry.js) picks it up and settles it for real
+// against whatever the live price feed actually did, off the same
+// settleSession() every other close path uses. No payout number is
+// ever set directly by this.
+router.post('/:id/fast-forward', requireAuth, requirePermission('trade'), async (req, res) => {
+  const hours = Number(req.body?.hours)
+  if (!hours || hours <= 0) return res.status(400).json({ error: 'Enter hours above zero.' })
+
+  const { rows } = await pool.query(
+    `UPDATE trading_sessions SET expires_at = expires_at - ($1 || ' hours')::interval
+     WHERE id = $2 AND status = 'active' RETURNING *`,
+    [hours, req.params.id]
+  )
+  if (!rows[0]) return res.status(400).json({ error: 'Session not found or not active.' })
+  res.json({ session: publicSession(rows[0]) })
+})
+
+// Admin, everyone's sessions (or one client's with ?userId=) — same
+// "mine vs everyone" split as GET /api/transactions, for the admin
+// dashboard's aggregates and a client detail page's full history.
+router.get('/', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Not authorized.' })
+  const { userId } = req.query
+  const { rows } = userId
+    ? await pool.query('SELECT * FROM trading_sessions WHERE user_id = $1 ORDER BY created_at DESC', [userId])
+    : await pool.query('SELECT * FROM trading_sessions ORDER BY created_at DESC')
+  const currentPrices = getCurrentPrices()
+  const withValue = await Promise.all(rows.map(async (s) => {
+    const { rows: positions } = await pool.query('SELECT * FROM positions WHERE session_id = $1 AND closed_at IS NULL', [s.id])
+    const liveValue = s.status === 'active' ? await sessionCurrentValue(s, positions, currentPrices) : null
+    return publicSession(s, liveValue)
+  }))
+  res.json({ sessions: withValue })
 })
 
 router.get('/mine', requireAuth, async (req, res) => {

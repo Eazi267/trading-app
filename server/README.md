@@ -251,6 +251,15 @@ Tested end-to-end for real: the client now shows up in the admin roster (the cor
 - Every transaction listing now joins in `userName`, `reviewedByAdminName`, and `executedByAdminName` (single shared `TX_SELECT` query), and `publicTx()` emits compatibility aliases for the frontend's original field names (`depositMethod`, `withdrawalMethod`, `depositChain`, `depositReference`, `sessionId`, `campaignId`, `referredUserName`, …). Done in one place so dozens of screens don't silently render blanks; new code should prefer the generic names (`method`, `chain`, `linkedSessionId`, `details`).
 - `publicTx()` now includes the fee, fee-payment and referral fields it was missing.
 
+**Batch 11 — Finished the Managed-mode deferral + session testing tools**
+- `POST /api/sessions` now actually checks `investmentMode` from the real settings table (Batch 3) — previously this always went straight to `'active'`, flagged as deferred rather than silently dropped. Finished now: a client self-starting a session under Managed mode gets `'awaiting_start'` (funds held as pending, nothing active yet); an admin starting one on a client's behalf always goes straight to `'active'` regardless of the setting, since the admin IS the human sign-off Managed mode exists to require.
+- `POST /api/sessions/:id/begin` — admin only (`trade`) — starts the clock on an awaiting-start session
+- `POST /api/sessions/:id/cancel` — owner or admin — cancels one still awaiting start; nothing was ever debited (only reserved), so cancelling just frees the pending amount back up, no refund transaction needed
+- `POST /api/sessions/:id/fast-forward` — admin only (`trade`), `{ hours }` — pulls a session's real `expires_at` closer for testing, so you don't have to wait out real 2-14 day tier durations; the existing 5-second auto-expiry sweep picks it up and settles it for real against whatever the live price feed actually did
+- `GET /api/sessions` — admin, everyone's sessions or one client's with `?userId=`, same "mine vs everyone" split as `GET /api/transactions`
+
+Tested end-to-end for real: Managed mode turned on, client self-start correctly lands on `awaiting_start`, a client blocked (403) from beginning their own session, admin-begin correctly starts a real clock, fast-forward + a real wait for the 5-second sweep correctly force-settled the session, Direct mode confirmed unaffected (still goes straight to active), and the admin listing works with its `?userId=` filter while a plain client is correctly blocked (403).
+
 ## What's deliberately different from the frontend's AuthContext.jsx
 - Real bcrypt password hashing, not plaintext in a JS array
 - No UID-as-password login shortcut — that's a real vulnerability
