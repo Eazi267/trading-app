@@ -1,1 +1,0 @@
-copy(JSON.stringify({users: JSON.parse(localStorage.getItem('pulse_users')||'[]'), transactions: JSON.parse(localStorage.getItem('pulse_transactions')||'[]'), sessions: JSON.parse(localStorage.getItem('pulse_sessions')||'[]'), settings: JSON.parse(localStorage.getItem('pulse_business_settings')||'null')}))
