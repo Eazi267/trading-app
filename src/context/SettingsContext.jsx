@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { LineChart, TrendingUp, Zap, Activity, BarChart3, Shield } from 'lucide-react'
 import { BRAND as BRAND_DEFAULTS } from '../config/brand.js'
+import { apiRequest } from '../api/client.js'
 import { TIERS as DEFAULT_TIERS, VIP_TIERS as DEFAULT_VIP_TIERS, setTierConfig } from '../config/tiers.js'
 
 const SettingsContext = createContext(null)
@@ -222,26 +223,62 @@ const DEFAULT_SETTINGS = {
   demoModeEnabled: true
 }
 
+// Turns whatever the server stored (or a cached copy of it) into a full
+// settings object: defaults first, server values on top, tiers unpacked
+// back to real Infinity values.
+function hydrate(stored) {
+  if (!stored || Object.keys(stored).length === 0) return DEFAULT_SETTINGS
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    tiers: stored.tiers ? unpackTiers(stored.tiers) : DEFAULT_SETTINGS.tiers,
+    vipTiers: stored.vipTiers ? unpackTiers(stored.vipTiers) : DEFAULT_SETTINGS.vipTiers
+  }
+}
+
+// Settings now live in the DATABASE (the server is the source of truth,
+// so every browser/device sees the same brand, tiers, deposit info, and
+// — importantly — the same investment mode the backend itself reads).
+// localStorage only keeps a read-only CACHE of the last server copy so
+// the brand name/logo don't flash the defaults on page load.
+const CACHE_KEY = 'pulse_settings_cache'
+
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('pulse_business_settings')
-    if (!saved) return DEFAULT_SETTINGS
-    const parsed = JSON.parse(saved)
-    return {
-      ...DEFAULT_SETTINGS,
-      ...parsed,
-      tiers: parsed.tiers ? unpackTiers(parsed.tiers) : DEFAULT_SETTINGS.tiers,
-      vipTiers: parsed.vipTiers ? unpackTiers(parsed.vipTiers) : DEFAULT_SETTINGS.vipTiers
+    try {
+      const cached = localStorage.getItem(CACHE_KEY)
+      return cached ? hydrate(JSON.parse(cached)) : DEFAULT_SETTINGS
+    } catch {
+      return DEFAULT_SETTINGS
     }
   })
+  const [saveError, setSaveError] = useState(null)
+  const pendingSaves = useRef(0)
 
+  const refreshSettings = useCallback(async () => {
+    // Don't let a background refetch overwrite an edit that's still being saved.
+    if (pendingSaves.current > 0) return
+    const result = await apiRequest('/api/settings', { auth: false })
+    if (!result.settings) return
+    setSettings(hydrate(result.settings))
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(result.settings)) } catch { /* cache only */ }
+  }, [])
+
+  // Load on mount, and again whenever the tab regains focus (so a change
+  // made by an admin on another device shows up without a manual reload).
   useEffect(() => {
-    localStorage.setItem('pulse_business_settings', JSON.stringify({
-      ...settings,
-      tiers: packTiers(settings.tiers),
-      vipTiers: packTiers(settings.vipTiers)
-    }))
-  }, [settings])
+    refreshSettings()
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshSettings() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [refreshSettings])
+
+  // Auto-clear the error toast after a few seconds.
+  useEffect(() => {
+    if (!saveError) return
+    const id = setTimeout(() => setSaveError(null), 6000)
+    return () => clearTimeout(id)
+  }, [saveError])
 
   // Pushes whatever tier list is currently in settings (admin-edited
   // or still the defaults) into config/tiers.js's live bindings — see
@@ -269,12 +306,38 @@ export function SettingsProvider({ children }) {
     }
   }, [settings.customPrimaryColor])
 
+  // Sends ONLY the changed keys; the server shallow-merges them (and
+  // requires the manageSettings permission + writes an audit entry).
+  // The screen updates instantly (optimistic); if the server refuses,
+  // we show why and re-sync with what the server really has.
+  async function saveToServer(updates) {
+    const payload = { ...updates }
+    if (payload.tiers) payload.tiers = packTiers(payload.tiers)
+    if (payload.vipTiers) payload.vipTiers = packTiers(payload.vipTiers)
+
+    pendingSaves.current += 1
+    const result = await apiRequest('/api/settings', { method: 'PUT', body: payload })
+    pendingSaves.current -= 1
+
+    if (result.error) {
+      setSaveError(result.error)
+      await refreshSettings()
+      return { error: result.error }
+    }
+    if (pendingSaves.current === 0 && result.settings) {
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(result.settings)) } catch { /* cache only */ }
+    }
+    return { ok: true }
+  }
+
   function updateSettings(updates) {
     setSettings((prev) => ({ ...prev, ...updates }))
+    return saveToServer(updates)
   }
 
   function resetSettings() {
     setSettings(DEFAULT_SETTINGS)
+    return saveToServer(DEFAULT_SETTINGS)
   }
 
   // Shaped exactly like the old static BRAND export, so components
@@ -290,6 +353,11 @@ export function SettingsProvider({ children }) {
   return (
     <SettingsContext.Provider value={{ settings, updateSettings, resetSettings, brand }}>
       {children}
+      {saveError && (
+        <div role="alert" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '90vw', padding: '10px 16px', borderRadius: 10, background: '#7f1d1d', color: '#fff', fontSize: 13, boxShadow: '0 6px 24px rgba(0,0,0,.35)' }}>
+          Couldn't save settings: {saveError}
+        </div>
+      )}
     </SettingsContext.Provider>
   )
 }

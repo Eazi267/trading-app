@@ -67,14 +67,14 @@ export default function Sessions() {
   const unlockedVipTier = currentUser.vipUnlocked ? getTier(currentUser.vipUnlocked) : null
   const visibleTiers = unlockedVipTier ? [...TIERS, unlockedVipTier] : TIERS
 
-  function handleStart() {
+  async function handleStart() {
     setError('')
     const value = parseFloat(amount)
     if (!value || value <= 0) {
       setError('Enter an amount above zero.')
       return
     }
-    const result = startSession(currentUser.id, selectedTier, value, duration)
+    const result = await startSession(currentUser.id, selectedTier, value, duration)
     if (result.error) {
       setError(result.error)
       return
@@ -82,9 +82,9 @@ export default function Sessions() {
     setAmount('')
   }
 
-  function handleClose(sessionId) {
+  async function handleClose(sessionId) {
     setCloseError('')
-    const result = closeSession(sessionId)
+    const result = await closeSession(sessionId)
     if (result?.error) setCloseError(result.error)
   }
 

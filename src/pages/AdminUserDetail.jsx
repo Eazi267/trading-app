@@ -118,11 +118,11 @@ export default function AdminUserDetail() {
     )
   }
 
-  function handleStartSession() {
+  async function handleStartSession() {
     setSessionError('')
     const amount = parseFloat(newSessionAmount)
     if (!amount || amount <= 0) return
-    const result = startSession(userId, newSessionTier, amount, newSessionDuration)
+    const result = await startSession(userId, newSessionTier, amount, newSessionDuration)
     if (result.error) {
       setSessionError(result.error)
       return
@@ -130,7 +130,7 @@ export default function AdminUserDetail() {
     setNewSessionAmount('')
   }
 
-  function handleOpenPosition() {
+  async function handleOpenPosition() {
     setTradeError('')
     if (!selectedSession) return
     const margin = parseFloat(tradeMargin)
@@ -138,7 +138,7 @@ export default function AdminUserDetail() {
       setTradeError('Enter a margin amount above zero.')
       return
     }
-    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
+    const result = await openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
     if (result.error) {
       setTradeError(result.error)
       return
@@ -151,7 +151,7 @@ export default function AdminUserDetail() {
     closeSessionPosition(selectedSession.id, positionId)
   }
 
-  function handleSetLeverage() {
+  async function handleSetLeverage() {
     setLeverageError('')
     if (!selectedSession) return
     const leverage = parseFloat(leverageInput)
@@ -159,7 +159,7 @@ export default function AdminUserDetail() {
       setLeverageError('Enter a leverage above zero.')
       return
     }
-    const result = setSessionLeverage(selectedSession.id, leverage)
+    const result = await setSessionLeverage(selectedSession.id, leverage)
     if (result.error) {
       setLeverageError(result.error)
       return
@@ -167,7 +167,7 @@ export default function AdminUserDetail() {
     setLeverageInput('')
   }
 
-  function handleSetDuration() {
+  async function handleSetDuration() {
     setDurationError('')
     if (!selectedSession) return
     const days = parseFloat(durationInput)
@@ -175,7 +175,7 @@ export default function AdminUserDetail() {
       setDurationError('Enter a duration above zero.')
       return
     }
-    const result = setSessionDuration(selectedSession.id, days)
+    const result = await setSessionDuration(selectedSession.id, days)
     if (result.error) {
       setDurationError(result.error)
       return

@@ -29,7 +29,8 @@ if (!process.env.JWT_SECRET) {
 const app = express()
 
 app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean) }))
-app.use(express.json())
+// 5mb (not the 100kb default): settings carry the logo/favicon as data URLs and user profiles carry avatars/KYC images.
+app.use(express.json({ limit: '5mb' }))
 
 app.get('/health', (req, res) => res.json({ ok: true }))
 

@@ -64,7 +64,7 @@ export default function AdminTrading() {
       })
     : activeSessions
 
-  function handleOpenPosition() {
+  async function handleOpenPosition() {
     setTradeError('')
     if (!selectedSession) return
     const margin = parseFloat(tradeMargin)
@@ -72,7 +72,7 @@ export default function AdminTrading() {
       setTradeError('Enter a margin amount above zero.')
       return
     }
-    const result = openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
+    const result = await openSessionPosition(selectedSession.id, tradeSymbol, margin, tradeDirection)
     if (result.error) {
       setTradeError(result.error)
       return
@@ -85,7 +85,7 @@ export default function AdminTrading() {
     closeSessionPosition(selectedSession.id, positionId)
   }
 
-  function handleSetLeverage() {
+  async function handleSetLeverage() {
     setLeverageError('')
     if (!selectedSession) return
     const leverage = parseFloat(leverageInput)
@@ -93,7 +93,7 @@ export default function AdminTrading() {
       setLeverageError('Enter a leverage above zero.')
       return
     }
-    const result = setSessionLeverage(selectedSession.id, leverage)
+    const result = await setSessionLeverage(selectedSession.id, leverage)
     if (result.error) {
       setLeverageError(result.error)
       return
@@ -101,12 +101,12 @@ export default function AdminTrading() {
     setLeverageInput('')
   }
 
-  function handleStartSession() {
+  async function handleStartSession() {
     setStartError('')
     if (!startClientId) return setStartError('Pick a client.')
     const amount = parseFloat(startAmount)
     if (!amount || amount <= 0) return setStartError('Enter an amount above zero.')
-    const result = startSession(Number(startClientId), startTier, amount, startDuration)
+    const result = await startSession(Number(startClientId), startTier, amount, startDuration)
     if (result.error) {
       setStartError(result.error)
       return

@@ -49,6 +49,18 @@ function publicPosition(row, currentPrices) {
   }
 }
 
+// Shared by both list endpoints: attaches each session's live value
+// AND its still-open positions, so the frontend gets everything it
+// needs to render a session in one request instead of N+1.
+async function withLiveValueAndPositions(rows) {
+  const currentPrices = getCurrentPrices()
+  return Promise.all(rows.map(async (s) => {
+    const { rows: positions } = await pool.query('SELECT * FROM positions WHERE session_id = $1 AND closed_at IS NULL ORDER BY opened_at', [s.id])
+    const liveValue = s.status === 'active' ? await sessionCurrentValue(s, positions, currentPrices) : null
+    return { ...publicSession(s, liveValue), positions: positions.map((p) => publicPosition(p, currentPrices)) }
+  }))
+}
+
 async function loadOwnedOrAdminSession(req, res, requirePerm = 'trade') {
   const { rows } = await pool.query('SELECT * FROM trading_sessions WHERE id = $1', [req.params.id])
   const session = rows[0]
@@ -220,24 +232,12 @@ router.get('/', requireAuth, async (req, res) => {
   const { rows } = userId
     ? await pool.query('SELECT * FROM trading_sessions WHERE user_id = $1 ORDER BY created_at DESC', [userId])
     : await pool.query('SELECT * FROM trading_sessions ORDER BY created_at DESC')
-  const currentPrices = getCurrentPrices()
-  const withValue = await Promise.all(rows.map(async (s) => {
-    const { rows: positions } = await pool.query('SELECT * FROM positions WHERE session_id = $1 AND closed_at IS NULL', [s.id])
-    const liveValue = s.status === 'active' ? await sessionCurrentValue(s, positions, currentPrices) : null
-    return publicSession(s, liveValue)
-  }))
-  res.json({ sessions: withValue })
+  res.json({ sessions: await withLiveValueAndPositions(rows) })
 })
 
 router.get('/mine', requireAuth, async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM trading_sessions WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id])
-  const currentPrices = getCurrentPrices()
-  const withValue = await Promise.all(rows.map(async (s) => {
-    const { rows: positions } = await pool.query('SELECT * FROM positions WHERE session_id = $1 AND closed_at IS NULL', [s.id])
-    const liveValue = s.status === 'active' ? await sessionCurrentValue(s, positions, currentPrices) : null
-    return publicSession(s, liveValue)
-  }))
-  res.json({ sessions: withValue })
+  res.json({ sessions: await withLiveValueAndPositions(rows) })
 })
 
 router.get('/:id', requireAuth, async (req, res) => {

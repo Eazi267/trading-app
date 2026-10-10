@@ -181,21 +181,7 @@ export function AppProvider({ children }) {
   // Keyed by nothing — a flat list, each entry tagged with userId,
   // same pattern as orders/transactions. A session records a tier
   // choice + a starting amount, and closes into a capped payout.
-  const [sessions, setSessions] = useState(() => {
-    const saved = localStorage.getItem('pulse_sessions')
-    if (!saved) return []
-    // Defensive normalization: a session saved before the
-    // trading-engine rework won't have positions/cash/leverage at
-    // all. Without this, reading session.positions.length on one of
-    // these throws and can silently blank out an entire panel —
-    // exactly the "positions disappeared" symptom this guards against.
-    return JSON.parse(saved).map((s) => ({
-      cash: s.amount ?? 0,
-      positions: [],
-      leverage: 1,
-      ...s
-    }))
-  })
+  const [sessions, setSessions] = useState([])
 
   // Real backend now (see server/README.md) — fetched on load and
   // refetched after any mutating action, rather than kept in sync
@@ -220,9 +206,26 @@ export function AppProvider({ children }) {
 
   useEffect(() => { refreshReferralCampaigns() }, [refreshReferralCampaigns])
 
+  // Sessions change on their own (the server's auto-expiry sweep settles
+  // them), so unlike transactions this is also POLLED every 15s. If a
+  // session we knew as 'active' comes back settled, its settlement
+  // transaction was just created server-side, so refetch those too.
+  const refreshSessions = useCallback(async () => {
+    if (!getToken() || !currentUser) return
+    const path = currentUser.role === 'admin' ? '/api/sessions' : '/api/sessions/mine'
+    const result = await apiRequest(path)
+    if (!result.sessions) return
+    const wasActive = sessionsRef.current.filter((s) => s.status === 'active').map((s) => s.id)
+    const settledNow = result.sessions.some((s) => wasActive.includes(s.id) && s.status !== 'active')
+    setSessions(result.sessions)
+    if (settledNow) refreshTransactions()
+  }, [currentUser, refreshTransactions])
+
   useEffect(() => {
-    localStorage.setItem('pulse_sessions', JSON.stringify(sessions))
-  }, [sessions])
+    refreshSessions()
+    const id = setInterval(refreshSessions, 15000)
+    return () => clearInterval(id)
+  }, [refreshSessions])
 
   useEffect(() => {
     localStorage.setItem('pulse_orders', JSON.stringify(orders))
@@ -312,74 +315,7 @@ export function AppProvider({ children }) {
         })
         setSessionScenarios(updatedScenarios)
 
-        // Auto-expiry: any active session whose expiresAt has passed
-        // gets force-settled here. Each session settles against ITS
-        // OWN effective prices — the plain global feed, with each
-        // scenario'd symbol's synthetic price substituted in — computed
-        // fresh from this same tick, never stale.
-        const expired = sessionsRef.current.filter(
-          (s) => s.status === 'active' && s.expiresAt && new Date(s.expiresAt).getTime() <= Date.now()
-        )
-        if (expired.length > 0) {
-          expired.forEach((session) => {
-            const effectivePrices = { ...next }
-            Object.entries(updatedScenarios[session.id] || {}).forEach(([symbol, scenario]) => {
-              effectivePrices[symbol] = scenario.price
-            })
-            delete updatedScenarios[session.id]
-            const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, effectivePrices)
-            setSessions((prevSessions) =>
-              prevSessions.map((s) =>
-                s.id === session.id
-                  ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, excessPending, closedReason: 'expired' }
-                  : s
-              )
-            )
-            const owner = usersRef.current.find((u) => u.id === session.userId)
-            setTransactions((prevTx) => [
-              {
-                id: `${Date.now()}-${session.id}`,
-                userId: session.userId,
-                userName: owner?.name,
-                type: 'session_settlement',
-                amount: payout,
-                date: new Date().toISOString(),
-                status: 'pending',
-                sessionId: session.id,
-                closedReason: 'expired'
-              },
-              ...(excessPending > 0
-                ? [{
-                    id: `${Date.now()}-${session.id}-excess`,
-                    userId: session.userId,
-                    userName: owner?.name,
-                    type: 'capped_profit_release',
-                    amount: excessPending,
-                    date: new Date().toISOString(),
-                    status: 'pending',
-                    sessionId: session.id
-                  }]
-                : []),
-              ...prevTx
-            ])
-            notifyRef.current(
-              session.userId,
-              payout >= 0 ? 'session_settled_profit' : 'session_settled_loss',
-              payout >= 0 ? 'Session ended in profit' : 'Session ended in a loss',
-              `Your session timer ran out. Result: ${payout >= 0 ? '+' : ''}$${payout.toFixed(2)} — pending admin certification before it's added to your balance.`,
-              { sessionId: session.id, payout }
-            )
-            if (excessPending > 0) {
-              notifyRef.current(
-                session.userId,
-                'capped_profit_pending',
-                'Extra profit pending review',
-                `This session outperformed its tier cap by $${excessPending.toFixed(2)}. That extra amount is held for admin review before it's added to your balance.`,
-                { sessionId: session.id, excessPending }
-              )
-            }
-          })
-        }
+        // (Session auto-expiry now happens on the server — see refreshSessions.)
 
         return next
       })
@@ -635,298 +571,93 @@ export function AppProvider({ children }) {
     return { total, available: total - pending, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees }
   }
 
-  // Starts a new trading session for a client at a given tier.
-  // Works whether an admin calls it on a client's behalf, or a
-  // client starts their own — either way it's checked against real
-  // available balance, so a session can never be funded by money
-  // that isn't actually there. The session's own `cash` starts equal
-  // to `amount`; leverage and duration come straight from the tier.
-  function startSession(targetUserId, tierId, amount, durationDays) {
-    const tier = getTier(tierId)
-    if (!tier || !amount || amount <= 0) return { error: 'Invalid tier or amount.' }
-
-    if (amount < tier.minDeposit) {
-      return { error: `${tier.name} requires at least ${formatUsd(tier.minDeposit)} per session.` }
-    }
-    if (Number.isFinite(tier.maxDeposit) && amount > tier.maxDeposit) {
-      return { error: `${tier.name} allows at most ${formatUsd(tier.maxDeposit)} per session.` }
-    }
-
-    const { available } = getBalanceBreakdown(targetUserId)
-    if (amount > available) return { error: 'Amount exceeds available balance.' }
-
-    // Duration is selectable within the tier's range, same as
-    // leverage — pick a preset within bounds, or fall back to the
-    // tier's default if nothing was specified.
-    const resolvedDuration = clampDuration(tierId, durationDays || tier.durationDays)
-
-    // Managed mode only applies when the client is committing to
-    // their own session — an admin starting one on a client's behalf
-    // (from AdminUserDetail) always goes straight to active, since
-    // the admin IS the human sign-off this mode exists to require.
-    const isManaged = settings.investmentMode === 'managed' && currentUser?.id === targetUserId
-    const committedAt = new Date()
-    const startedAt = isManaged ? null : committedAt
-    const expiresAt = isManaged ? null : new Date(startedAt.getTime() + resolvedDuration * 24 * 60 * 60 * 1000)
-
-    const session = {
-      id: Date.now(),
-      userId: targetUserId,
-      tierId,
-      amount,
-      durationDays: resolvedDuration,
-      leverage: tier.defaultLeverage,
-      cash: amount,
-      positions: [],
-      committedAt: committedAt.toISOString(),
-      startedAt: startedAt ? startedAt.toISOString() : null,
-      expiresAt: expiresAt ? expiresAt.toISOString() : null,
-      status: isManaged ? 'awaiting_start' : 'active',
-      closedAt: null,
-      closedReason: null,
-      endValue: null,
-      rawPnl: null,
-      payout: null,
-      initiatedByName: currentUser?.name,
-      initiatedBySelf: currentUser?.id === targetUserId
-    }
-    setSessions((prev) => [session, ...prev])
-
-    if (isManaged) {
-      logAudit({
-        action: 'session_committed_awaiting_start',
-        actor: currentUser,
-        targetUserId,
-        targetUserName: currentUser?.name,
-        details: { tierId, amount }
-      })
-      notify(
-        targetUserId,
-        'session_awaiting_start',
-        'Investment committed — awaiting start',
-        `Your ${formatUsd(amount)} commitment to ${tier.name} is reserved and no longer available, but the session won't begin until your account manager starts it.`,
-        { tierId, amount }
-      )
-    }
-
-    return { session }
+  // Starts a session for a client (or for yourself). The server does
+  // ALL the checks (tier limits, real available balance, Managed vs
+  // Direct mode) and creates the record; we just send the request and
+  // refetch. Returns { session } on success or { error } on failure.
+  async function startSession(targetUserId, tierId, amount, durationDays) {
+    const result = await apiRequest('/api/sessions', {
+      method: 'POST',
+      body: { targetUserId, tierId, amount: Number(amount), durationDays }
+    })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
+    return { session: result.session }
   }
 
-  // ADMIN-ONLY: begins a session that a client committed to under
-  // Managed investment mode — starts the timer now, for the
-  // duration the client originally chose. This is the "admin says
-  // so" step: funds were already moved out of the client's main
-  // balance the moment they committed, this just starts the clock.
-  // Cancels a commitment that's still awaiting admin start — the
-  // committed amount was never touched otherwise (managed mode
-  // doesn't create any transaction, it just marks the session's
-  // status), so canceling is simply flipping status to 'cancelled'.
-  // getBalanceBreakdown's `pending` calc only counts 'active' and
-  // 'awaiting_start' sessions, so a cancelled one immediately stops
-  // being held and the amount is available again — no refund
-  // transaction needed since nothing was ever debited in the first
-  // place, only reserved.
-  function cancelAwaitingSession(sessionId) {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'awaiting_start') return { error: 'Session is not awaiting start.' }
-
-    setSessions((prev) => prev.map((s) => (
-      s.id === sessionId ? { ...s, status: 'cancelled', closedAt: new Date().toISOString() } : s
-    )))
-
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_commitment_cancelled',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, amount: session.amount }
-    })
-    if (currentUser?.role === 'admin' && currentUser.id !== session.userId) {
-      notify(
-        session.userId,
-        'session_cancelled',
-        'Investment commitment cancelled',
-        `Your ${formatUsd(session.amount)} commitment was cancelled by your account manager and is available again.`,
-        { sessionId }
-      )
-    }
+  // Cancels a commitment still awaiting admin start (owner or admin).
+  async function cancelAwaitingSession(sessionId) {
+    const result = await apiRequest(`/api/sessions/${sessionId}/cancel`, { method: 'POST' })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
     return { ok: true }
   }
 
-  function beginAwaitingSession(sessionId) {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'awaiting_start') return { error: 'Session is not awaiting start.' }
-
-    const startedAt = new Date()
-    const expiresAt = new Date(startedAt.getTime() + session.durationDays * 24 * 60 * 60 * 1000)
-    setSessions((prev) => prev.map((s) => (
-      s.id === sessionId ? { ...s, status: 'active', startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString() } : s
-    )))
-
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_started_by_admin',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, amount: session.amount }
-    })
-    notify(
-      session.userId,
-      'session_started',
-      'Your investment has started',
-      `Your ${formatUsd(session.amount)} commitment is now active and running for ${session.durationDays} day${session.durationDays === 1 ? '' : 's'}.`,
-      { sessionId }
-    )
+  // ADMIN-ONLY: starts the clock on a Managed-mode commitment.
+  async function beginAwaitingSession(sessionId) {
+    const result = await apiRequest(`/api/sessions/${sessionId}/begin`, { method: 'POST' })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
     return { ok: true }
   }
 
-  // A session's live value = its uncommitted cash, plus the current
-  // mark-to-market equity of every position still open in it.
-  // Calculated purely from the real price feed, never typed in.
+  // The server computes this against the real price feed and attaches
+  // it as liveValue to every active session — no local recomputing.
   function sessionCurrentValue(session) {
-    const effectivePrices = getEffectivePricesForSession(session.id)
-    return session.cash + session.positions.reduce((sum, p) => sum + positionEquity(p, effectivePrices), 0)
+    return session.liveValue ?? session.cash
   }
 
-  // ADMIN-ONLY: changes a session's leverage going forward, clamped to
-  // its tier's allowed range (1-300x / 1-500x / 1-1000x). This only
-  // affects positions opened AFTER the change — each open position
-  // already stores the leverage it was opened with (see
-  // openSessionPosition), so past positions are never silently
-  // repriced by a later leverage edit.
-  function setSessionLeverage(sessionId, leverage) {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
+  // ADMIN-ONLY: changes leverage going forward (server clamps it to the
+  // tier's range). Existing positions keep the leverage they opened with.
+  async function setSessionLeverage(sessionId, leverage) {
     if (!leverage || leverage <= 0) return { error: 'Enter a leverage above zero.' }
-
-    const clamped = clampLeverage(session.tierId, leverage)
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, leverage: clamped } : s)))
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_leverage_changed',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, previousLeverage: session.leverage, newLeverage: clamped }
-    })
-    return { leverage: clamped }
+    const result = await apiRequest(`/api/sessions/${sessionId}/leverage`, { method: 'POST', body: { leverage: Number(leverage) } })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
+    return { leverage: result.leverage }
   }
 
-  // ADMIN-ONLY: changes a session's total duration, clamped to its
-  // tier's allowed range — same pattern as setSessionLeverage.
-  // Recomputes expiresAt from the session's original startedAt, so
-  // "5 days" always means 5 days from when it actually began, not
-  // from whenever the admin happens to make this change.
-  function setSessionDuration(sessionId, days) {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
+  // ADMIN-ONLY: changes total duration (server clamps and recomputes
+  // expiresAt from the session's real start time).
+  async function setSessionDuration(sessionId, days) {
     if (!days || days <= 0) return { error: 'Enter a duration above zero.' }
-
-    const clamped = clampDuration(session.tierId, days)
-    const newExpiresAt = new Date(new Date(session.startedAt).getTime() + clamped * 24 * 60 * 60 * 1000)
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, expiresAt: newExpiresAt.toISOString() } : s)))
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_duration_changed',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, previousExpiresAt: session.expiresAt, newDurationDays: clamped, newExpiresAt: newExpiresAt.toISOString() }
-    })
-    return { days: clamped, expiresAt: newExpiresAt.toISOString() }
+    const result = await apiRequest(`/api/sessions/${sessionId}/duration`, { method: 'POST', body: { days: Number(days) } })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
+    return { days: result.days, expiresAt: result.expiresAt }
   }
 
-  // ADMIN-ONLY: opens a leveraged position scoped to ONE session's own
-  // cash — never the client's wider account balance. marginAmount is
-  // deducted from the session's cash the moment the position opens;
-  // that's the literal enforcement of "can only trade with the exact
-  // amount committed to this session."
-  function openSessionPosition(sessionId, symbol, marginAmount, direction = 'long') {
+  // ADMIN-ONLY: opens a leveraged position inside ONE session. The
+  // server takes the entry price from its own feed (never from us)
+  // and deducts the margin from that session's cash.
+  async function openSessionPosition(sessionId, symbol, marginAmount, direction = 'long') {
     const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
-    const price = getEffectivePricesForSession(sessionId)[symbol]
-    if (!price || !marginAmount || marginAmount <= 0) return { error: 'Invalid symbol or margin amount.' }
-    if (marginAmount > session.cash) return { error: 'Exceeds this session\u2019s available cash.' }
-    if (direction !== 'long' && direction !== 'short') return { error: 'Invalid direction.' }
-
-    const position = {
-      id: Date.now(),
-      symbol,
-      direction,
-      entryPrice: price,
-      marginAmount,
-      leverage: session.leverage,
-      openedAt: new Date().toISOString()
-    }
-
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId
-          ? { ...s, cash: s.cash - marginAmount, positions: [...s.positions, position] }
-          : s
-      )
-    )
-    logSessionAction(session.userId, sessionId, 'open_position', symbol, marginAmount, session.leverage, price, null, direction)
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_position_opened',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, symbol, direction, marginAmount, leverage: session.leverage, entryPrice: price }
+    const result = await apiRequest(`/api/sessions/${sessionId}/positions`, {
+      method: 'POST',
+      body: { symbol, marginAmount: Number(marginAmount), direction }
     })
-    notify(
-      session.userId,
-      'trade_opened',
-      'Trade opened',
-      `${symbol} ${direction === 'short' ? 'short' : 'long'} position opened — ${formatUsd(marginAmount)} margin at ${session.leverage}x.`,
-      { sessionId, symbol, direction, marginAmount, leverage: session.leverage }
-    )
+    if (result.error) return { error: result.error }
+    const position = result.position
+    if (session) {
+      logSessionAction(session.userId, sessionId, 'open_position', symbol, position.marginAmount, position.leverage, position.entryPrice, null, direction)
+    }
+    await refreshSessions()
     return { position }
   }
 
-  // ADMIN-ONLY: closes one open position inside a session. Its full
-  // equity (margin +/- leveraged P&L) returns to the session's cash —
-  // equity can be negative, which pulls the session's cash down with
-  // it. No auto-liquidation: this mirrors the explicit "allow negative
-  // balance over auto-close at zero" decision.
-  function closeSessionPosition(sessionId, positionId) {
+  // ADMIN-ONLY: closes one open position; its equity returns to the
+  // session's cash on the server.
+  async function closeSessionPosition(sessionId, positionId) {
     const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
-    const position = session.positions.find((p) => p.id === positionId)
-    if (!position) return { error: 'Position not found.' }
-
-    const price = getEffectivePricesForSession(sessionId)[position.symbol]
-    const equity = positionEquity(position, getEffectivePricesForSession(sessionId))
-    const pnl = equity - position.marginAmount
-
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId
-          ? { ...s, cash: s.cash + equity, positions: s.positions.filter((p) => p.id !== positionId) }
-          : s
-      )
-    )
-    logSessionAction(session.userId, sessionId, 'close_position', position.symbol, position.marginAmount, position.leverage, price, pnl, position.direction || 'long')
-    const owner = users.find((u) => u.id === session.userId)
-    logAudit({
-      action: 'session_position_closed',
-      actor: currentUser,
-      targetUserId: session.userId,
-      targetUserName: owner?.name,
-      details: { sessionId, symbol: position.symbol, direction: position.direction || 'long', marginAmount: position.marginAmount, leverage: position.leverage, exitPrice: price, pnl }
-    })
-    notify(
-      session.userId,
-      pnl >= 0 ? 'trade_closed_profit' : 'trade_closed_loss',
-      pnl >= 0 ? 'Trade closed in profit' : 'Trade closed at a loss',
-      `${position.symbol} position closed: ${pnl >= 0 ? '+' : ''}${formatUsd(pnl)}.`,
-      { sessionId, symbol: position.symbol, pnl }
-    )
-    checkTradeAchievements(session.userId, pnl)
-    return { equity, pnl }
+    const position = session?.positions?.find((p) => p.id === positionId)
+    const result = await apiRequest(`/api/sessions/${sessionId}/positions/${positionId}/close`, { method: 'POST' })
+    if (result.error) return { error: result.error }
+    if (session && position) {
+      logSessionAction(session.userId, sessionId, 'close_position', position.symbol, position.marginAmount, position.leverage, prices[position.symbol], result.pnl, position.direction || 'long')
+      checkTradeAchievements(session.userId, result.pnl)
+    }
+    await refreshSessions()
+    return { equity: result.equity, pnl: result.pnl }
   }
 
   // Real milestones only — each check counts ACTUAL closed positions
@@ -973,128 +704,34 @@ export function AppProvider({ children }) {
     ])
   }
 
-  // ADMIN-ONLY, demo tool. Pulls a session's expiresAt closer by the
-  // given number of hours, so a demo doesn't need to wait out real
-  // tier durations (2-7 days). This ONLY changes timing — if it pushes
-  // expiresAt into the past, the existing auto-expiry logic settles it
-  // on the next price tick using the real computeSessionSettlement(),
-  // off whatever the (possibly biased) price feed actually did. No
-  // payout number is ever set directly.
-  function fastForwardSession(sessionId, hours) {
+  // ADMIN-ONLY testing tool: pulls the REAL expires_at closer on the
+  // server; its 5s auto-expiry sweep then settles it genuinely.
+  async function fastForwardSession(sessionId, hours) {
     if (!hours || hours <= 0) return { error: 'Enter hours above zero.' }
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId && s.status === 'active'
-          ? { ...s, expiresAt: new Date(new Date(s.expiresAt).getTime() - hours * 60 * 60 * 1000).toISOString() }
-          : s
-      )
-    )
+    const result = await apiRequest(`/api/sessions/${sessionId}/fast-forward`, { method: 'POST', body: { hours: Number(hours) } })
+    if (result.error) return { error: result.error }
+    await refreshSessions()
     return { ok: true }
   }
 
-  // Same as fastForwardSession, applied to every active session at
-  // once — handy for showcasing several clients settling in one go
-  // instead of clicking through each session individually.
-  function fastForwardAllSessions(hours) {
+  // Same as fastForwardSession, for every active session (one request each).
+  async function fastForwardAllSessions(hours) {
     if (!hours || hours <= 0) return { error: 'Enter hours above zero.' }
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.status === 'active'
-          ? { ...s, expiresAt: new Date(new Date(s.expiresAt).getTime() - hours * 60 * 60 * 1000).toISOString() }
-          : s
-      )
-    )
+    const active = sessions.filter((s) => s.status === 'active')
+    await Promise.all(active.map((s) => apiRequest(`/api/sessions/${s.id}/fast-forward`, { method: 'POST', body: { hours: Number(hours) } })))
+    await refreshSessions()
     return { ok: true }
   }
 
-  // Manually closes a session: force-settles every still-open position
-  // into cash, applies the tier's payout cap to the overall result,
-  // and posts a real settlement transaction so the client's balance
-  // actually updates. Rule: if the real gain is positive, payout is
-  // the SMALLER of the real gain or (amount * tier.maxPayoutMultiplier).
-  // If the real result is a loss, payout is the full loss — losses are
-  // never capped. Uses the same computeSessionSettlement() as auto-expiry
-  // so the two paths can't disagree.
-  //
-  // Early-close rule: a client can only end their OWN session once its
-  // timer has actually run out — the session's terms were agreed to
-  // when it started, and a client backing out early to dodge a bad
-  // move would undermine the whole "real, timed commitment" premise.
-  // Admins retain the ability to close early (this is their account-
-  // management tool, not a client self-service action) — same as
-  // AdminUserDetail's "Close session" already assumes.
-  function closeSession(sessionId) {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'active') return { error: 'Session is not active.' }
-
-    const isAdmin = currentUser?.role === 'admin'
-    const isExpired = new Date(session.expiresAt).getTime() <= Date.now()
-    if (!isAdmin && !isExpired) {
-      return { error: 'This session can\u2019t be closed until its timer ends.' }
-    }
-
-    const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, getEffectivePricesForSession(sessionId))
+  // Manually closes a session. The server enforces the rules (admins any
+  // time; a client only after the timer ends), settles it with the one
+  // shared settlement function, and creates the pending settlement
+  // transaction(s) — so we refetch both sessions and transactions.
+  async function closeSession(sessionId) {
+    const result = await apiRequest(`/api/sessions/${sessionId}/close`, { method: 'POST' })
+    if (result.error) return { error: result.error }
     clearSessionScenario(sessionId)
-
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionId
-          ? { ...s, status: 'closed', closedAt: new Date().toISOString(), cash: endValue, positions: [], endValue, rawPnl, payout, excessPending, closedReason: 'manual' }
-          : s
-      )
-    )
-
-    const owner = users.find((u) => u.id === session.userId)
-    setTransactions((prev) => [
-      {
-        id: Date.now(),
-        userId: session.userId,
-        userName: owner?.name,
-        type: 'session_settlement',
-        amount: payout,
-        date: new Date().toISOString(),
-        status: 'pending',
-        sessionId,
-        closedReason: 'manual'
-      },
-      ...(excessPending > 0
-        ? [{
-            id: `${Date.now()}-excess`,
-            userId: session.userId,
-            userName: owner?.name,
-            type: 'capped_profit_release',
-            amount: excessPending,
-            date: new Date().toISOString(),
-            status: 'pending',
-            sessionId
-          }]
-        : []),
-      ...prev
-    ])
-    notify(
-      session.userId,
-      payout >= 0 ? 'session_settled_profit' : 'session_settled_loss',
-      payout >= 0 ? 'Session closed in profit' : 'Session closed at a loss',
-      `Result: ${payout >= 0 ? '+' : ''}${formatUsd(payout)}${payout < rawPnl ? ' (capped by tier)' : ''} — pending admin certification before it's added to your balance.`,
-      { sessionId, payout, rawPnl }
-    )
-    if (excessPending > 0) {
-      notify(
-        session.userId,
-        'capped_profit_pending',
-        'Extra profit pending review',
-        `This session outperformed its tier cap by ${formatUsd(excessPending)}. That extra amount is held for admin review before it's added to your balance.`,
-        { sessionId, excessPending }
-      )
-    }
-    if (payout > 0) {
-      const priorProfitableSessions = sessions.filter(
-        (s) => s.userId === session.userId && s.status === 'closed' && s.payout > 0
-      ).length
-      if (priorProfitableSessions === 0) {
-        notify(session.userId, 'achievement', 'First profitable session', 'Your first session closed in profit — a real, calculated result.')
-      }
-    }
+    await Promise.all([refreshSessions(), refreshTransactions()])
     return { ok: true }
   }
 
@@ -1102,150 +739,11 @@ export function AppProvider({ children }) {
     return sessions.filter((s) => s.userId === userId)
   }
 
-  // ADMIN-ONLY, demo tool. Builds real deposit + session records for a
-  // batch of accounts in one shot. This deliberately does NOT call
-  // startSession/openSessionPosition/closeSession in a loop — those
-  // read from React state, so back-to-back calls in one synchronous
-  // pass would all see the same stale `sessions` snapshot. Instead
-  // this constructs the records directly and commits them in one
-  // batch — but every closed session's payout still comes from the
-  // real, shared computeSessionSettlement() function run against a
-  // real current price and a randomized (but genuine) exit price, not
-  // a number typed in. A generated account is functionally
-  // indistinguishable from a real one once created; it's just
-  // pre-populated instead of starting empty.
-  function generateDemoActivity(userIds, opts = {}) {
-    const {
-      minDeposit = 300,
-      maxDeposit = 8000,
-      minSessionsPerUser = 1,
-      maxSessionsPerUser = 3,
-      closedRatio = 0.7 // fraction of generated sessions settled vs left active
-    } = opts
-
-    const rand = (min, max) => min + Math.random() * (max - min)
-    function pickTier() {
-      const roll = Math.random()
-      if (roll < 0.6) return TIERS[0]
-      if (roll < 0.9) return TIERS[1]
-      return TIERS[2]
-    }
-
-    let idCounter = Date.now()
-    const nextId = () => idCounter++
-
-    const newTransactions = []
-    const newSessions = []
-    const newOrders = []
-    const symbols = Object.keys(prices)
-
-    userIds.forEach((userId) => {
-      const owner = users.find((u) => u.id === userId)
-      const joinedAt = owner ? new Date(owner.createdAt) : new Date()
-
-      // Real deposit, backdated close to signup so it reads as a
-      // genuinely funded account rather than something created today.
-      const depositAmount = Math.round(rand(minDeposit, maxDeposit))
-      const depositDate = new Date(joinedAt.getTime() + rand(0, 2) * 24 * 60 * 60 * 1000)
-      newTransactions.push({
-        id: nextId(),
-        userId,
-        userName: owner?.name,
-        type: 'deposit',
-        amount: depositAmount,
-        date: depositDate.toISOString(),
-        status: 'approved'
-      })
-
-      let availableCash = depositAmount
-      const sessionCount = Math.round(rand(minSessionsPerUser, maxSessionsPerUser))
-
-      for (let i = 0; i < sessionCount; i++) {
-        const tier = pickTier()
-        const cap = Math.min(tier.maxDeposit, availableCash)
-        if (cap < tier.minDeposit) continue // not enough left to fund this tier's floor
-
-        const sessionAmount = Math.round(rand(tier.minDeposit, cap))
-        const leverage = clampLeverage(tier.id, tier.defaultLeverage)
-        const durationDays = clampDuration(tier.id, tier.durationDays)
-        const startedAt = new Date(depositDate.getTime() + i * 6 * 60 * 60 * 1000)
-        const expiresAt = new Date(startedAt.getTime() + durationDays * 24 * 60 * 60 * 1000)
-        const willClose = Math.random() < closedRatio
-        const sessionId = nextId()
-
-        // 1-2 synthetic positions, entered at a REAL current price —
-        // the price relationship is genuine even though the position
-        // itself is synthetic.
-        let cash = sessionAmount
-        const positions = []
-        const positionCount = Math.random() < 0.6 ? 1 : 2
-        for (let p = 0; p < positionCount; p++) {
-          const symbol = symbols[Math.floor(Math.random() * symbols.length)]
-          const marginAmount = Math.round(rand(cash * 0.2, cash * 0.6))
-          if (marginAmount <= 0 || marginAmount > cash) continue
-          cash -= marginAmount
-          const direction = Math.random() < 0.7 ? 'long' : 'short' // long-biased, same as real client behavior tends to skew
-          const position = { id: nextId(), symbol, direction, entryPrice: prices[symbol], marginAmount, leverage, openedAt: startedAt.toISOString() }
-          positions.push(position)
-          newOrders.push({
-            id: nextId(), userId, sessionId, executedByAdminId: currentUser?.id, executedByAdminName: currentUser?.name,
-            type: 'open_position', symbol, direction, marginAmount, leverage, price: prices[symbol], pnl: null, date: startedAt.toISOString()
-          })
-        }
-
-        if (willClose) {
-          // A plausible exit price for each position — still random,
-          // slightly positive-skewed like the real feed's drift, then
-          // run through the exact same settlement function every real
-          // session uses. The payout is genuinely computed here, not
-          // set directly.
-          const exitPrices = {}
-          positions.forEach((pos) => { exitPrices[pos.symbol] = pos.entryPrice * (1 + (Math.random() - 0.45) * 0.08) })
-          const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(
-            { tierId: tier.id, amount: sessionAmount, cash, positions },
-            exitPrices
-          )
-          const closedAt = new Date(Math.min(expiresAt.getTime(), Date.now()) - rand(0, 6) * 60 * 60 * 1000)
-
-          newSessions.push({
-            id: sessionId, userId, tierId: tier.id, amount: sessionAmount, leverage, cash: endValue, positions: [],
-            startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString(), status: 'closed',
-            closedAt: closedAt.toISOString(), closedReason: 'auto_expiry', endValue, rawPnl, payout, excessPending,
-            initiatedByName: currentUser?.name, initiatedBySelf: false
-          })
-          newTransactions.push({
-            id: nextId(), userId, userName: owner?.name, type: 'session_settlement', amount: payout,
-            date: closedAt.toISOString(), status: 'approved', sessionId, closedReason: 'auto_expiry'
-          })
-          if (excessPending > 0) {
-            newTransactions.push({
-              id: nextId(), userId, userName: owner?.name, type: 'capped_profit_release',
-              amount: excessPending, date: closedAt.toISOString(), status: 'pending', sessionId
-            })
-          }
-          availableCash = availableCash - sessionAmount + payout
-        } else {
-          newSessions.push({
-            id: sessionId, userId, tierId: tier.id, amount: sessionAmount, leverage, cash, positions,
-            startedAt: startedAt.toISOString(), expiresAt: expiresAt.toISOString(), status: 'active',
-            closedAt: null, closedReason: null, endValue: null, rawPnl: null, payout: null,
-            initiatedByName: currentUser?.name, initiatedBySelf: false
-          })
-          availableCash -= sessionAmount
-        }
-      }
-    })
-
-    setTransactions((prev) => [...newTransactions, ...prev])
-    setSessions((prev) => [...newSessions, ...prev])
-    setOrders((prev) => [...newOrders, ...prev])
-
-    return {
-      usersGenerated: userIds.length,
-      totalDeposited: newTransactions.filter((t) => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0),
-      sessionsCreated: newSessions.length,
-      sessionsClosed: newSessions.filter((s) => s.status === 'closed').length
-    }
+  // DISABLED: demo accounts start empty now and all data lives on the
+  // server. Pre-populating fake LOCAL sessions would just vanish on the
+  // next refetch, so this refuses instead of producing phantom data.
+  function generateDemoActivity() {
+    return { error: 'Demo activity generation is disabled — sessions and transactions now come from the real backend.' }
   }
 
   // Cleanup counterpart to generateDemoActivity — strips

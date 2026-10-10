@@ -135,10 +135,7 @@ export default function Balance() {
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
           <div className="panel-head"><h3>Fee Balance — {formatMoney(outstandingFees)} owed</h3></div>
           <p style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '0 20px', marginTop: -6, marginBottom: 12 }}>
-            Fees are separate from your main balance — they don't affect what you can trade or withdraw.
-            Deposit any amount toward your Fee Balance below: it's applied to your oldest fees first, any
-            leftover after everything's covered goes to your main balance, and if it's not enough your Fee
-            Balance simply stays outstanding for whatever's left.
+            Fees are separate from your main balance.
           </p>
           <div style={{ padding: 16 }} className="stagger-in">
             {outstandingFeeList.map((fee) => {

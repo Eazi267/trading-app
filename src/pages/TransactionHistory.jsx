@@ -42,9 +42,7 @@ export default function TransactionHistory() {
       <h1 className="page-title">Transaction History</h1>
       <p className="page-sub">
         Every deposit, withdrawal, fee, fee payment, session settlement, and pending-profit review on your
-        account — with a running balance, like a bank statement. A fee never affects your balance by itself;
-        only a genuine deposit, withdrawal, or the excess from an overpaid fee ever moves it. Pending/rejected
-        rows show the balance as it stood before them, since they haven't affected your account.
+        account.
       </p>
 
       <div className="panel">
