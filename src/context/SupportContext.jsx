@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { apiRequest } from '../api/client.js'
 import { useAuth } from './AuthContext.jsx'
-import { useAudit } from './AuditContext.jsx'
-import { useNotifications } from './NotificationContext.jsx'
 
 const SupportContext = createContext(null)
 
@@ -28,147 +27,80 @@ export const CASE_CATEGORIES = {
 // that ordering avoids a circular dependency.
 export function SupportProvider({ children }) {
   const { currentUser } = useAuth()
-  const { logAudit } = useAudit()
-  const { notify } = useNotifications()
+  const [cases, setCases] = useState([])
 
-  const [cases, setCases] = useState(() => {
-    const saved = localStorage.getItem('pulse_support_cases')
-    if (saved) return JSON.parse(saved)
-    // One-time migration from the old flat-thread model, so nobody's
-    // existing support history disappears just because the shape
-    // changed underneath it. Each old conversation becomes exactly
-    // one case, category "general" since the old model had none.
-    const legacy = localStorage.getItem('pulse_support_conversations')
-    if (legacy) {
-      const conversations = JSON.parse(legacy)
-      return conversations.map((c) => ({
-        id: c.id,
-        userId: c.userId,
-        userName: c.userName,
-        subject: 'General Question',
-        category: 'general',
-        relatedTransactionId: null,
-        status: c.status,
-        createdAt: c.createdAt,
-        lastMessageAt: c.lastMessageAt,
-        unreadForAdmin: c.unreadForAdmin,
-        unreadForClient: c.unreadForClient,
-        messages: c.messages
-      }))
-    }
-    return []
-  })
+  const userId = currentUser?.id
+  const isAdmin = currentUser?.role === 'admin'
+
+  // Cases live in the DATABASE now. A client gets only their own
+  // (GET /cases/mine); an admin with the support permission gets
+  // everyone's (GET /cases). Each case arrives with its full message
+  // thread. Polled every 15s so replies show up without a refresh.
+  // Audit entries and the client's "support replied" notification are
+  // written by the server itself, so nothing is logged from here.
+  const refreshCases = useCallback(async () => {
+    if (!userId) return
+    const result = await apiRequest(isAdmin ? '/api/support/cases' : '/api/support/cases/mine')
+    if (result.cases) setCases(result.cases)
+  }, [userId, isAdmin])
 
   useEffect(() => {
-    localStorage.setItem('pulse_support_cases', JSON.stringify(cases))
-  }, [cases])
+    setCases([])
+    if (!userId) return
+    refreshCases()
+    const id = setInterval(refreshCases, 15000)
+    return () => clearInterval(id)
+  }, [userId, refreshCases])
 
   function getCase(caseId) {
     return cases.find((c) => c.id === caseId) || null
   }
 
-  function getCasesForUser(userId) {
-    return cases.filter((c) => c.userId === userId).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt))
+  function getCasesForUser(forUserId) {
+    return cases.filter((c) => c.userId === forUserId).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt))
   }
 
-  function createCase({ subject, category, body, relatedTransactionId = null }) {
-    const text = body.trim()
-    if (!text) return { error: 'Message cannot be empty.' }
+  async function createCase({ subject, category, body, relatedTransactionId = null }) {
+    if (!body?.trim()) return { error: 'Message cannot be empty.' }
     if (!CASE_CATEGORIES[category]) return { error: 'Invalid case category.' }
-    const now = new Date().toISOString()
-    const message = {
-      id: Date.now() + Math.random().toString(36).slice(2, 7),
-      senderId: currentUser.id,
-      senderRole: 'client',
-      senderName: currentUser.name,
-      body: text,
-      createdAt: now
-    }
-    const newCase = {
-      id: Date.now(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      subject: subject?.trim() || CASE_CATEGORIES[category],
-      category,
-      relatedTransactionId,
-      status: 'open',
-      createdAt: now,
-      lastMessageAt: now,
-      unreadForAdmin: true,
-      unreadForClient: false,
-      messages: [message]
-    }
-    setCases((prev) => [...prev, newCase])
-    return { case: newCase }
-  }
-
-  // Used by both a client replying to their own case and an admin
-  // replying to any case — the sender's role/name comes from
-  // currentUser either way, so this one function covers both
-  // directions instead of the old sendClientMessage/sendAdminReply
-  // split.
-  function sendCaseMessage(caseId, body) {
-    const text = body.trim()
-    if (!text) return { error: 'Message cannot be empty.' }
-    const target = getCase(caseId)
-    if (!target) return { error: 'Case not found.' }
-    const isAdminSender = currentUser.role === 'admin'
-    const message = {
-      id: Date.now() + Math.random().toString(36).slice(2, 7),
-      senderId: currentUser.id,
-      senderRole: isAdminSender ? 'admin' : 'client',
-      senderName: currentUser.name,
-      body: text,
-      createdAt: new Date().toISOString()
-    }
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === caseId
-          ? {
-              ...c,
-              messages: [...c.messages, message],
-              status: 'open', // a new message reopens a resolved case automatically, either side
-              lastMessageAt: message.createdAt,
-              unreadForAdmin: isAdminSender ? c.unreadForAdmin : true,
-              unreadForClient: isAdminSender ? true : c.unreadForClient
-            }
-          : c
-      )
-    )
-    if (isAdminSender) {
-      notify(target.userId, 'support_reply', `Support replied — ${target.subject}`, text.length > 100 ? text.slice(0, 100) + '…' : text, { caseId })
-      logAudit({
-        action: 'support_reply_sent',
-        actor: currentUser,
-        targetUserId: target.userId,
-        targetUserName: target.userName,
-        details: { caseId, preview: text.length > 80 ? text.slice(0, 80) + '…' : text }
-      })
-    }
-    return { message }
-  }
-
-  function setCaseStatus(caseId, status) {
-    const target = getCase(caseId)
-    if (!target) return { error: 'Case not found.' }
-    setCases((prev) => prev.map((c) => (c.id === caseId ? { ...c, status } : c)))
-    logAudit({
-      action: status === 'resolved' ? 'support_case_resolved' : 'support_case_reopened',
-      actor: currentUser,
-      targetUserId: target.userId,
-      targetUserName: target.userName,
-      details: { caseId, subject: target.subject }
+    const result = await apiRequest('/api/support/cases', {
+      method: 'POST',
+      body: { subject, category, body, relatedTransactionId }
     })
+    if (result.error) return { error: result.error }
+    await refreshCases()
+    return { case: result.case }
+  }
+
+  // One function for both directions: a client replying to their own
+  // case and an admin replying to any case (the server works out which
+  // from the logged-in user, and reopens a resolved case automatically).
+  async function sendCaseMessage(caseId, body) {
+    if (!body?.trim()) return { error: 'Message cannot be empty.' }
+    const result = await apiRequest(`/api/support/cases/${caseId}/messages`, { method: 'POST', body: { body } })
+    if (result.error) return { error: result.error }
+    await refreshCases()
+    return { message: result.message }
+  }
+
+  async function setCaseStatus(caseId, status) {
+    const result = await apiRequest(`/api/support/cases/${caseId}/status`, { method: 'POST', body: { status } })
+    if (result.error) return { error: result.error }
+    await refreshCases()
     return {}
   }
 
-  function markCaseReadByAdmin(caseId) {
-    setCases((prev) => prev.map((c) => (c.id === caseId ? { ...c, unreadForAdmin: false } : c)))
+  // Opening a case clears its unread dot. Updates the screen instantly,
+  // then tells the server (skipped if it's already read, so polling
+  // doesn't cause a request storm).
+  function markCaseRead(caseId, flag) {
+    const target = cases.find((c) => c.id === caseId)
+    if (!target || !target[flag]) return
+    setCases((prev) => prev.map((c) => (c.id === caseId ? { ...c, [flag]: false } : c)))
+    apiRequest(`/api/support/cases/${caseId}/read`, { method: 'POST' })
   }
-
-  function markCaseReadByClient(caseId) {
-    setCases((prev) => prev.map((c) => (c.id === caseId ? { ...c, unreadForClient: false } : c)))
-  }
+  function markCaseReadByAdmin(caseId) { markCaseRead(caseId, 'unreadForAdmin') }
+  function markCaseReadByClient(caseId) { markCaseRead(caseId, 'unreadForClient') }
 
   const myCases = currentUser && currentUser.role !== 'admin' ? getCasesForUser(currentUser.id) : []
   const myUnreadCount = myCases.filter((c) => c.unreadForClient).length

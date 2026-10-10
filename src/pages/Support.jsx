@@ -39,14 +39,14 @@ export default function Support() {
       markCaseReadByClient(selectedCaseId)
       setShowNewCase(false)
     }
-  }, [selectedCaseId])
+  }, [selectedCaseId, selected?.messages?.length])
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
   }, [selected?.messages?.length])
 
-  function handleCreateCase() {
-    const result = createCase({ subject: newSubject, category: newCategory, body: newBody })
+  async function handleCreateCase() {
+    const result = await createCase({ subject: newSubject, category: newCategory, body: newBody })
     if (result.error) return setNewError(result.error)
     setNewError('')
     setNewSubject('')
@@ -54,8 +54,8 @@ export default function Support() {
     setSelectedCaseId(result.case.id)
   }
 
-  function handleReply() {
-    const result = sendCaseMessage(selectedCaseId, draft)
+  async function handleReply() {
+    const result = await sendCaseMessage(selectedCaseId, draft)
     if (result.error) return setReplyError(result.error)
     setReplyError('')
     setDraft('')

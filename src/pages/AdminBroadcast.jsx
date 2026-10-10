@@ -19,7 +19,7 @@ export default function AdminBroadcast() {
   // actually logged into.
   const realClients = users.filter((u) => u.role === 'user' && !u.isDemoGenerated)
 
-  function handleSend() {
+  async function handleSend() {
     setError('')
     setSentCount(null)
     if (!title.trim()) {
@@ -34,14 +34,18 @@ export default function AdminBroadcast() {
       setError('No clients to send to yet.')
       return
     }
-    notifyBulk(
+    // The server decides who really receives it (real, non-demo clients).
+    const result = await notifyBulk(
       realClients.map((u) => u.id),
       'admin_broadcast',
       title.trim(),
-      body.trim(),
-      { sentByAdminName: currentUser?.name }
+      body.trim()
     )
-    setSentCount(realClients.length)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    setSentCount(result.sentTo)
     setTitle('')
     setBody('')
   }

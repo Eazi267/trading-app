@@ -31,15 +31,16 @@ export default function Settings() {
     setWalletError('')
   }
 
-  function handleRequestUnlink() {
-    const w = currentUser.boundWallet
-    createCase({
-      subject: 'Unlink withdrawal wallet',
-      category: 'account',
-      body: `I'd like to unlink my withdrawal wallet (currently ${METHOD_LABELS[w.method] || w.method}${w.chain ? ` on ${w.chain}` : ''}, ${w.address}) so I can bind a different one. Please help me unlink it.`
-    })
-    setUnlinkSent(true)
-  }
+ async function handleRequestUnlink() {
+  const w = currentUser.boundWallet
+  const result = await createCase({
+    subject: 'Unlink withdrawal wallet',
+    category: 'account',
+    body: `I'd like to unlink my withdrawal wallet (currently ${METHOD_LABELS[w.method] || w.method}${w.chain ? ` on ${w.chain}` : ''}, ${w.address}) so I can bind a different one. Please help me unlink it.`
+  })
+  if (result.error) return setWalletError(result.error)
+  setUnlinkSent(true)
+}
   const fileRef = useRef(null)
   const [form, setForm] = useState({
     name: currentUser.name || '',

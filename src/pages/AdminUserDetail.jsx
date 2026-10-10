@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState , useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine, Receipt, Wallet } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
@@ -59,7 +59,10 @@ export default function AdminUserDetail() {
   const canFinance = hasPermission(currentUser, 'finance')
   const canTrade = hasPermission(currentUser, 'trade')
   const canSupport = hasPermission(currentUser, 'support')
-  const { notify, getNotificationsForUser } = useNotifications()
+  const { notify, getNotificationsForUser, refreshSentMessages } = useNotifications()
+
+// Loads the messages this admin already sent to this client (the "Recently sent" list).
+useEffect(() => { refreshSentMessages(userId) }, [userId])
   const { settings } = useSettings()
 
   const [newSessionTier, setNewSessionTier] = useState(TIERS[0].id)
@@ -229,7 +232,7 @@ export default function AdminUserDetail() {
     setDeleteReason('')
   }
 
-  function handleSendMessage() {
+  async function handleSendMessage() {
     setMessageError('')
     setMessageSent(false)
     if (!messageTitle.trim()) {
@@ -240,7 +243,11 @@ export default function AdminUserDetail() {
       setMessageError('Enter a message to send.')
       return
     }
-    notify(userId, 'admin_message', messageTitle.trim(), messageBody.trim(), { sentByAdminName: currentUser?.name })
+    const sent = await notify(userId, 'admin_message', messageTitle.trim(), messageBody.trim())
+if (sent.error) {
+  setMessageError(sent.error)
+  return
+}
     setMessageTitle('')
     setMessageBody('')
     setMessageSent(true)

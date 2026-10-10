@@ -34,23 +34,37 @@ router.post('/read-all', requireAuth, async (req, res) => {
 })
 
 // ADMIN-ONLY: broadcast/custom messaging. `userIds` picks specific
-// recipients; `all: true` sends to every non-admin user — mirrors
-// the frontend's admin broadcast tool.
+// recipients; `all: true` sends to every real (non-admin, non-demo)
+// client. `type` is 'admin_broadcast' (default) or 'admin_message'
+// (a one-to-one note from a client's detail page). Who sent it is
+// recorded in meta, taken from the logged-in admin — never from the
+// request body, so it can't be spoofed.
 router.post('/broadcast', requireAuth, requirePermission('support'), async (req, res) => {
-  const { userIds, all, title, message } = req.body || {}
+  const { userIds, all, title, message, type } = req.body || {}
   if (!title?.trim() || !message?.trim()) return res.status(400).json({ error: 'Title and message are required.' })
+  const kind = type === 'admin_message' ? 'admin_message' : 'admin_broadcast'
 
   let recipients = userIds
   if (all) {
-    const { rows } = await pool.query("SELECT id FROM users WHERE role = 'user' AND deactivated_at IS NULL")
+    const { rows } = await pool.query("SELECT id FROM users WHERE role = 'user' AND deactivated_at IS NULL AND is_demo_generated = false")
     recipients = rows.map((r) => r.id)
   }
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return res.status(400).json({ error: 'No recipients — pass userIds or all: true.' })
   }
 
-  const entries = await notifyBulk(recipients, 'admin_broadcast', title.trim(), message.trim())
+  const entries = await notifyBulk(recipients, kind, title.trim(), message.trim(), { sentByAdminName: req.user.name })
   res.status(201).json({ sentTo: entries.length })
+})
+
+// ADMIN-ONLY: the messages an admin has sent to one client, newest
+// first — powers the "Recently sent" list on the client detail page.
+router.get('/user/:userId', requireAuth, requirePermission('support'), async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM notifications WHERE user_id = $1 AND type = 'admin_message' ORDER BY created_at DESC LIMIT 20",
+    [req.params.userId]
+  )
+  res.json({ notifications: rows.map(publicNotification) })
 })
 
 export default router

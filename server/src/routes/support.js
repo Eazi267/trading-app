@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { pool } from '../db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { logAudit } from '../utils/auditLog.js'
+import { notify } from '../utils/notifications.js'
 
 const router = Router()
 
@@ -34,6 +35,20 @@ function publicMessage(row) {
     body: row.body,
     createdAt: row.created_at
   }
+}
+
+// Attaches each case's full message thread (oldest first) in ONE extra
+// query, so the frontend gets a complete case list in a single request
+// instead of one request per case.
+async function withMessages(caseRows) {
+  if (caseRows.length === 0) return []
+  const { rows: msgs } = await pool.query(
+    'SELECT * FROM support_messages WHERE case_id = ANY($1::int[]) ORDER BY created_at ASC',
+    [caseRows.map((c) => c.id)]
+  )
+  const byCase = {}
+  msgs.forEach((m) => { (byCase[m.case_id] ||= []).push(publicMessage(m)) })
+  return caseRows.map((row) => ({ ...publicCase(row), messages: byCase[row.id] || [] }))
 }
 
 // Loads a case and checks the requester can see it (owner, or an
@@ -79,10 +94,10 @@ router.post('/cases', requireAuth, async (req, res) => {
 
 router.get('/cases/mine', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT * FROM support_cases WHERE user_id = $1 ORDER BY last_message_at DESC',
-    [req.user.id]
+    'SELECT sc.*, $2::text AS user_name FROM support_cases sc WHERE sc.user_id = $1 ORDER BY sc.last_message_at DESC',
+    [req.user.id, req.user.name]
   )
-  res.json({ cases: rows.map(publicCase) })
+  res.json({ cases: await withMessages(rows) })
 })
 
 // Admin inbox — every case, optionally filtered by status, joined
@@ -102,7 +117,7 @@ router.get('/cases', requireAuth, requirePermission('support'), async (req, res)
      ORDER BY sc.last_message_at DESC`,
     params
   )
-  res.json({ cases: rows.map(publicCase) })
+  res.json({ cases: await withMessages(rows) })
 })
 
 router.get('/cases/:id', requireAuth, async (req, res) => {
@@ -146,6 +161,13 @@ router.post('/cases/:id/messages', requireAuth, async (req, res) => {
   )
 
   if (isAdminSender) {
+    await notify(
+      supportCase.user_id,
+      'support_reply',
+      `Support replied — ${supportCase.subject}`,
+      text.length > 100 ? text.slice(0, 100) + '…' : text,
+      { caseId: supportCase.id }
+    )
     const { rows: targetUser } = await pool.query('SELECT name FROM users WHERE id = $1', [supportCase.user_id])
     await logAudit({
       action: 'support_reply_sent',
@@ -179,6 +201,16 @@ router.post('/cases/:id/status', requireAuth, requirePermission('support'), asyn
   })
 
   res.json({ case: publicCase(rows[0]) })
+})
+
+// Clears the unread flag for whichever side is looking at the case:
+// the owner clears the client flag, an admin clears the admin flag.
+router.post('/cases/:id/read', requireAuth, async (req, res) => {
+  const supportCase = await loadAuthorizedCase(req, res)
+  if (!supportCase) return
+  const column = req.user.role === 'admin' ? 'unread_for_admin' : 'unread_for_client'
+  await pool.query(`UPDATE support_cases SET ${column} = false WHERE id = $1`, [supportCase.id])
+  res.json({ ok: true })
 })
 
 export default router

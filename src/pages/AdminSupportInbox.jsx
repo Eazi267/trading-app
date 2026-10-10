@@ -38,14 +38,14 @@ export default function AdminSupportInbox() {
 
   useEffect(() => {
     if (selectedCaseId) markCaseReadByAdmin(selectedCaseId)
-  }, [selectedCaseId])
+  }, [selectedCaseId, selected?.messages?.length])
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
   }, [selected?.messages?.length])
 
-  function handleSend() {
-    const result = sendCaseMessage(selectedCaseId, draft)
+  async function handleSend() {
+    const result = await sendCaseMessage(selectedCaseId, draft)
     if (result.error) return setError(result.error)
     setError('')
     setDraft('')
