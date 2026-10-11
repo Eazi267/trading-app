@@ -6,7 +6,6 @@ import { useSettings } from './SettingsContext.jsx'
 import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
-import { fetchRealCryptoPrices } from '../services/coingecko.js'
 import { apiRequest, getToken } from '../api/client.js'
 
 const AppContext = createContext(null)
@@ -17,7 +16,7 @@ const AppContext = createContext(null)
 // CoinGecko's keyless public endpoint).
 export const REAL_SYMBOLS = ['BTC/USD', 'ETH/USD']
 export const SIMULATED_SYMBOLS = ['EUR/USD', 'GBP/USD', 'XAU/USD', 'XAG/USD']
-const REAL_PRICE_POLL_MS = 20 * 1000 // 20s — 3 req/min, well under CoinGecko's keyless limit
+const SERVER_PRICE_POLL_MS = 3 * 1000 // server updates simulated prices every 2s, real ones every 20s
 
 const STARTING_PRICES = {
   'BTC/USD': 64200,
@@ -132,6 +131,7 @@ export function AppProvider({ children }) {
   const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
   const [prices, setPrices] = useState(STARTING_PRICES)
+  const serverPricesRef = useRef({})
   const [history, setHistory] = useState([])
   // Tracks the REAL feed's health — when it last succeeded, and
   // whether the most recent poll failed. Markets.jsx/Dashboard use
@@ -157,10 +157,9 @@ export function AppProvider({ children }) {
     localStorage.setItem('pulse_session_scenarios', JSON.stringify(sessionScenarios))
   }, [sessionScenarios])
 
-  const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('pulse_orders')
-    return saved ? JSON.parse(saved) : []
-  })
+  // Trade history comes from the server (GET /api/trades), rebuilt from the
+  // real positions table. It is no longer kept in localStorage.
+  const [orders, setOrders] = useState([])
 
   const [watchlist, setWatchlist] = useState(STARTING_WATCHLIST)
 
@@ -206,6 +205,21 @@ export function AppProvider({ children }) {
 
   useEffect(() => { refreshReferralCampaigns() }, [refreshReferralCampaigns])
 
+  // Trade history: admins get everyone's, clients their own (the server
+  // decides). Refetched whenever sessions change, since opening/closing a
+  // position or a settlement is what creates new history rows.
+  const refreshOrders = useCallback(async () => {
+    if (!getToken() || !currentUser) { setOrders([]); return }
+    const result = await apiRequest('/api/trades')
+    if (result.orders) setOrders(result.orders)
+  }, [currentUser])
+
+  useEffect(() => {
+    refreshOrders()
+    const id = setInterval(refreshOrders, 15000)
+    return () => clearInterval(id)
+  }, [refreshOrders])
+
   // Sessions change on their own (the server's auto-expiry sweep settles
   // them), so unlike transactions this is also POLLED every 15s. If a
   // session we knew as 'active' comes back settled, its settlement
@@ -218,18 +232,14 @@ export function AppProvider({ children }) {
     const wasActive = sessionsRef.current.filter((s) => s.status === 'active').map((s) => s.id)
     const settledNow = result.sessions.some((s) => wasActive.includes(s.id) && s.status !== 'active')
     setSessions(result.sessions)
-    if (settledNow) refreshTransactions()
-  }, [currentUser, refreshTransactions])
+    if (settledNow) { refreshTransactions(); refreshOrders() }
+  }, [currentUser, refreshTransactions, refreshOrders])
 
   useEffect(() => {
     refreshSessions()
     const id = setInterval(refreshSessions, 15000)
     return () => clearInterval(id)
   }, [refreshSessions])
-
-  useEffect(() => {
-    localStorage.setItem('pulse_orders', JSON.stringify(orders))
-  }, [orders])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -264,10 +274,7 @@ export function AppProvider({ children }) {
         // keep the original random walk until a real forex feed is
         // wired up. Either way, nothing here is a global bias switch
         // anymore — bias only ever lives inside sessionScenarios.
-        const next = { ...prev }
-        SIMULATED_SYMBOLS.forEach((symbol) => {
-          next[symbol] = randomWalk(prev[symbol])
-        })
+        const next = { ...prev, ...serverPricesRef.current }
         setHistory((prevHistory) => {
           const point = { time: new Date().toLocaleTimeString(), value: next['BTC/USD'], ...next }
           return [...prevHistory, point].slice(-150)
@@ -323,32 +330,25 @@ export function AppProvider({ children }) {
     return () => clearInterval(id)
   }, [])
 
-  // Real price feed: polls CoinGecko for BTC/ETH on its own slower
-  // interval, independent of the 2-second simulated tick above. An
-  // immediate fetch on mount means the real price shows up right
-  // away rather than waiting a full poll interval. On failure, the
-  // last known price is kept as-is — never zeroed, never silently
-  // replaced with a guess.
+  // Price feed: reads the server's authoritative prices (GET /api/prices),
+  // so the browser no longer calls CoinGecko itself. On failure the last
+  // known prices are kept, never zeroed.
   useEffect(() => {
     let cancelled = false
-
     async function poll() {
-      const result = await fetchRealCryptoPrices()
+      const result = await apiRequest('/api/prices', { auth: false })
       if (cancelled) return
-      if (result) {
-        setPrices((prev) => ({ ...prev, ...result }))
+      if (result.prices) {
+        serverPricesRef.current = result.prices
+        setPrices((prev) => ({ ...prev, ...result.prices }))
         setPriceFeedStatus({ lastUpdated: new Date().toISOString(), error: null })
       } else {
         setPriceFeedStatus((prev) => ({ ...prev, error: 'Price feed temporarily unavailable — showing last known price.' }))
       }
     }
-
     poll()
-    const id = setInterval(poll, REAL_PRICE_POLL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
+    const id = setInterval(poll, SERVER_PRICE_POLL_MS)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   function toggleWatchlist(symbol) {
@@ -631,17 +631,13 @@ export function AppProvider({ children }) {
   // server takes the entry price from its own feed (never from us)
   // and deducts the margin from that session's cash.
   async function openSessionPosition(sessionId, symbol, marginAmount, direction = 'long') {
-    const session = sessions.find((s) => s.id === sessionId)
     const result = await apiRequest(`/api/sessions/${sessionId}/positions`, {
       method: 'POST',
       body: { symbol, marginAmount: Number(marginAmount), direction }
     })
     if (result.error) return { error: result.error }
     const position = result.position
-    if (session) {
-      logSessionAction(session.userId, sessionId, 'open_position', symbol, position.marginAmount, position.leverage, position.entryPrice, null, direction)
-    }
-    await refreshSessions()
+    await Promise.all([refreshSessions(), refreshOrders()])
     return { position }
   }
 
@@ -653,10 +649,9 @@ export function AppProvider({ children }) {
     const result = await apiRequest(`/api/sessions/${sessionId}/positions/${positionId}/close`, { method: 'POST' })
     if (result.error) return { error: result.error }
     if (session && position) {
-      logSessionAction(session.userId, sessionId, 'close_position', position.symbol, position.marginAmount, position.leverage, prices[position.symbol], result.pnl, position.direction || 'long')
       checkTradeAchievements(session.userId, result.pnl)
     }
-    await refreshSessions()
+    await Promise.all([refreshSessions(), refreshOrders()])
     return { equity: result.equity, pnl: result.pnl }
   }
 
@@ -678,30 +673,6 @@ export function AppProvider({ children }) {
         notify(userId, 'achievement', `${milestone} winning trades`, `You've now closed ${milestone} winning trades.`)
       }
     })
-  }
-
-  // Audit trail for session-scoped trades — same storage bucket and
-  // shape family as the legacy logOrder(), just extended with
-  // sessionId/leverage/pnl so both can share one "Trade history" view.
-  function logSessionAction(targetUserId, sessionId, type, symbol, marginAmount, leverage, price, pnl, direction = 'long') {
-    setOrders((prev) => [
-      {
-        id: Date.now(),
-        userId: targetUserId,
-        sessionId,
-        executedByAdminId: currentUser?.id,
-        executedByAdminName: currentUser?.name,
-        type,
-        symbol,
-        direction,
-        marginAmount,
-        leverage,
-        price,
-        pnl,
-        date: new Date().toISOString()
-      },
-      ...prev
-    ])
   }
 
   // ADMIN-ONLY testing tool: pulls the REAL expires_at closer on the
@@ -731,7 +702,7 @@ export function AppProvider({ children }) {
     const result = await apiRequest(`/api/sessions/${sessionId}/close`, { method: 'POST' })
     if (result.error) return { error: result.error }
     clearSessionScenario(sessionId)
-    await Promise.all([refreshSessions(), refreshTransactions()])
+    await Promise.all([refreshSessions(), refreshTransactions(), refreshOrders()])
     return { ok: true }
   }
 

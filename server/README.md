@@ -286,3 +286,23 @@ Same process as always — copy the exact error and send it over.
 - Migration 014 adds database triggers so `UPDATE`, `DELETE` and `TRUNCATE` on `audit_log` fail with `audit_log is append-only`. Inserting new entries is unaffected. To clear TEST data in a dev database only: `ALTER TABLE audit_log DISABLE TRIGGER audit_log_append_only;` (and re-enable afterwards).
 
 Tested for real against a live Postgres: admin read, action and client filters, `limit`/`hasMore`, bad input (400), client (403) and no token (401); UPDATE/DELETE/TRUNCATE all refused with rows intact, while new entries still insert. The frontend page was also driven in a real headless browser (login, view, filter, CSV export, non-admin redirected).
+
+## Settings-driven investment tiers (Batch 7)
+
+Tier rules (min/max deposit, leverage and duration ranges, payout multiplier) are
+edited in **Business Settings → Investment tiers** and are now enforced by the server.
+
+- Saved tiers live in `settings.data.tiers` / `vipTiers`; `Infinity` is stored as `"__INFINITY__"`.
+- `PUT /api/settings` validates tiers (`config/tiers.js → normalizeTierLists`) and applies them to the running server immediately. Bad edits get a 400 and change nothing.
+- You can't delete a tier while sessions that are `active` or `awaiting_start` still use it.
+- `services/tierSync.js` re-reads the saved tiers every 30s (`TIER_REFRESH_MS` to change) so a direct DB edit or a second server instance catches up.
+- The frontend batches rapid edits into one save (~0.7s after you stop typing), so typing a number doesn't create an audit entry per keystroke.
+- No migration needed. Just restart the backend.
+
+## Trade history on the server (Batch 9)
+
+- Migration `015_position_trade_history.sql` adds `opened_by_id`, `closed_by_id`, `exit_price`, `pnl` to `positions`. Run `npm run migrate`.
+- `GET /api/trades` rebuilds the "orders" history (one open event + one close event per position) from the real positions table. Clients get their own; admins get everyone's, or one client's with `?userId=`.
+- Manual closes record who closed and at what price; settlements record each position's own exit price and result (labelled "Session settlement").
+- Positions closed before the migration have no stored exit price/P&L; they show without a result and are left out of win-rate stats rather than guessed.
+- Old browser-only trade history (localStorage `pulse_orders`) is no longer used.

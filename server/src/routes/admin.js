@@ -7,6 +7,7 @@ import { generateReferralCode } from '../utils/referralCode.js'
 import { logAudit } from '../utils/auditLog.js'
 import { publicUser } from '../utils/publicUser.js'
 import { ADMIN_TIERS } from '../config/adminTiers.js'
+import { getTier } from '../config/tiers.js'
 
 const router = Router()
 
@@ -141,6 +142,7 @@ router.get('/users/:id', requireAuth, async (req, res) => {
 // flaggedForReview at the same time, mirroring setUserTier() exactly.
 router.post('/users/:id/tier', requireAuth, requirePermission('trade'), async (req, res) => {
   const { tierId } = req.body || {}
+  if (tierId && !getTier(tierId)) return res.status(400).json({ error: 'That tier does not exist.' })
   const { rows } = await pool.query(
     'UPDATE users SET tier = $1, flagged_for_review = false WHERE id = $2 RETURNING *',
     [tierId || null, req.params.id]
@@ -155,6 +157,7 @@ router.post('/users/:id/tier', requireAuth, requirePermission('trade'), async (r
 // can pick rather than replacing their standard assignment.
 router.post('/users/:id/vip', requireAuth, requirePermission('manageAdmins'), async (req, res) => {
   const { vipTierId } = req.body || {}
+  if (vipTierId && !getTier(vipTierId)) return res.status(400).json({ error: 'That tier does not exist.' })
   const { rows } = await pool.query('UPDATE users SET vip_unlocked = $1 WHERE id = $2 RETURNING *', [vipTierId || null, req.params.id])
   if (!rows[0]) return res.status(404).json({ error: 'User not found.' })
   await logAudit({ action: vipTierId ? 'vip_unlocked' : 'vip_revoked', actor: req.user, targetUserId: rows[0].id, targetUserName: rows[0].name, details: { vipTierId } })

@@ -242,6 +242,8 @@ function hydrate(stored) {
 // localStorage only keeps a read-only CACHE of the last server copy so
 // the brand name/logo don't flash the defaults on page load.
 const CACHE_KEY = 'pulse_settings_cache'
+// How long the admin must stop editing before the change is saved.
+const SAVE_DELAY_MS = 700
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(() => {
@@ -254,10 +256,17 @@ export function SettingsProvider({ children }) {
   })
   const [saveError, setSaveError] = useState(null)
   const pendingSaves = useRef(0)
+  // Edits waiting to be sent. Typing in a field calls updateSettings on
+  // every keystroke; sending each one would fire a PUT (and write an audit
+  // entry) per character. Instead edits are merged here and sent ONCE after
+  // the admin pauses typing (SAVE_DELAY_MS).
+  const queued = useRef({})
+  const queueTimer = useRef(null)
+  const queueWaiters = useRef([])
 
   const refreshSettings = useCallback(async () => {
     // Don't let a background refetch overwrite an edit that's still being saved.
-    if (pendingSaves.current > 0) return
+    if (pendingSaves.current > 0 || Object.keys(queued.current).length > 0) return
     const result = await apiRequest('/api/settings', { auth: false })
     if (!result.settings) return
     setSettings(hydrate(result.settings))
@@ -330,15 +339,49 @@ export function SettingsProvider({ children }) {
     return { ok: true }
   }
 
+  // Sends everything queued as one PUT and tells every caller waiting on it.
+  const flushQueue = useCallback(async () => {
+    clearTimeout(queueTimer.current)
+    queueTimer.current = null
+    const updates = queued.current
+    const waiters = queueWaiters.current
+    if (Object.keys(updates).length === 0) return
+    queued.current = {}
+    queueWaiters.current = []
+    const result = await saveToServer(updates)
+    waiters.forEach((resolve) => resolve(result))
+  // saveToServer only touches refs + stable callbacks
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function updateSettings(updates) {
     setSettings((prev) => ({ ...prev, ...updates }))
-    return saveToServer(updates)
+    queued.current = { ...queued.current, ...updates }
+    clearTimeout(queueTimer.current)
+    queueTimer.current = setTimeout(flushQueue, SAVE_DELAY_MS)
+    return new Promise((resolve) => queueWaiters.current.push(resolve))
   }
 
   function resetSettings() {
     setSettings(DEFAULT_SETTINGS)
-    return saveToServer(DEFAULT_SETTINGS)
+    queued.current = { ...queued.current, ...DEFAULT_SETTINGS }
+    const done = new Promise((resolve) => queueWaiters.current.push(resolve))
+    flushQueue()
+    return done
   }
+
+  // Don't lose a pending edit if the admin switches tab, closes the page
+  // or navigates away within the delay window.
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flushQueue() }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', flushQueue)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', flushQueue)
+      flushQueue()
+    }
+  }, [flushQueue])
 
   // Shaped exactly like the old static BRAND export, so components
   // that just need name/tagline/icon can swap `BRAND.x` for

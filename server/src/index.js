@@ -15,8 +15,10 @@ import notificationsRouter from './routes/notifications.js'
 import referralsRouter from './routes/referrals.js'
 import kycRouter from './routes/kyc.js'
 import auditRouter from './routes/audit.js'
+import tradesRouter from './routes/trades.js'
 import { startPriceEngine } from './services/priceEngine.js'
 import { startAutoExpirySweep } from './jobs/autoExpiry.js'
+import { refreshTierConfig, startTierSync } from './services/tierSync.js'
 
 if (!process.env.JWT_SECRET) {
   // Fail loudly at boot, not silently at the first login — a missing
@@ -48,6 +50,7 @@ app.use('/api/notifications', notificationsRouter)
 app.use('/api/referrals', referralsRouter)
 app.use('/api/kyc', kycRouter)
 app.use('/api/audit', auditRouter)
+app.use('/api/trades', tradesRouter)
 
 // Kept deliberately plain and un-fancy — a real error-shape
 // convention (error codes, field-level validation errors) is worth
@@ -59,8 +62,12 @@ app.use((err, req, res, next) => {
 })
 
 const port = process.env.PORT || 4000
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(`Pulse API listening on :${port}`)
+  // Load the admin-saved tiers BEFORE the auto-expiry sweep can settle
+  // anything, so settlement always uses the real payout caps.
+  await refreshTierConfig()
+  startTierSync()
   startPriceEngine()
   startAutoExpirySweep()
 })

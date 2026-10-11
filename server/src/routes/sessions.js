@@ -121,7 +121,7 @@ router.post('/', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
     `INSERT INTO trading_sessions (user_id, tier_id, amount, cash, leverage, duration_days, status, started_at, expires_at, initiated_by_id)
      VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [ownerId, tierId, numAmount.toFixed(2), tier.defaultLeverage, resolvedDuration, isManaged ? 'awaiting_start' : 'active', startedAt, expiresAt, req.user.id]
+    [ownerId, tierId, numAmount.toFixed(2), clampLeverage(tierId, tier.defaultLeverage), resolvedDuration, isManaged ? 'awaiting_start' : 'active', startedAt, expiresAt, req.user.id]
   )
   const session = rows[0]
 
@@ -294,9 +294,9 @@ router.post('/:id/positions', requireAuth, requirePermission('trade'), async (re
   if (numMargin > Number(session.cash)) return res.status(400).json({ error: "Exceeds this session's available cash." })
 
   const { rows: posRows } = await pool.query(
-    `INSERT INTO positions (session_id, symbol, direction, entry_price, margin_amount, leverage)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [session.id, symbol, direction, price, numMargin.toFixed(2), session.leverage]
+    `INSERT INTO positions (session_id, symbol, direction, entry_price, margin_amount, leverage, opened_by_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [session.id, symbol, direction, price, numMargin.toFixed(2), session.leverage, req.user.id]
   )
   await pool.query('UPDATE trading_sessions SET cash = cash - $1 WHERE id = $2', [numMargin.toFixed(2), session.id])
 
@@ -329,7 +329,10 @@ router.post('/:id/positions/:positionId/close', requireAuth, requirePermission('
   const equity = positionEquity(position, currentPrices)
   const pnl = equity - Number(position.margin_amount)
 
-  await pool.query('UPDATE positions SET closed_at = now() WHERE id = $1', [position.id])
+  await pool.query(
+    'UPDATE positions SET closed_at = now(), exit_price = $1, pnl = $2, closed_by_id = $3 WHERE id = $4',
+    [currentPrices[position.symbol], pnl.toFixed(2), req.user.id, position.id]
+  )
   await pool.query('UPDATE trading_sessions SET cash = cash + $1 WHERE id = $2', [equity.toFixed(2), session.id])
 
   await logAudit({

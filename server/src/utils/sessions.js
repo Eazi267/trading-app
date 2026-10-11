@@ -72,7 +72,15 @@ export async function settleSession(session, reason) {
   const currentPrices = getCurrentPrices()
   const { endValue, rawPnl, payout, excessPending } = computeSessionSettlement(session, openPositions, currentPrices)
 
-  await pool.query('UPDATE positions SET closed_at = now() WHERE session_id = $1 AND closed_at IS NULL', [session.id])
+  // Record each position's own exit price and result for trade history
+  // (closed_by_id stays NULL: a settlement closes them, not a person).
+  for (const position of openPositions) {
+    const equity = positionEquity(position, currentPrices)
+    await pool.query(
+      'UPDATE positions SET closed_at = now(), exit_price = $1, pnl = $2 WHERE id = $3',
+      [currentPrices[position.symbol], (equity - Number(position.margin_amount)).toFixed(2), position.id]
+    )
+  }
   const { rows: updated } = await pool.query(
     `UPDATE trading_sessions
      SET status = 'closed', closed_at = now(), cash = $1, end_value = $1,
