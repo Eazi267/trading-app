@@ -280,3 +280,9 @@ localStorage. That's the next phase of work.
 
 ## If something breaks
 Same process as always — copy the exact error and send it over.
+
+**Batch 14 — Audit log reading + append-only guarantee** (migration `014_audit_append_only.sql`)
+- `GET /api/audit` — admin only (any admin tier), newest first. Optional `?action=`, `?targetUserId=`, `?limit=` (default 500, max 1000). Returns `{ entries, hasMore }`. There is deliberately **no** write endpoint: entries are created only by the server, inside the routes that change things (`utils/auditLog.js`), so a browser can't forge or skip one.
+- Migration 014 adds database triggers so `UPDATE`, `DELETE` and `TRUNCATE` on `audit_log` fail with `audit_log is append-only`. Inserting new entries is unaffected. To clear TEST data in a dev database only: `ALTER TABLE audit_log DISABLE TRIGGER audit_log_append_only;` (and re-enable afterwards).
+
+Tested for real against a live Postgres: admin read, action and client filters, `limit`/`hasMore`, bad input (400), client (403) and no token (401); UPDATE/DELETE/TRUNCATE all refused with rows intact, while new entries still insert. The frontend page was also driven in a real headless browser (login, view, filter, CSV export, non-admin redirected).

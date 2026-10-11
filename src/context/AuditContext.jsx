@@ -1,50 +1,37 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useCallback } from 'react'
+import { apiRequest } from '../api/client.js'
 
 const AuditContext = createContext(null)
 
-// Single audit trail for every state-changing action across the
-// platform — deliberately its OWN context, not folded into AppContext
-// or AuthContext. Both of those need to write here (AuthContext for
-// profile/tier changes, AppContext for transactions/fees/campaigns),
-// and AppContext already depends on AuthContext (useAuth()), so this
-// context has to sit above both with zero dependencies of its own —
-// otherwise AuthContext would need to import AppContext, a circular
-// dependency. It's also the natural single source for a future
-// compliance/read-only role to read from, rather than two logs.
+// The audit log now lives in the DATABASE and is written ONLY by the
+// server — every route that changes something (fees, tiers, sessions,
+// settings, support replies, KYC...) records its own entry as part of
+// the same request. That is deliberate: if the browser could write
+// audit entries, anyone could forge them (or skip them) from the
+// console, and a log you can forge is not an audit log. The database
+// also refuses to UPDATE or DELETE entries (migration 014).
+//
+// So this context only READS. It still sits above AuthContext with no
+// dependencies of its own (see the original reasoning: AppContext and
+// AuthContext both used to write here, so it had to be above both).
 export function AuditProvider({ children }) {
-  const [auditLog, setAuditLog] = useState(() => {
-    const saved = localStorage.getItem('pulse_audit_log')
-    return saved ? JSON.parse(saved) : []
-  })
+  // Admin-only on the server (403 for anyone else).
+  // params: { action?, targetUserId?, limit? } -> { entries, hasMore } | { error }
+  const fetchAuditLog = useCallback(async (params = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    ).toString()
+    return apiRequest(`/api/audit${query ? `?${query}` : ''}`)
+  }, [])
 
-  useEffect(() => {
-    localStorage.setItem('pulse_audit_log', JSON.stringify(auditLog))
-  }, [auditLog])
-
-  // actor = who performed the action (usually the logged-in admin).
-  // target = the client the action affects, if any (null for actions
-  // with no single client, e.g. a broadcast to everyone).
-  // details = a plain object of whatever's relevant to that action —
-  // shape varies per action, this log doesn't enforce one schema
-  // beyond the envelope fields below.
-  function logAudit({ action, actor, targetUserId = null, targetUserName = null, details = {} }) {
-    setAuditLog((prev) => [
-      {
-        id: Date.now() + Math.random().toString(36).slice(2, 8),
-        action,
-        actorId: actor?.id ?? null,
-        actorName: actor?.name ?? 'System',
-        targetUserId,
-        targetUserName,
-        details,
-        timestamp: new Date().toISOString()
-      },
-      ...prev
-    ])
-  }
+  // Kept as a harmless no-op so older call sites still compile. The one
+  // remaining caller (the local signup-bonus effect in AppContext) is
+  // acting on records that don't exist on the server, so there is
+  // nothing real to record.
+  function logAudit() {}
 
   return (
-    <AuditContext.Provider value={{ auditLog, logAudit }}>
+    <AuditContext.Provider value={{ fetchAuditLog, logAudit }}>
       {children}
     </AuditContext.Provider>
   )

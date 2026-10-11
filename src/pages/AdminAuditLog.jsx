@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search, Zap, Clock, ArrowUpRight, ArrowDownRight, ChevronDown, History, Camera } from 'lucide-react'
+import { ClipboardList, Trash2, UserCog, Receipt, Percent, Gift, Star, Flag, Users2, Search, Zap, Clock, ArrowUpRight, ArrowDownRight, ChevronDown, History, Camera, Settings, LifeBuoy, ShieldCheck, Wallet, Play, RefreshCw, Download } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAudit } from '../context/AuditContext.jsx'
+import { toCsv, downloadTextFile } from '../utils/csv.js'
 
 function formatDate(iso) {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -36,7 +37,9 @@ function DetailChips({ details }) {
             ? `${value.type} · $${value.amount}`
             : Array.isArray(value)
               ? value.join(', ')
-              : String(value)
+              : typeof value === 'object'
+                ? JSON.stringify(value)
+                : String(value)
         return (
           <span
             key={key}
@@ -70,9 +73,18 @@ const ACTION_ICONS = {
   session_position_closed: ArrowDownRight,
   deposit_proof_submitted: Camera
 }
+// Actions recorded by the server follow a prefix convention, so a
+// prefix match covers new actions without editing this list each time.
 function iconFor(action) {
+  if (ACTION_ICONS[action]) return ACTION_ICONS[action]
   if (action.startsWith('referral_campaign')) return Gift
-  return ACTION_ICONS[action] || ClipboardList
+  if (action.startsWith('support_')) return LifeBuoy
+  if (action.startsWith('kyc_')) return ShieldCheck
+  if (action.startsWith('wallet_')) return Wallet
+  if (action.startsWith('session_')) return Play
+  if (action.startsWith('admin_') || action.startsWith('user_')) return UserCog
+  if (action === 'settings_updated') return Settings
+  return ClipboardList
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -93,12 +105,37 @@ const SORTERS = {
 }
 
 export default function AdminAuditLog() {
-  const { auditLog } = useAudit()
+  const { fetchAuditLog } = useAudit()
+  const [auditLog, setAuditLog] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [hasMore, setHasMore] = useState(false)
   const [actionFilter, setActionFilter] = useState('all')
   const [clientFilter, setClientFilter] = useState('all')
   const [sortBy, setSortBy] = useState('newest')
   const [search, setSearch] = useState('')
   const [showOlder, setShowOlder] = useState(false)
+
+  // The log lives on the server. Load the latest 1,000 entries on open,
+  // re-check every 30s while this page is open, and on demand via the
+  // Refresh button. (Filtering/searching below runs over what's loaded.)
+  const load = useCallback(async () => {
+    const result = await fetchAuditLog({ limit: 1000 })
+    if (result.error) {
+      setLoadError(result.error)
+    } else {
+      setLoadError('')
+      setAuditLog(result.entries)
+      setHasMore(result.hasMore)
+    }
+    setLoading(false)
+  }, [fetchAuditLog])
+
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 30000)
+    return () => clearInterval(id)
+  }, [load])
 
   // Built from whatever actions/clients actually appear in the log,
   // so these lists never go stale as new logAudit() call sites (or
@@ -128,6 +165,21 @@ export default function AdminAuditLog() {
       .sort(SORTERS[sortBy])
   }, [auditLog, actionFilter, clientFilter, sortBy, search])
 
+  // Exports exactly what's on screen (current filters + sort).
+  function handleExport() {
+    const csv = toCsv(
+      ['Time (UTC)', 'Action', 'Done by', 'Client', 'Details'],
+      filtered.map((e) => [
+        new Date(e.timestamp).toISOString(),
+        e.action,
+        e.actorName,
+        e.targetUserName || '',
+        e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : ''
+      ])
+    )
+    downloadTextFile(`audit-log-${new Date().toISOString().slice(0, 10)}.csv`, csv)
+  }
+
   // Entries over a week old collapse behind "Show older history" —
   // long-lived clients/actions can accumulate hundreds of entries,
   // and the last 7 days is what an admin actually needs on load.
@@ -141,8 +193,10 @@ export default function AdminAuditLog() {
       <h1 className="page-title">Audit Log</h1>
       <p className="page-sub">
         Every state-changing action taken on this platform — who did it, to which client, and when.
-        Read-only: nothing here can be edited or removed.
+        Read-only: entries are written by the server and the database refuses to change or delete them.
       </p>
+
+      {loadError && <div className="form-error" style={{ marginBottom: 16 }}>{loadError}</div>}
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div style={{ padding: '14px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -192,8 +246,25 @@ export default function AdminAuditLog() {
       <div className="panel">
         <div className="panel-head">
           <h3><ClipboardList size={15} style={{ verticalAlign: -2, marginRight: 6 }} />{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</h3>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="tx-btn" onClick={load} style={{ padding: '6px 10px', fontSize: 12, flex: 'none' }}>
+              <RefreshCw size={12} /> Refresh
+            </button>
+            <button type="button" className="tx-btn" onClick={handleExport} disabled={filtered.length === 0} style={{ padding: '6px 10px', fontSize: 12, flex: 'none' }}>
+              <Download size={12} /> Export CSV
+            </button>
+          </div>
         </div>
-        {filtered.length === 0 ? (
+        {hasMore && (
+          <div style={{ padding: '10px 20px 0', fontSize: 12, color: 'var(--text-muted)' }}>
+            Showing the latest 1,000 entries — older history exists in the database.
+          </div>
+        )}
+        {loading && auditLog.length === 0 ? (
+          <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
+            Loading the audit log…
+          </div>
+        ) : filtered.length === 0 ? (
           <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
             No audit entries match this filter.
           </div>

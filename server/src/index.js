@@ -14,6 +14,7 @@ import pricesRouter from './routes/prices.js'
 import notificationsRouter from './routes/notifications.js'
 import referralsRouter from './routes/referrals.js'
 import kycRouter from './routes/kyc.js'
+import auditRouter from './routes/audit.js'
 import { startPriceEngine } from './services/priceEngine.js'
 import { startAutoExpirySweep } from './jobs/autoExpiry.js'
 
@@ -46,6 +47,7 @@ app.use('/api/prices', pricesRouter)
 app.use('/api/notifications', notificationsRouter)
 app.use('/api/referrals', referralsRouter)
 app.use('/api/kyc', kycRouter)
+app.use('/api/audit', auditRouter)
 
 // Kept deliberately plain and un-fancy — a real error-shape
 // convention (error codes, field-level validation errors) is worth
