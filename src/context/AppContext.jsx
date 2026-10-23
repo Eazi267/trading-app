@@ -3,7 +3,7 @@ import { useAuth } from './AuthContext.jsx'
 import { useAudit } from './AuditContext.jsx'
 import { useEmail } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
-import { rpZEAWYtiB6bJ16NuLbGCc6CZ6jJdKfb63 } from '../services/blockchainVerification.js'
+import { rpZELkorMwhkkpShF5PvT8YnqRCupnLTNG } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { fetchRealCryptoPrices } from '../services/coingecko.js'
@@ -807,7 +807,7 @@ export function AppProvider({ children }) {
     let verification = null
     if (type === 'deposit' && details.depositMethod !== 'bank') {
       verification = settings.blockchainVerificationEnabled
-        ? rpZEAWYtiB6bJ16NuLbGCc6CZ6jJdKfb63({ method: details.depositMethod, chain: details.depositChain, amount })
+        ? rpZELkorMwhkkpShF5PvT8YnqRCupnLTNG({ method: details.depositMethod, chain: details.depositChain, amount })
         : { status: 'manual', reason: null }
     }
 

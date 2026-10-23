@@ -5,6 +5,8 @@ import { logAudit } from '../utils/auditLog.js'
 import { feeOwedAmount } from '../utils/fees.js'
 import { notify } from '../utils/notifications.js'
 import { getActiveReferralCampaign, isFirstApprovedDeposit } from '../utils/referrals.js'
+import { getAvailableBalance } from '../utils/balance.js'
+import { loadRuleSettings, checkTransactionRequest } from '../utils/transactionRules.js'
 
 const router = Router()
 
@@ -111,12 +113,38 @@ router.post('/', requireAuth, async (req, res) => {
   // client, so it never gets to be arbitrarily large.
   const cleanNote = typeof note === 'string' && note.trim() ? note.trim().slice(0, 500) : null
 
-  const { rows } = await pool.query(
-    `INSERT INTO transactions (user_id, type, amount, method, chain, note)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [req.user.id, type, numAmount.toFixed(2), method || null, chain || null, cleanNote]
-  )
-  res.status(201).json({ transaction: publicTx(rows[0]) })
+  // The rules (limits, KYC, fee lock, wallet binding, balance) are checked
+  // here on the server — see utils/transactionRules.js. The per-user lock
+  // makes check + insert one step, so two simultaneous withdrawal requests
+  // can't both squeeze past the balance check.
+  const settings = await loadRuleSettings()
+  const db = await pool.connect()
+  try {
+    await db.query('BEGIN')
+    await db.query('SELECT pg_advisory_xact_lock($1)', [req.user.id])
+    let pendingWithdrawals = 0
+    if (type === 'withdrawal') {
+      const { rows: pend } = await db.query("SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = $1 AND type = 'withdrawal' AND status = 'pending'", [req.user.id])
+      pendingWithdrawals = Number(pend[0].total)
+    }
+    const checked = await checkTransactionRequest(req.user, { type, amount: numAmount, method, chain }, settings, pendingWithdrawals)
+    if (checked.error) {
+      await db.query('ROLLBACK')
+      return res.status(400).json({ error: checked.error })
+    }
+    const { rows } = await db.query(
+      `INSERT INTO transactions (user_id, type, amount, method, chain, note)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.user.id, type, numAmount.toFixed(2), checked.method, checked.chain, cleanNote]
+    )
+    await db.query('COMMIT')
+    res.status(201).json({ transaction: publicTx(rows[0]) })
+  } catch (err) {
+    await db.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    db.release()
+  }
 })
 
 router.get('/mine', requireAuth, async (req, res) => {
@@ -189,6 +217,16 @@ router.post('/:id/approve', requireAuth, requirePermission('finance'), async (re
   const tx = rows[0]
   if (!tx) return res.status(404).json({ error: 'Transaction not found.' })
   if (tx.status !== 'pending') return res.status(400).json({ error: 'This request has already been reviewed.' })
+
+  // A withdrawal was checked when it was requested, but the balance can
+  // change before an admin reviews it (e.g. the client started a session).
+  // Approving it now must not take the client below zero.
+  if (tx.type === 'withdrawal') {
+    const { available } = await getAvailableBalance(tx.user_id)
+    if (Number(tx.amount) > available + 1e-9) {
+      return res.status(400).json({ error: `This client's available balance is now $${Math.max(0, available).toFixed(2)}, which is less than this $${Number(tx.amount).toFixed(2)} withdrawal. Reject it, or ask the client to resubmit.` })
+    }
+  }
 
   const { rows: updated } = await pool.query(
     `UPDATE transactions SET status = 'approved', reviewed_by = $1, reviewed_at = now()
@@ -336,6 +374,32 @@ router.post('/:id/correct', requireAuth, requirePermission('finance'), async (re
     return res.status(400).json({ error: 'Fee payment correction is not available yet — it depends on fee-pool allocation, which is a separate unbuilt batch.' })
   }
 
+  // Evidence is stored as-is in the database, so cap what an admin (or a
+  // stolen admin session) can attach: a handful of images, each a sane size.
+  if (!Array.isArray(screenshots) || screenshots.length > 10) {
+    return res.status(400).json({ error: 'Attach at most 10 screenshots.' })
+  }
+  if (screenshots.some((shot) => typeof shot !== 'string' || shot.length > 3_000_000)) {
+    return res.status(400).json({ error: 'Each screenshot must be an image under about 2 MB.' })
+  }
+  if (typeof note !== 'string' || note.length > 1000) {
+    return res.status(400).json({ error: 'Note must be text up to 1000 characters.' })
+  }
+
+  // A corrected withdrawal must still be covered by the client's balance
+  // (the approval step re-checks too, but this tells the admin right away).
+  if (tx.type === 'withdrawal') {
+    const { available } = await getAvailableBalance(tx.user_id)
+    const { rows: others } = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE user_id = $1 AND type = 'withdrawal' AND status = 'pending' AND id <> $2",
+      [tx.user_id, tx.id]
+    )
+    const free = available - Number(others[0].total)
+    if (numAmount > free + 1e-9) {
+      return res.status(400).json({ error: `That's more than this client can withdraw right now ($${Math.max(0, free).toFixed(2)} available after other pending withdrawals).` })
+    }
+  }
+
   const { rows: updated } = await pool.query(
     `UPDATE transactions
      SET requested_amount = COALESCE(requested_amount, amount),
@@ -362,6 +426,88 @@ router.post('/:id/correct', requireAuth, requirePermission('finance'), async (re
     }
   })
   res.json({ transaction: publicTx(updated[0]) })
+})
+
+// Reverse an APPROVED deposit or withdrawal. The original is never edited
+// or deleted: an offsetting 'reversal' entry (approved immediately, with the
+// admin's name and a required reason) cancels its effect on the balance, and
+// the database allows only one reversal per transaction.
+//   - reversing a deposit takes the money back out, so it's refused if the
+//     client no longer has that much available (they may have used it);
+//   - reversing a withdrawal puts the money back.
+// Not reversed automatically: a referral bonus the deposit may have
+// triggered (an admin can handle that separately).
+router.post('/:id/reverse', requireAuth, requirePermission('finance'), async (req, res) => {
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+  if (reason.length < 5 || reason.length > 500) {
+    return res.status(400).json({ error: 'Give a reason (5–500 characters) for the reversal.' })
+  }
+  const { rows } = await pool.query('SELECT * FROM transactions WHERE id = $1', [req.params.id])
+  const tx = rows[0]
+  if (!tx) return res.status(404).json({ error: 'Transaction not found.' })
+  if (!['deposit', 'withdrawal'].includes(tx.type)) return res.status(400).json({ error: 'Only deposits and withdrawals can be reversed.' })
+  if (tx.status !== 'approved') return res.status(400).json({ error: 'Only an approved transaction can be reversed. A pending one can be rejected instead.' })
+
+  const direction = tx.type === 'deposit' ? 'debit' : 'credit'
+  const db = await pool.connect()
+  try {
+    await db.query('BEGIN')
+    await db.query('SELECT pg_advisory_xact_lock($1)', [tx.user_id])
+    const { rows: existing } = await db.query(
+      "SELECT 1 FROM transactions WHERE type = 'reversal' AND details->>'reversesTransactionId' = $1",
+      [String(tx.id)]
+    )
+    if (existing.length > 0) {
+      await db.query('ROLLBACK')
+      return res.status(400).json({ error: 'This transaction has already been reversed.' })
+    }
+    if (direction === 'debit') {
+      const { available } = await getAvailableBalance(tx.user_id)
+      if (Number(tx.amount) > available + 1e-9) {
+        await db.query('ROLLBACK')
+        return res.status(400).json({ error: `Can't reverse this deposit: the client only has $${Math.max(0, available).toFixed(2)} available (the rest is in running sessions or already spent), less than the $${Number(tx.amount).toFixed(2)} deposit.` })
+      }
+    }
+    const { rows: inserted } = await db.query(
+      `INSERT INTO transactions (user_id, type, amount, status, note, reviewed_by, reviewed_at, details)
+       VALUES ($1, 'reversal', $2, 'approved', $3, $4, now(), $5)
+       ON CONFLICT DO NOTHING RETURNING *`,
+      [
+        tx.user_id,
+        tx.amount,
+        `Reversal of ${tx.type} #${tx.id} — ${reason}`,
+        req.user.id,
+        JSON.stringify({ reversesTransactionId: tx.id, originalType: tx.type, direction, reason })
+      ]
+    )
+    if (inserted.length === 0) {
+      await db.query('ROLLBACK')
+      return res.status(400).json({ error: 'This transaction has already been reversed.' })
+    }
+    await db.query('COMMIT')
+
+    const { rows: targetUser } = await pool.query('SELECT name FROM users WHERE id = $1', [tx.user_id])
+    await logAudit({
+      action: 'transaction_reversed',
+      actor: req.user,
+      targetUserId: tx.user_id,
+      targetUserName: targetUser[0]?.name,
+      details: { transactionId: tx.id, reversalId: inserted[0].id, type: tx.type, amount: Number(tx.amount), direction, reason }
+    })
+    await notify(
+      tx.user_id,
+      'transaction_reversed',
+      `${tx.type === 'deposit' ? 'Deposit' : 'Withdrawal'} reversed`,
+      `Your ${tx.type} of $${Number(tx.amount).toFixed(2)} was reversed${direction === 'credit' ? ' and the money returned to your balance' : ''}. Reason: ${reason}`,
+      { transactionId: tx.id, amount: Number(tx.amount) }
+    )
+    res.status(201).json({ transaction: publicTx(inserted[0]) })
+  } catch (err) {
+    await db.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    db.release()
+  }
 })
 
 // Client appeal on a corrected transaction. Now creates a real

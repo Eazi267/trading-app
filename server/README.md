@@ -306,3 +306,69 @@ edited in **Business Settings → Investment tiers** and are now enforced by the
 - Manual closes record who closed and at what price; settlements record each position's own exit price and result (labelled "Session settlement").
 - Positions closed before the migration have no stored exit price/P&L; they show without a result and are left out of win-rate stats rather than guessed.
 - Old browser-only trade history (localStorage `pulse_orders`) is no longer used.
+
+## Signup bonus on the server (Batch 10)
+
+- Migrations `016` (adds the `signup_bonus` transaction type) and `017` (unique index: one signup bonus per user, enforced by the database). Run `npm run migrate`.
+- `utils/signupBonus.js → grantSignupBonus(user)` runs inside `POST /api/auth/signup`. If the bonus is enabled and the amount is valid, the new client gets one approved `signup_bonus` transaction, an audit entry (`signup_bonus_granted`) and a notification. Admin and demo accounts never get one. A bonus failure never blocks signup.
+- Only NEW signups are granted automatically. Turning the bonus on does NOT back-pay existing clients (that would move real money to everyone at once with one toggle). Credit existing clients individually if you want them to have it.
+- `PUT /api/settings` validates `signupBonusEnabled` (true/false) and `signupBonusAmount` (0 – 100,000).
+- The old browser-side grant (which created phantom transactions) is removed.
+
+## Server-side withdrawal & deposit rules (Batch 11)
+
+`POST /api/transactions` now enforces (in `utils/transactionRules.js`) what the Deposit/Withdraw page used to enforce only in the browser:
+
+- Min/max amounts (settings `depositMin/Max`, `withdrawalMin/Max`) for deposits and withdrawals.
+- Method must be enabled in settings (`depositMethods` / `withdrawalMethods`).
+- Withdrawals: KYC verified when KYC is enabled or required for that client; no outstanding fee; bank needs enhanced verification; crypto needs a bound wallet of the same method, and the stored chain always comes from the bound wallet (the request can't override it).
+- Withdrawals can't exceed the client's available balance minus withdrawals already pending (money in running sessions is excluded). Check + insert run under a per-user lock, so two simultaneous requests can't both pass.
+- Approving a withdrawal re-checks the balance, so a withdrawal can't be approved after the client has committed the money elsewhere.
+
+Corrections (`/:id/correct`) already re-check the balance for withdrawals. Reversing an already-approved transaction is covered in Batch 13.
+
+## Correction hardening (Batch 12)
+
+`POST /api/transactions/:id/correct` now also: refuses a corrected withdrawal that the client's balance can't cover (after their other pending withdrawals); allows at most 10 screenshots of ~2 MB each; and limits the note to 1000 characters. (Approval already re-checks the balance — Batch 11 — so this is the early, friendlier version of the same protection.)
+
+## Reversals and statements (Batch 13)
+
+**Reversing entries.** An approved deposit or withdrawal is never edited or deleted. `POST /api/transactions/:id/reverse` (finance permission, written reason of 5–500 characters) adds an offsetting `reversal` transaction instead: reversing a withdrawal puts the money back, reversing a deposit takes it out. Approved immediately, audited (`transaction_reversed`), and the client is notified.
+- A deposit can only be reversed if the client still has that much available (not tied up in a session or already withdrawn).
+- Each transaction can be reversed once. The unique index in migration 019 enforces this even if two admins click at the same instant.
+- Not automatic: a referral bonus the original deposit may have triggered. Handle that separately.
+- Migrations `018` (adds the `reversal` type) and `019` (one reversal per transaction). Run `npm run migrate`.
+
+**Statements.** `GET /api/statements?from=YYYY-MM-DD&to=YYYY-MM-DD[&userId=N]` returns opening balance, every approved balance-moving entry (deposits, withdrawals, session results, released profit, bonuses, reversals) with a running balance, totals, and closing balance, all computed from the same records as the live balance. Clients get their own; admins can pass `userId`. Dates are UTC, the range is capped at two years. The new Statements page downloads CSV or prints / saves as PDF.
+
+Note: the admin client page still shows a delete (bin) button on transactions. The server has no delete endpoint on purpose; use Reverse instead.
+
+## Security hardening (Batch 14)
+
+- **Access control fix (critical).** `GET /api/admin/users` and `GET /api/admin/users/:id` were open to ANY logged-in client, exposing every client's email, phone, KYC images and wallet. They now require the admin role. `POST /api/admin/users/:id/flag` is admin-only, except that a client may flag their own account (the large-deposit flow).
+- **Passwords.** Minimum 8 characters, maximum 72 bytes (bcrypt's limit), no common passwords, no single repeated character, must not contain the email name or equal the person's name. Applied on signup, change-password and admin-created accounts (`utils/passwordPolicy.js`).
+- **Sign-out everywhere on password change.** Migration `020` adds `users.token_version`. Tokens carry it; changing the password bumps it, so every old token (including a stolen copy) stops working. The change-password response returns a fresh token so the current browser stays signed in. Existing sessions stay valid until their owner changes password.
+- **Rate limits.** Login 10 per 15 min per IP; signup 20 per hour per IP (`SIGNUP_RATE_LIMIT`); whole API 3000 per 15 min per IP (`API_RATE_LIMIT`; prices are exempt). In-memory, so they reset on restart and are per server instance.
+- **Headers.** `helmet` (no sniffing, no framing, HSTS, ...); `X-Powered-By` removed.
+- **Behind a proxy.** `TRUST_PROXY` (default 1 in production, 0 locally) so rate limits see the real visitor address, not the host's proxy.
+- **Refuses unsafe production boots.** With `NODE_ENV=production` the server exits if `JWT_SECRET` is under 32 characters or `CORS_ORIGIN` is empty.
+- **Frontend.** Admin-written About Us / Privacy HTML is cleaned with DOMPurify before display (`npm install dompurify` in the project root).
+
+Run `npm run migrate` (applies 020), then restart.
+
+Not done yet: admin two-factor login, password reset and email verification, moving the JWT out of localStorage (cookie), encrypted / private storage for KYC images, shared (database-backed) rate limiting for multi-instance hosting.
+
+## Admin two-factor login (Batch 15)
+
+Admins can turn on authenticator-app login (Settings → Two-factor login). Works with Google Authenticator, Authy, Microsoft Authenticator, 1Password etc. Clients don't use it.
+- **Login becomes two steps.** `POST /api/auth/login` returns `{ twoFactorRequired, challenge }` (a 5-minute ticket that is useless as a session) instead of a token; `POST /api/auth/login/2fa { challenge, code }` returns the real token. Separate rate limit (10 per 15 min per IP).
+- **Setup** (`POST /api/auth/2fa/setup` then `/enable`): you add the key to your app and prove it works with a code; only then is it switched on. 8 one-time recovery codes are shown once; only their hashes are stored.
+- **Turn off** (`POST /api/auth/2fa/disable`) needs your password AND a current code or recovery code.
+- **Safety details:** standard 6-digit / 30-second TOTP (tested against the RFC 6238 vectors); a code can never be used twice; the secret is stored AES-256-GCM encrypted; every on / off / recovery-code login is audited.
+- **Lost phone and lost recovery codes:** from the server folder run `node reset2fa.js admin@example.com` (turns it off and signs that admin out everywhere). Only someone with server access can do this.
+- **Key note:** secrets are encrypted with `TOTP_ENCRYPTION_KEY` (or `JWT_SECRET` if unset). Set `TOTP_ENCRYPTION_KEY` separately in production so rotating `JWT_SECRET` later doesn't lock admins out. If the key changes, run `reset2fa.js` for each admin and set 2FA up again.
+- Run `npm run migrate` (applies 021).
+
+Also in Batch 15: the dead delete (bin) button on admin client transactions is gone (use Reverse in the transaction's View window).
+
+Not done yet: forcing every admin to enable 2FA, a QR code (you type the key instead), password reset and email verification.

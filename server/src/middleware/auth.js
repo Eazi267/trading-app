@@ -19,6 +19,10 @@ export async function requireAuth(req, res, next) {
     if (!user || user.deactivated_at) {
       return res.status(401).json({ error: 'Account not found or deactivated.' })
     }
+    // Tokens issued before the last password change are no longer valid.
+    if ((payload.v ?? 0) !== user.token_version) {
+      return res.status(401).json({ error: 'Invalid or expired session.' })
+    }
     req.user = user
     next()
   } catch {

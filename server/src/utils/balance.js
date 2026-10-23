@@ -5,10 +5,8 @@ import { pool } from '../db.js'
 // calculation, not two copies that could drift. Mirrors
 // getAccountBalance()/getBalanceBreakdown() in AppContext.jsx:
 // approved deposit/withdrawal/session_settlement/capped_profit_release/
-// referral_bonus make up the real, certified balance. ('signup_bonus'
-// also counts on the frontend but has no creation logic anywhere to
-// mirror — see sql/011_referrals.sql's header comment — so it's
-// omitted here rather than guessed at.)
+// referral_bonus/signup_bonus make up the real, certified balance.
+// (signup_bonus is created by utils/signupBonus.js — Batch 10.)
 //
 // This function itself was the source of a real bug caught while
 // testing Batch 8: referral_bonus was missing from this SUM entirely
@@ -23,13 +21,14 @@ export async function getAccountBalance(userId) {
        COALESCE(SUM(amount) FILTER (WHERE type = 'withdrawal'), 0) AS withdrawn,
        COALESCE(SUM(amount) FILTER (WHERE type = 'session_settlement'), 0) AS settled,
        COALESCE(SUM(amount) FILTER (WHERE type = 'capped_profit_release'), 0) AS released,
-       COALESCE(SUM(amount) FILTER (WHERE type = 'referral_bonus'), 0) AS referred
+       COALESCE(SUM(amount) FILTER (WHERE type IN ('referral_bonus', 'signup_bonus')), 0) AS referred,
+       COALESCE(SUM(CASE WHEN details->>'direction' = 'debit' THEN -amount ELSE amount END) FILTER (WHERE type = 'reversal'), 0) AS reversed
      FROM transactions
      WHERE user_id = $1 AND status = 'approved'`,
     [userId]
   )
-  const { deposited, withdrawn, settled, released, referred } = rows[0]
-  return Number(deposited) - Number(withdrawn) + Number(settled) + Number(released) + Number(referred)
+  const { deposited, withdrawn, settled, released, referred, reversed } = rows[0]
+  return Number(deposited) - Number(withdrawn) + Number(settled) + Number(released) + Number(referred) + Number(reversed)
 }
 
 // available = what a client can actually withdraw or commit to a NEW

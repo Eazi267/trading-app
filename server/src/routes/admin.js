@@ -1,13 +1,14 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { pool } from '../db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { generateUid } from '../utils/uid.js'
 import { generateReferralCode } from '../utils/referralCode.js'
 import { logAudit } from '../utils/auditLog.js'
 import { publicUser } from '../utils/publicUser.js'
 import { ADMIN_TIERS } from '../config/adminTiers.js'
 import { getTier } from '../config/tiers.js'
+import { checkPassword } from '../utils/passwordPolicy.js'
 
 const router = Router()
 
@@ -49,7 +50,8 @@ router.post('/users', requireAuth, requirePermission('manageAdmins'), async (req
   if (!Object.keys(ADMIN_TIERS).includes(adminTier)) {
     return res.status(400).json({ error: `adminTier must be one of: ${Object.keys(ADMIN_TIERS).join(', ')}` })
   }
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+  const passwordProblem = checkPassword(password, { email, name })
+  if (passwordProblem) return res.status(400).json({ error: passwordProblem })
 
   const normalizedEmail = email.trim().toLowerCase()
   const { rows: existing } = await pool.query('SELECT 1 FROM users WHERE email = $1', [normalizedEmail])
@@ -122,7 +124,7 @@ router.post('/users/:id/reactivate', requireAuth, requirePermission('manageAdmin
 
 // Full client roster — AdminUsers.jsx's own page. Real accounts only
 // by default; ?includeDemo=true also returns is_demo_generated rows.
-router.get('/users', requireAuth, async (req, res) => {
+router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { includeDemo, flagged } = req.query
   const conditions = ["role = 'user'"]
   if (!includeDemo) conditions.push('is_demo_generated = false')
@@ -131,7 +133,7 @@ router.get('/users', requireAuth, async (req, res) => {
   res.json({ users: rows.map(publicUser) })
 })
 
-router.get('/users/:id', requireAuth, async (req, res) => {
+router.get('/users/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id])
   if (!rows[0]) return res.status(404).json({ error: 'User not found.' })
   res.json({ user: publicUser(rows[0]) })
@@ -169,7 +171,12 @@ router.post('/users/:id/vip', requireAuth, requirePermission('manageAdmins'), as
 // human decides what happens next. userId is req.user.id when a
 // system/self-trigger flags it, or an admin id when an admin flags
 // it directly.
+// A client may flag THEIR OWN account (the app does this automatically after
+// a large deposit); only an admin may flag someone else.
 router.post('/users/:id/flag', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin' && String(req.params.id) !== String(req.user.id)) {
+    return res.status(403).json({ error: 'Not authorized.' })
+  }
   const { rows } = await pool.query('UPDATE users SET flagged_for_review = true WHERE id = $1 RETURNING *', [req.params.id])
   if (!rows[0]) return res.status(404).json({ error: 'User not found.' })
   await logAudit({ action: 'flagged_for_review', actor: req.user, targetUserId: rows[0].id, targetUserName: rows[0].name })

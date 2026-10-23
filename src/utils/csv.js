@@ -10,7 +10,10 @@
 //     machine. We neutralise it by prefixing a single quote.
 export function csvCell(value) {
   let text = value === null || value === undefined ? '' : String(value)
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
+  // A plain number such as -200.00 starts with "-" but can't be a formula,
+  // so it is left alone — otherwise negative amounts would export as '-200.00.
+  const isPlainNumber = /^-?\d+(\.\d+)?$/.test(text)
+  if (!isPlainNumber && /^[=+\-@\t\r]/.test(text)) text = `'${text}`
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 

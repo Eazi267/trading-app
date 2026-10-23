@@ -31,6 +31,7 @@ export function publicUser(row) {
     boundWallet: row.bound_wallet,
     isDemoGenerated: row.is_demo_generated,
     deactivatedAt: row.deactivated_at,
+    twoFactorEnabled: !!row.totp_enabled,
     createdAt: row.created_at
   }
 }

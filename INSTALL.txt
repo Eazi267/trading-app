@@ -1,0 +1,11 @@
+BATCH 15 - ADMIN TWO-FACTOR LOGIN  (requires Batch 14 already installed)
+
+1. Unzip over your project (merges into server/ and src/).
+2. From the project root (PowerShell):   node patch-batch15.mjs
+3. Server:
+     cd server
+     npm run migrate      (applies 021_two_factor.sql)
+     npm start
+4. Log in as admin -> Settings -> "Two-factor login" -> Set up.
+   Save the recovery codes. Lost everything?  cd server; node reset2fa.js your@email
+5. Live server: also set TOTP_ENCRYPTION_KEY (a different random value from JWT_SECRET).

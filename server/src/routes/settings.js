@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { pool } from '../db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { logAudit } from '../utils/auditLog.js'
+import { MAX_SIGNUP_BONUS } from '../utils/signupBonus.js'
 import { ALL_TIERS, DEFAULT_TIERS, DEFAULT_VIP_TIERS, normalizeTierLists, packTiersForStorage, setTierConfig } from '../config/tiers.js'
 
 const router = Router()
@@ -28,6 +29,18 @@ router.put('/', requireAuth, requirePermission('manageSettings'), async (req, re
   const changedKeys = Object.keys(updates)
   const { rows: current } = await pool.query('SELECT data FROM settings WHERE id = 1')
   const currentData = current[0]?.data || {}
+
+  // The signup bonus pays real money to every new client, so its two
+  // settings are checked: a true/false switch and a sane amount.
+  if ('signupBonusEnabled' in updates && typeof updates.signupBonusEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'Signup bonus enabled must be on or off.' })
+  }
+  if ('signupBonusAmount' in updates) {
+    const amount = updates.signupBonusAmount
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || amount > MAX_SIGNUP_BONUS) {
+      return res.status(400).json({ error: `Signup bonus must be a number between 0 and ${MAX_SIGNUP_BONUS.toLocaleString()}.` })
+    }
+  }
 
   // Investment tiers drive real money rules (deposit limits, leverage,
   // payout cap), so a tier edit is validated and then applied to the

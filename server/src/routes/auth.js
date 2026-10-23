@@ -7,11 +7,16 @@ import { generateUid } from '../utils/uid.js'
 import { generateReferralCode } from '../utils/referralCode.js'
 import { requireAuth } from '../middleware/auth.js'
 import { publicUser } from '../utils/publicUser.js'
+import { grantSignupBonus } from '../utils/signupBonus.js'
+import { checkPassword } from '../utils/passwordPolicy.js'
+import { logAudit } from '../utils/auditLog.js'
+import { checkSecondFactor } from '../utils/secondFactor.js'
 
 const router = Router()
 
 function signToken(user) {
-  return jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
+  // v = the user's token_version: raising it in the DB cancels every older token.
+  return jwt.sign({ sub: user.id, v: user.token_version ?? 0 }, process.env.JWT_SECRET, { expiresIn: '7d' })
 }
 
 // Maps a DB row (snake_case, includes password_hash) to the shape the
@@ -34,14 +39,32 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again in a few minutes.' }
 })
 
-router.post('/signup', async (req, res) => {
+// Separate bucket for the 6-digit code step, so a normal two-factor login
+// (password, then code) doesn't use up the password attempts.
+const twoFactorLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again in a few minutes.' }
+})
+
+// Stops someone creating thousands of accounts from one address.
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.SIGNUP_RATE_LIMIT) || 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-ups from this connection. Try again later.' }
+})
+
+router.post('/signup', signupLimiter, async (req, res) => {
   const { name, email, password, country, referredBy } = req.body || {}
   if (!name?.trim() || !email?.trim() || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required.' })
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' })
-  }
+  const passwordProblem = checkPassword(password, { email, name })
+  if (passwordProblem) return res.status(400).json({ error: passwordProblem })
 
   const normalizedEmail = email.trim().toLowerCase()
   const { rows: existingRows } = await pool.query('SELECT 1 FROM users WHERE email = $1', [normalizedEmail])
@@ -58,6 +81,7 @@ router.post('/signup', async (req, res) => {
     [name.trim(), normalizedEmail, passwordHash, uid, referralCode, referredBy || null, country || null]
   )
   const user = rows[0]
+  await grantSignupBonus(user)
 
   const token = signToken(user)
   res.status(201).json({ token, user: publicUser(user) })
@@ -80,8 +104,35 @@ router.post('/login', loginLimiter, async (req, res) => {
   const valid = await bcrypt.compare(password, user.password_hash)
   if (!valid) return res.status(401).json(genericError)
 
+  // Two-factor accounts don't get a session yet: they get a short-lived
+  // "challenge" that is worthless on its own (it has no `sub`, so requireAuth
+  // rejects it) and must be exchanged together with a valid code.
+  if (user.totp_enabled) {
+    const challenge = jwt.sign({ mfa: user.id, v: user.token_version }, process.env.JWT_SECRET, { expiresIn: '5m' })
+    return res.json({ twoFactorRequired: true, challenge })
+  }
+
   const token = signToken(user)
   res.json({ token, user: publicUser(user) })
+})
+
+router.post('/login/2fa', twoFactorLimiter, async (req, res) => {
+  const { challenge, code } = req.body || {}
+  const bad = { error: 'That code is not right, or the sign-in timed out. Go back and log in again.' }
+  let payload
+  try { payload = jwt.verify(String(challenge || ''), process.env.JWT_SECRET) } catch { return res.status(401).json(bad) }
+  if (!payload.mfa) return res.status(401).json(bad)
+
+  const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [payload.mfa])
+  const user = rows[0]
+  if (!user || user.deactivated_at || !user.totp_enabled || (payload.v ?? 0) !== user.token_version) return res.status(401).json(bad)
+
+  const check = await checkSecondFactor(user, code)
+  if (!check.ok) return res.status(401).json(bad)
+  if (check.via === 'recovery') {
+    await logAudit({ action: 'two_factor_recovery_used', actor: user, targetUserId: user.id, targetUserName: user.name })
+  }
+  res.json({ token: signToken(user), user: publicUser(user) })
 })
 
 router.get('/me', requireAuth, (req, res) => {
@@ -95,14 +146,21 @@ router.get('/me', requireAuth, (req, res) => {
 router.post('/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {}
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' })
-  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' })
+  const passwordProblem = checkPassword(newPassword, { email: req.user.email, name: req.user.name })
+  if (passwordProblem) return res.status(400).json({ error: passwordProblem })
 
   const valid = await bcrypt.compare(currentPassword, req.user.password_hash)
   if (!valid) return res.status(400).json({ error: 'Current password is incorrect.' })
 
   const newHash = await bcrypt.hash(newPassword, 12)
-  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id])
-  res.json({ ok: true })
+  // Raising token_version signs this user out everywhere else; the new token
+  // returned here keeps THIS browser signed in.
+  const { rows: updated } = await pool.query(
+    'UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2 RETURNING *',
+    [newHash, req.user.id]
+  )
+  await logAudit({ action: 'password_changed', actor: req.user, targetUserId: req.user.id, targetUserName: req.user.name })
+  res.json({ ok: true, token: signToken(updated[0]) })
 })
 
 export default router
