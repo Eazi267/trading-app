@@ -75,7 +75,7 @@ export default function Signup() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             required
-            minLength={6}
+            minLength={8}
           />
 
           <label>Country</label>

@@ -7,6 +7,7 @@ import { CURRENCIES, COUNTRY_CURRENCY, COUNTRIES } from '../config/currencies.js
 import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
 import PasswordField from '../components/PasswordField.jsx'
 import CopyButton from '../components/CopyButton.jsx'
+import TwoFactorPanel from '../components/TwoFactorPanel.jsx'
 
 const METHOD_ICONS = { usdt: Coins, btc: Bitcoin }
 
@@ -271,6 +272,8 @@ export default function Settings() {
         </div>
       </div>
 
+      {currentUser.role === 'admin' && <TwoFactorPanel />}
+
       <div className="panel" style={{ maxWidth: 480, marginTop: 16 }}>
         <div className="panel-head">
           <h3><Lock size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Change password</h3>
@@ -283,10 +286,10 @@ export default function Settings() {
           <PasswordField variant="plain" value={pwForm.current} onChange={(e) => handlePwChange('current', e.target.value)} style={inputStyle} autoComplete="current-password" />
 
           <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>New password</label>
-          <PasswordField variant="plain" value={pwForm.next} onChange={(e) => handlePwChange('next', e.target.value)} style={inputStyle} minLength={6} autoComplete="new-password" />
+          <PasswordField variant="plain" value={pwForm.next} onChange={(e) => handlePwChange('next', e.target.value)} style={inputStyle} minLength={8} autoComplete="new-password" />
 
           <label style={{ fontSize: 13, display: 'block', margin: '14px 0 6px' }}>Confirm new password</label>
-          <PasswordField variant="plain" value={pwForm.confirm} onChange={(e) => handlePwChange('confirm', e.target.value)} style={inputStyle} minLength={6} autoComplete="new-password" />
+          <PasswordField variant="plain" value={pwForm.confirm} onChange={(e) => handlePwChange('confirm', e.target.value)} style={inputStyle} minLength={8} autoComplete="new-password" />
 
           <button className="btn-primary" style={{ marginTop: 18, width: '100%' }} onClick={handlePasswordSave}>
             Update password

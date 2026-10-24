@@ -9,14 +9,23 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const { login } = useAuth()
+  const [challenge, setChallenge] = useState(null)
+  const [code, setCode] = useState('')
+  const { login, completeTwoFactor } = useAuth()
   const { brand } = useSettings()
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    if (challenge) {
+      const second = await completeTwoFactor(challenge, code)
+      if (second.user) navigate('/dashboard')
+      else setError(second.error)
+      return
+    }
     const result = await login(email, password)
+    if (result.twoFactor) { setChallenge(result.twoFactor.challenge); return }
     if (result.user) {
       navigate('/dashboard')
     } else {
@@ -69,6 +78,16 @@ export default function Login() {
             autoComplete="current-password"
             required
           />
+
+          {challenge && (
+            <>
+              <label>6-digit code from your authenticator app</label>
+              <div className="field-input-wrap">
+                <ShieldCheck size={16} />
+                <input type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456 (or a recovery code)" autoFocus required />
+              </div>
+            </>
+          )}
 
           <button type="submit" className="btn-primary">
             Log in <ArrowRight size={16} />

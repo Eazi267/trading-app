@@ -51,6 +51,17 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     const result = await apiRequest('/api/auth/login', { method: 'POST', body: { email, password }, auth: false })
     if (result.error) return { error: result.error }
+    if (result.twoFactorRequired) return { twoFactor: { challenge: result.challenge } }
+    setToken(result.token)
+    setCurrentUser(result.user)
+    if (result.user.role === 'admin') refreshUsers()
+    return { user: result.user }
+  }
+
+  // Second step for accounts with two-factor on: the 6-digit code (or a recovery code).
+  async function completeTwoFactor(challenge, code) {
+    const result = await apiRequest('/api/auth/login/2fa', { method: 'POST', body: { challenge, code }, auth: false })
+    if (result.error) return { error: result.error }
     setToken(result.token)
     setCurrentUser(result.user)
     if (result.user.role === 'admin') refreshUsers()
@@ -88,6 +99,9 @@ export function AuthProvider({ children }) {
   async function changePassword(currentPassword, newPassword) {
     const result = await apiRequest('/api/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } })
     if (result.error) return { error: result.error }
+    // The server signs you out everywhere else when the password changes and
+    // returns a fresh token so THIS browser stays signed in.
+    if (result.token) setToken(result.token)
     return { ok: true }
   }
 
@@ -225,7 +239,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       currentUser, users, loading, refreshUsers,
-      login, signup, logout, updateProfile, changePassword, getReferrals,
+      login, completeTwoFactor, signup, logout, updateProfile, changePassword, getReferrals,
       setUserTier, setClientVip, flagForReview, getFlaggedUsers,
       generateDemoClients, removeDemoClients,
       submitKycDocument, reviewKycSubmission, setKycRequired, submitEnhancedKyc, reviewEnhancedKyc,

@@ -113,6 +113,7 @@ export function getBalanceHistory(transactions, userId) {
     else if (t.type === 'capped_profit_release') running += t.amount
     else if (t.type === 'referral_bonus') running += t.amount
     else if (t.type === 'signup_bonus') running += t.amount
+    else if (t.type === 'reversal') running += t.details?.direction === 'debit' ? -t.amount : t.amount
   })
 }
 
@@ -139,6 +140,7 @@ export function getFullTransactionHistory(transactions, userId) {
       else if (t.type === 'capped_profit_release') running += t.amount
       else if (t.type === 'referral_bonus') running += t.amount
       else if (t.type === 'signup_bonus') running += t.amount
+      else if (t.type === 'reversal') running += t.details?.direction === 'debit' ? -t.amount : t.amount
     }
     return { ...t, runningBalance: running }
   })

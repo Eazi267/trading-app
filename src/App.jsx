@@ -37,6 +37,7 @@ import AdminEmailOutbox from './pages/AdminEmailOutbox.jsx'
 import AdminSupportInbox from './pages/AdminSupportInbox.jsx'
 import Notifications from './pages/Notifications.jsx'
 import TransactionHistory from './pages/TransactionHistory.jsx'
+import Statement from './pages/Statement.jsx'
 
 export default function App() {
   return (
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="/kyc" element={<ProtectedRoute><KycVerification /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/transaction-history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
+            <Route path="/statement" element={<ProtectedRoute><Statement /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requireRole="admin"><AdminUsers /></ProtectedRoute>} />
             <Route path="/admin/users/:id" element={<ProtectedRoute requireRole="admin"><AdminUserDetail /></ProtectedRoute>} />
             <Route path="/admin/accounts" element={<ProtectedRoute requireRole="admin" requirePermission="manageAdmins"><AdminAccounts /></ProtectedRoute>} />

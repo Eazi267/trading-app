@@ -66,7 +66,7 @@ export default function AdminAccounts() {
             <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Temporary password</label>
             <input
               type="text" value={password} onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 6 characters"
+              placeholder="At least 8 characters"
               style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
             />
           </div>

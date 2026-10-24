@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify'
 import PublicNav from '../components/PublicNav.jsx'
 import PublicFooter from '../components/PublicFooter.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
@@ -11,7 +12,7 @@ export default function PrivacyPolicy() {
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '48px 24px', minHeight: '50vh' }}>
         <h1 className="page-title">Privacy Policy</h1>
         {settings.privacyPolicyHtml ? (
-          <div dangerouslySetInnerHTML={{ __html: settings.privacyPolicyHtml }} />
+          <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(settings.privacyPolicyHtml) }} />
         ) : (
           <p style={{ color: 'var(--text-muted)' }}>{brand.name} hasn't added a Privacy Policy page yet.</p>
         )}

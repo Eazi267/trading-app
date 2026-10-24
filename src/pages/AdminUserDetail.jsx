@@ -1049,14 +1049,7 @@ if (sent.error) {
                     >
                       View
                     </button>
-                    <button
-                      className="tx-btn"
-                      style={{ padding: '6px 10px', fontSize: 12, background: 'transparent', border: '1px solid var(--border)', color: 'var(--danger)' }}
-                      onClick={() => { setDeletingTxId(t.id); setDeleteReason(''); setDeleteError('') }}
-                      aria-label="Delete transaction"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {/* Delete removed on purpose: money records are never deleted. Use Reverse in the transaction's View window. */}
                   </div>
                 )}
               </div>

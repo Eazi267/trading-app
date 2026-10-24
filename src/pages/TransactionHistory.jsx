@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Layout from '../components/Layout.jsx'
 import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
-import { Inbox, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent } from 'lucide-react'
+import { Inbox, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent, RotateCcw } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getFullTransactionHistory } from '../utils/analytics.js'
@@ -27,6 +27,7 @@ function TypeIcon({ type }) {
   if (type === 'session_settlement' || type === 'capped_profit_release') return <TrendingUp size={17} />
   if (type === 'fee' || type === 'fee_payment') return <Receipt size={17} />
   if (type === 'fee_discount') return <Percent size={17} />
+  if (type === 'reversal') return <RotateCcw size={17} />
   if (type === 'referral_bonus' || type === 'signup_bonus') return <Gift size={17} />
   return <Receipt size={17} />
 }
@@ -54,7 +55,7 @@ export default function TransactionHistory() {
         ) : (
           <div style={{ padding: 16 }}>
             {fullHistory.map((t) => {
-              const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus' || t.type === 'signup_bonus'
+              const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus' || t.type === 'signup_bonus' || (t.type === 'reversal' && t.details?.direction !== 'debit')
               const isFeePayment = t.type === 'fee_payment'
               const signedAmount = isCredit ? t.amount : -t.amount
               const accentClass = t.status !== 'approved'

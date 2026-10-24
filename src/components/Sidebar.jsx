@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, PiggyBank, ListChecks, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList, ShieldCheck, Mail, TrendingUp, UserCog, LifeBuoy } from 'lucide-react'
+import { LayoutDashboard, PiggyBank, ListChecks, ArrowLeftRight, Gift, Settings, Users, Sliders, CandlestickChart, BarChart3, Bell, History, Sparkles, Megaphone, Building2, ClipboardList, ShieldCheck, Mail, TrendingUp, UserCog, LifeBuoy, FileText } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useSupport } from '../context/SupportContext.jsx'
@@ -33,7 +33,8 @@ function clientSections(settings, currentUser, supportUnread) {
       links: [
         { to: '/balance', label: 'Balance', icon: PiggyBank },
         { to: '/transactions', label: 'Deposits & Withdrawals', icon: ArrowLeftRight },
-        { to: '/transaction-history', label: 'Transaction History', icon: History }
+        { to: '/transaction-history', label: 'Transaction History', icon: History },
+        { to: '/statement', label: 'Statements', icon: FileText }
       ]
     },
     ...(settings.showReferrals ? [{ label: 'Grow', links: [{ to: '/referral', label: 'Referrals', icon: Gift }] }] : []),
@@ -76,7 +77,8 @@ function adminSections(settings, currentUser, supportUnreadCount) {
       label: 'Funds',
       links: [
         { to: '/balance', label: 'Balance', icon: PiggyBank },
-        { to: '/transactions', label: 'Deposits & Withdrawals', icon: ArrowLeftRight }
+        { to: '/transactions', label: 'Deposits & Withdrawals', icon: ArrowLeftRight },
+        { to: '/statement', label: 'Statements', icon: FileText }
       ]
     }] : []),
     {

@@ -7,6 +7,8 @@ import CopyButton from './CopyButton.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { METHOD_LABELS } from '../config/paymentMethods.js'
+import { apiRequest } from '../api/client.js'
+import { hasPermission } from '../config/adminTiers.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
@@ -26,7 +28,7 @@ function formatType(type) {
 // apart from each other on exactly the question this feature is
 // about (data transparency).
 export default function TransactionDetailModal({ transaction, isAdmin, onClose }) {
-  const { appealTransaction, submitDepositProof } = useApp()
+  const { appealTransaction, submitDepositProof, transactions, refreshTransactions } = useApp()
   const { currentUser } = useAuth()
   const [appealNote, setAppealNote] = useState('')
   const [appealSent, setAppealSent] = useState(false)
@@ -35,6 +37,10 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
   const [proofShots, setProofShots] = useState([])
   const [proofError, setProofError] = useState('')
   const [submittingProof, setSubmittingProof] = useState(false)
+  const [reversing, setReversing] = useState(false)
+  const [reverseReason, setReverseReason] = useState('')
+  const [reverseError, setReverseError] = useState('')
+  const [reverseBusy, setReverseBusy] = useState(false)
 
   if (!transaction) return null
   const t = transaction
@@ -49,6 +55,22 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
     setAppealError('')
     setAppealSent(true)
     setAppealCaseId(result.caseId)
+  }
+
+  // Admin: cancel the effect of a mistaken APPROVED deposit/withdrawal by
+  // adding an offsetting reversal entry (the original is never edited).
+  const alreadyReversed = (transactions || []).some((x) => x.type === 'reversal' && String(x.details?.reversesTransactionId) === String(t.id))
+  const canReverse = isAdmin && hasPermission(currentUser, 'finance') && t.status === 'approved' && (t.type === 'deposit' || t.type === 'withdrawal') && !alreadyReversed
+
+  async function handleReverse() {
+    setReverseBusy(true)
+    const result = await apiRequest(`/api/transactions/${t.id}/reverse`, { method: 'POST', body: { reason: reverseReason } })
+    setReverseBusy(false)
+    if (result.error) return setReverseError(result.error)
+    await refreshTransactions()
+    setReversing(false)
+    setReverseReason('')
+    onClose()
   }
 
   async function handleSubmitProof() {
@@ -226,7 +248,31 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
                   <span>{formatDateTime(t.appealedAt)}</span>
                 </div>
               )}
+              {alreadyReversed && (
+                <div style={{ color: 'var(--text-muted)' }}>This transaction has been reversed.</div>
+              )}
             </div>
+            {canReverse && !reversing && (
+              <button type="button" className="tx-btn" style={{ marginTop: 10, padding: '7px 12px', fontSize: 12.5 }} onClick={() => setReversing(true)}>
+                Reverse this {t.type}…
+              </button>
+            )}
+            {canReverse && reversing && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {t.type === 'deposit'
+                    ? "This takes the deposited money back out of the client's balance (refused if they no longer have it available)."
+                    : "This returns the withdrawn money to the client's balance."}{' '}
+                  The original stays in the history; an offsetting entry is added and the client is notified.
+                </div>
+                <textarea rows={2} value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} placeholder="Reason (required, 5–500 characters)" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5, resize: 'vertical' }} />
+                {reverseError && <div role="alert" style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 6 }}>{reverseError}</div>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button type="button" className="tx-btn" disabled={reverseBusy} onClick={handleReverse}>{reverseBusy ? 'Reversing…' : 'Confirm reversal'}</button>
+                  <button type="button" className="tx-btn" disabled={reverseBusy} onClick={() => { setReversing(false); setReverseError('') }}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
