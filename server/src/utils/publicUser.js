@@ -1,3 +1,4 @@
+import { requireAdmin2faOn } from './appControls.js'
 // The one place a DB user row (snake_case, includes password_hash)
 // becomes the shape the frontend expects (camelCase, matching
 // AuthContext.jsx's user objects). Previously duplicated between
@@ -43,6 +44,7 @@ export function publicUser(row) {
     deactivatedAt: row.deactivated_at,
     twoFactorEnabled: !!row.totp_enabled,
     emailVerified: !!row.email_verified_at,
+    twoFactorSetupRequired: requireAdmin2faOn() && row.role === 'admin' && !row.totp_enabled,
     createdAt: row.created_at
   }
 }

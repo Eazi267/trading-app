@@ -1,7 +1,14 @@
 import jwt from 'jsonwebtoken'
 import { pool } from '../db.js'
 import { hasPermission } from '../config/adminTiers.js'
+import { requireAdmin2faOn } from '../utils/appControls.js'
 import { readAuthCookie, CSRF_HEADER, CSRF_VALUE } from '../utils/authCookie.js'
+
+// True when the house rule applies to this user and they haven't met it yet.
+// Also used by publicUser() so the website knows to send them to Settings.
+export function adminNeedsTwoFactor(user) {
+  return requireAdmin2faOn() && user.role === 'admin' && !user.totp_enabled
+}
 
 // Verifies the Bearer token, loads the current user fresh from the DB
 // (not just trusting the token payload) and attaches it as req.user.
@@ -31,6 +38,11 @@ export async function requireAuth(req, res, next) {
     // Tokens issued before the last password change are no longer valid.
     if ((payload.v ?? 0) !== user.token_version) {
       return res.status(401).json({ error: 'Invalid or expired session.' })
+    }
+    // Optional house rule (REQUIRE_ADMIN_2FA=1): an admin without two-factor can
+    // only reach the login/account routes needed to SET IT UP, nothing else.
+    if (adminNeedsTwoFactor(user) && !String(req.baseUrl).startsWith('/api/auth')) {
+      return res.status(403).json({ error: 'Two-factor login is required for admin accounts. Set it up in Settings first.', code: 'two_factor_setup_required' })
     }
     req.user = user
     next()

@@ -79,6 +79,12 @@ export default function Login() {
             required
           />
 
+          {!challenge && (
+            <p style={{ textAlign: 'right', fontSize: 13, margin: '6px 0 0' }}>
+              <a href="/forgot-password" style={{ color: 'var(--accent-bright)' }}>Forgot password?</a>
+            </p>
+          )}
+
           {challenge && (
             <>
               <label>6-digit code from your authenticator app</label>

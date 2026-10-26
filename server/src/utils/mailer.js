@@ -17,11 +17,14 @@ export function emailDeliveryConfigured() {
   return provider() === 'resend' && !!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM
 }
 
+// 'resend' | 'console' | 'none' (what sendMail will do right now)
+export function emailMode() { return provider() === 'resend' ? 'resend' : provider() === 'console' ? 'console' : 'none' }
+
 export async function sendMail({ to, subject, text, html }) {
   const p = provider()
   if (p === 'console') {
     console.log(`\n--- EMAIL (console mode, not really sent) ---\nTo: ${to}\nSubject: ${subject}\n\n${text}\n--- end email ---\n`)
-    return { delivered: false }
+    return { delivered: false, mode: 'console' }
   }
   if (p === 'resend') {
     if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) throw new Error('EMAIL_PROVIDER=resend needs RESEND_API_KEY and EMAIL_FROM')
@@ -31,11 +34,11 @@ export async function sendMail({ to, subject, text, html }) {
       body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, text, html })
     })
     if (!response.ok) throw new Error(`Email provider refused the message (HTTP ${response.status})`)
-    return { delivered: true }
+    return { delivered: true, mode: 'resend' }
   }
   // Deliberately no subject/body here: they contain the secret code.
   console.warn('An email was NOT sent: no email provider is configured (set EMAIL_PROVIDER).')
-  return { delivered: false }
+  return { delivered: false, mode: 'none' }
 }
 
 // Never throws: a broken email provider must not break signup or reveal

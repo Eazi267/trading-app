@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import 'express-async-errors'
 import express from 'express'
 import cors from 'cors'
@@ -6,6 +8,8 @@ import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import authRouter from './routes/auth.js'
 import twoFactorRouter from './routes/twoFactor.js'
+import accountEmailRouter from './routes/accountEmail.js'
+import { emailDeliveryConfigured } from './utils/mailer.js'
 import transactionsRouter from './routes/transactions.js'
 import usersRouter from './routes/users.js'
 import settingsRouter from './routes/settings.js'
@@ -23,6 +27,9 @@ import statementsRouter from './routes/statements.js'
 import { startPriceEngine } from './services/priceEngine.js'
 import { startAutoExpirySweep } from './jobs/autoExpiry.js'
 import { refreshTierConfig, startTierSync } from './services/tierSync.js'
+import { refreshControls, startControlsSync } from './utils/appControls.js'
+import adminControlsRouter from './routes/adminControls.js'
+import clientEmailRouter from './routes/clientEmail.js'
 
 if (!process.env.JWT_SECRET) {
   // Fail loudly at boot, not silently at the first login — a missing
@@ -43,6 +50,14 @@ if (isProduction && !process.env.CORS_ORIGIN) {
   process.exit(1)
 }
 
+if (isProduction && !emailDeliveryConfigured()) {
+  if (process.env.REQUIRE_VERIFIED_EMAIL === '1') {
+    console.error('REQUIRE_VERIFIED_EMAIL=1 but no email provider is set up, so nobody could verify. Set EMAIL_PROVIDER, RESEND_API_KEY and EMAIL_FROM (see README).')
+    process.exit(1)
+  }
+  console.warn('WARNING: no email provider configured. Verification and password-reset emails will NOT be sent.')
+}
+
 const app = express()
 
 // Behind a host's proxy (Railway etc.) the real visitor address arrives in a
@@ -54,7 +69,8 @@ app.disable('x-powered-by')
 // Standard security headers (no sniffing, no framing, HSTS, ...).
 app.use(helmet())
 
-app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean) }))
+// credentials: true lets the browser send the session cookie to the API.
+app.use(cors({ origin: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean), credentials: true }))
 // 5mb (not the 100kb default): settings carry the logo/favicon as data URLs and user profiles carry avatars/KYC images.
 app.use(express.json({ limit: '5mb' }))
 
@@ -72,10 +88,13 @@ app.use('/api', rateLimit({
 }))
 
 app.use('/api/auth/2fa', twoFactorRouter)
+app.use('/api/auth', accountEmailRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/transactions', transactionsRouter)
 app.use('/api/users', usersRouter)
 app.use('/api/settings', settingsRouter)
+app.use('/api/admin/controls', adminControlsRouter)
+app.use('/api/admin/email', clientEmailRouter)
 app.use('/api/admin', adminRouter)
 app.use('/api/support', supportRouter)
 app.use('/api/fees', feesRouter)
@@ -87,6 +106,27 @@ app.use('/api/kyc', kycRouter)
 app.use('/api/audit', auditRouter)
 app.use('/api/trades', tradesRouter)
 app.use('/api/statements', statementsRouter)
+
+// Optional: let this server also serve the built website (the Vite `dist`
+// folder), so the site and the API live on ONE address. No separate frontend
+// host and no domain name needed, and cookies "just work" (same origin).
+// Turn on with SERVE_FRONTEND=1 after running `npm run build` in the project root.
+if (process.env.SERVE_FRONTEND === '1') {
+  const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist')
+  app.use(express.static(dist, {
+    index: false,
+    setHeaders: (res, file) => {
+      // Vite names files in /assets with a content hash, so they can be cached for a year.
+      res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache')
+    }
+  }))
+  // Any other page URL (/dashboard, /admin/users/3, ...) is a React route: send index.html.
+  app.use((req, res, next) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api')) return next()
+    res.set('Cache-Control', 'no-cache')
+    res.sendFile(path.join(dist, 'index.html'))
+  })
+}
 
 // Kept deliberately plain and un-fancy — a real error-shape
 // convention (error codes, field-level validation errors) is worth
@@ -108,6 +148,8 @@ app.listen(port, async () => {
   // anything, so settlement always uses the real payout caps.
   await refreshTierConfig()
   startTierSync()
+  await refreshControls()
+  startControlsSync()
   startPriceEngine()
   startAutoExpirySweep()
 })

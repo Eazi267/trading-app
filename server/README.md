@@ -432,3 +432,23 @@ Set these on the server:
 - The brand name in emails comes from the website's own Settings (editable), falling back to `APP_NAME`.
 
 Not done yet: forcing every admin to use two-factor; confirming withdrawals by emailed code (the mechanism is ready).
+
+## Required two-factor for admins, and steadier sessions (Batch 19)
+
+- **`REQUIRE_ADMIN_2FA=1`** makes two-factor mandatory for every admin. An admin without it can still log in, but the server answers every request except the login / account routes (`/api/auth/*`) with `403 two_factor_setup_required`, and the website sends them straight to Settings to set it up (the card explains why). As soon as they turn it on, everything works again. A newly created admin is held to the same rule. Clients are not affected.
+- **Before switching it on:** set up YOUR OWN two-factor first and save your recovery codes, so you can't lock yourself out. If it ever goes wrong: `node reset2fa.js your@email` (see Batch 15) gets an admin back in, or simply unset the variable and restart.
+- **Network blips no longer log you out.** Previously, if the "who am I?" request failed because of a poor connection, the website treated it as "logged out" and cleared the session (and, since Batch 17, deleted the cookie). Now only a real 401 from the server ends the session. `src/api/client.js` now reports `status` on errors.
+
+## Admin switches and client emails (Batch 20)
+
+**Switches (Admin Accounts page → "Security and email switches").** Stored in the database (`app_settings`, migration 024), separate from the website settings document, changeable without restarting the server (other server instances pick it up within 30 seconds).
+- **Require two-factor login for all admins** (super admin only, `manageAdmins`). Turning it ON is refused unless the person flipping it has two-factor themselves, so nobody can lock themselves out. Admins without it are limited to Settings until they set it up (Batch 19). The `REQUIRE_ADMIN_2FA=1` environment variable still works and, when set, cannot be switched off from the website.
+- **Automatically email clients about deposits and withdrawals** (`manageSettings`). Off by default. When on, the client gets an email when a deposit or withdrawal request is received, approved, or declined. The wording never includes an admin's internal rejection reason. A failing email provider never blocks the request; the failure is just recorded.
+
+**Email this client (admin client page).** `POST /api/admin/email/:userId` with a template:
+- `deposit` or `withdrawal` + `transactionId` (the client's own transaction of that type; finance permission). The wording follows the transaction's status.
+- `custom` + `subject` + `message` (finance or support permission). Subject newlines are stripped, the message is HTML-escaped.
+- At most 10 manual emails per client per hour. Every send is audited (`client_email_sent`).
+- `GET /api/admin/email/:userId` returns the last 20 emails sent to that client (automatic and manual, who sent them, and whether they were really sent: `sent`, `logged` = test mode, `skipped` = no provider, `failed`).
+
+All of this needs the email setup from Batch 18 to actually deliver; in test mode emails only appear in the server log, and the website says so.

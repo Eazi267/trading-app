@@ -1,11 +1,28 @@
-PULSE REDESIGN - STAGE 1 (colours: gold in dark mode, oxblood in light mode)
+PULSE - CATCH-UP PACKAGE (fixes: Cannot find module ... server/src/utils/authCookie.js)
 
-1. Unzip into your project folder (the one that has package.json). Say yes to "merge folders".
-   This adds: src/styles/redesign.css  and  patch-redesign-1.mjs
-2. In the VS Code terminal, from the project folder, run:
-      node patch-redesign-1.mjs
-   (It adds ONE line to src/main.jsx. Running it twice is harmless.)
-3. Run:  npm run dev   and open the site. Toggle dark/light with the Configurator.
-   Dark = gold accent, Light = oxblood accent. Other accents (rose, amber, sapphire) still work.
+WHY: your server has the newer auth.js but is missing files from Batches 17-18 (and maybe 16/20).
+This package brings the server + site fully up to date in one go. Safe to apply even if some
+parts are already in place.
 
-To undo: delete the line  import './styles/redesign.css'  from src/main.jsx.
+STEP 0 - Stop the server and the site (Ctrl+C in each terminal).
+STEP 1 - Unzip INTO your trading-app folder (the one with package.json). Choose
+         "Replace the files" / "merge folders" when asked.
+         (This overwrites files inside server/ and adds new files in src/ - all files I wrote.
+          Your server/.env is NOT touched.)
+STEP 2 - Open a terminal in the trading-app folder and run these, one per line, in this order:
+      node patch-batch16.mjs
+      node patch-batch18.mjs
+      node patch-batch19.mjs
+      node patch-batch20.mjs
+   Each prints "patched ..." or "already applied". Running them again is harmless.
+STEP 3 - Update the database:
+      cd server
+      npm run migrate
+STEP 4 - Start the server:   npm run dev      (still inside server)
+         Then the site (new terminal, in trading-app):   npm run dev
+STEP 5 - One-time: encrypt old ID images (only if you had KYC uploads before):
+      cd server
+      node encryptKycImages.js
+
+If something still errors, copy the first red line and send it to me.
+Afterwards you can delete the *.bak files the patch scripts leave behind.

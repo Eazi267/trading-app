@@ -4,6 +4,7 @@ import Topbar from './Topbar.jsx'
 import Configurator from './Configurator.jsx'
 import ToastContainer from './ToastContainer.jsx'
 import RippleEffect from './RippleEffect.jsx'
+import EmailVerifyBanner from './EmailVerifyBanner.jsx'
 
 export default function Layout({ pageTitle, children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -25,7 +26,7 @@ export default function Layout({ pageTitle, children }) {
       <div className={'sidebar-backdrop' + (sidebarOpen ? ' open' : '')} onClick={() => setSidebarOpen(false)} />
       <main className="main">
         <Topbar pageTitle={pageTitle} onMenuClick={() => setSidebarOpen((o) => !o)} />
-        <div className="page-content fade-in-up" key={pageTitle}>{children}</div>
+        <div className="page-content fade-in-up" key={pageTitle}><EmailVerifyBanner />{children}</div>
       </main>
       <Configurator />
       <ToastContainer />

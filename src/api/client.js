@@ -49,7 +49,8 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
       body: body !== undefined ? JSON.stringify(body) : undefined
     })
   } catch {
-    return { error: "Can't reach the server. Check your connection and that the backend is running." }
+    // status 0 = the server never answered (network trouble), as opposed to a real "no".
+    return { error: "Can't reach the server. Check your connection and that the backend is running.", status: 0 }
   }
 
   let data = null
@@ -60,7 +61,7 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
   }
 
   if (!response.ok) {
-    return { error: data?.error || `Request failed (${response.status}).` }
+    return { error: data?.error || `Request failed (${response.status}).`, status: response.status }
   }
   return data || {}
 }

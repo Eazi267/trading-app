@@ -9,6 +9,8 @@ import { SettingsProvider } from './context/SettingsContext.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 import Login from './pages/Login.jsx'
 import Signup from './pages/Signup.jsx'
+import ForgotPassword from './pages/ForgotPassword.jsx'
+import VerifyEmail from './pages/VerifyEmail.jsx'
 import Home from './pages/Home.jsx'
 import AboutUs from './pages/AboutUs.jsx'
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx'
@@ -52,6 +54,8 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/verify-email" element={<ProtectedRoute><VerifyEmail /></ProtectedRoute>} />
             <Route path="/" element={<Home />} />
             <Route path="/about" element={<AboutUs />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
