@@ -93,6 +93,10 @@ app.use('/api/statements', statementsRouter)
 // designing once there's more than one route file to see the
 // pattern across, not invented speculatively here.
 app.use((err, req, res, next) => {
+  // Problems with the request itself (file too large, broken JSON) are the
+  // sender's fault: tell them clearly instead of a vague 500.
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large. Use a smaller file.' })
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request was not valid JSON.' })
   console.error(err)
   res.status(500).json({ error: 'Something went wrong.' })
 })

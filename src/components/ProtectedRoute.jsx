@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { hasPermission } from '../config/adminTiers.js'
 
@@ -10,6 +10,7 @@ import { hasPermission } from '../config/adminTiers.js'
 // hiding the link is only ever a convenience, not a real boundary.
 export default function ProtectedRoute({ children, requireRole, requirePermission }) {
   const { currentUser, loading } = useAuth()
+  const location = useLocation()
 
   // While the session-restore check (GET /api/auth/me) is still in
   // flight on first load, currentUser is legitimately null even for
@@ -19,6 +20,11 @@ export default function ProtectedRoute({ children, requireRole, requirePermissio
 
   if (!currentUser) {
     return <Navigate to="/login" replace />
+  }
+
+  // House rule (server setting REQUIRE_ADMIN_2FA): admins without two-factor may only use Settings until they set it up.
+  if (currentUser.twoFactorSetupRequired && location.pathname !== '/settings') {
+    return <Navigate to="/settings" replace />
   }
 
   if (requireRole && currentUser.role !== requireRole) {

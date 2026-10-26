@@ -1,0 +1,73 @@
+/* =============================================================
+   Pulse redesign — Stage 1: design tokens
+   Loaded AFTER index.css (see main.jsx), so these values win.
+   - Default accent ("ember") becomes GOLD in the dark theme and
+     OXBLOOD in the light theme.
+   - Other accents (rose / amber / sapphire) keep working: every
+     rule below that changes colors is scoped to data-accent=ember.
+   - Profit/loss colors stay separate from the brand accent.
+   ============================================================= */
+
+[data-theme='dark'][data-accent='ember'],
+:root:not([data-accent]) {
+  --bg: #0b0c0e;
+  --surface: #121417;
+  --surface-2: #191c20;
+  --text: #f2f3f5;
+  --text-secondary: #a5abb4;
+  --text-muted: #6c737d;
+  --border: #252a31;
+  --accent: #d6a74b;
+  --accent-dark: #b88a30;
+  --accent-bright: #f0c870;
+  --accent-bg: #231c0c;
+  --on-accent: #17130a;
+  --success: #2ebd85;
+  --success-bg: #0e2a20;
+  --danger: #f6465d;
+  --danger-bg: #2b1218;
+  --glow: rgba(214, 167, 75, 0.22);
+  --shadow-color: rgba(0, 0, 0, 0.55);
+}
+
+[data-theme='light'][data-accent='ember'] {
+  --bg: #f6f2ee;
+  --surface: #ffffff;
+  --surface-2: #f0eae5;
+  --text: #1d1618;
+  --text-secondary: #5d5255;
+  --text-muted: #8f8386;
+  --border: #e2d9d2;
+  --accent: #7a1f2e;
+  --accent-dark: #5e1623;
+  --accent-bright: #9b2d40;
+  --accent-bg: #f6e6e8;
+  --on-accent: #ffffff;
+  --success: #0e9f6e;
+  --success-bg: #e3f5ee;
+  --danger: #d93a4f;
+  --danger-bg: #fbe6e9;
+  --glow: rgba(122, 31, 46, 0.16);
+  --shadow-color: rgba(60, 30, 35, 0.1);
+}
+
+/* Text sitting on the accent color: dark on gold, white on oxblood. */
+[data-accent='ember'] .brand-mark,
+[data-accent='ember'] .nav-badge,
+[data-accent='ember'] .avatar,
+[data-accent='ember'] .configurator-trigger,
+[data-accent='ember'] .login-hero,
+[data-accent='ember'] .btn-primary,
+[data-accent='ember'] .home-nav-mark,
+[data-accent='ember'] .home-footer-icon,
+[data-accent='ember'] .chat-bubble-mine {
+  color: var(--on-accent);
+}
+
+/* Configurator swatch reflects the new default accent. */
+.swatch-ember { background: linear-gradient(150deg, #f0c870, #b88a30); }
+[data-theme='light'] .swatch-ember { background: linear-gradient(150deg, #9b2d40, #5e1623); }
+
+/* Selection + keyboard focus use the accent. */
+::selection { background: var(--accent); color: var(--on-accent, #fff); }
+:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }

@@ -3,7 +3,7 @@ import { useAuth } from './AuthContext.jsx'
 import { useAudit } from './AuditContext.jsx'
 import { useEmail } from './EmailContext.jsx'
 import { useSettings } from './SettingsContext.jsx'
-import { rpZELkorMwhkkpShF5PvT8YnqRCupnLTNG } from '../services/blockchainVerification.js'
+import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
 import { apiRequest, getToken } from '../api/client.js'
@@ -743,7 +743,7 @@ export function AppProvider({ children }) {
     let verification = null
     if (type === 'deposit' && details.depositMethod !== 'bank') {
       verification = settings.blockchainVerificationEnabled
-        ? rpZELkorMwhkkpShF5PvT8YnqRCupnLTNG({ method: details.depositMethod, chain: details.depositChain, amount })
+        ? requestDepositVerification({ method: details.depositMethod, chain: details.depositChain, amount })
         : { status: 'manual', reason: null }
     }
 

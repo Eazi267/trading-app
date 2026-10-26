@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { logAudit } from '../utils/auditLog.js'
 import { feeOwedAmount } from '../utils/fees.js'
 import { notify } from '../utils/notifications.js'
+import { autoTransactionEmail } from '../utils/clientEmails.js'
 import { getActiveReferralCampaign, isFirstApprovedDeposit } from '../utils/referrals.js'
 import { getAvailableBalance } from '../utils/balance.js'
 import { loadRuleSettings, checkTransactionRequest } from '../utils/transactionRules.js'
@@ -139,6 +140,7 @@ router.post('/', requireAuth, async (req, res) => {
     )
     await db.query('COMMIT')
     res.status(201).json({ transaction: publicTx(rows[0]) })
+    autoTransactionEmail(rows[0], 'received')
   } catch (err) {
     await db.query('ROLLBACK').catch(() => {})
     throw err
@@ -328,6 +330,7 @@ router.post('/:id/approve', requireAuth, requirePermission('finance'), async (re
     }
   }
 
+  autoTransactionEmail(updated[0], 'approved')
   res.json({ transaction: publicTx(updated[0]) })
 })
 
@@ -351,6 +354,7 @@ router.post('/:id/reject', requireAuth, requirePermission('finance'), async (req
     targetUserName: targetUser[0]?.name,
     details: { transactionId: tx.id, amount: Number(tx.amount), reason: reason || null }
   })
+  autoTransactionEmail(updated[0], 'rejected')
   res.json({ transaction: publicTx(updated[0]) })
 })
 

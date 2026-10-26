@@ -1,0 +1,11 @@
+PULSE REDESIGN - STAGE 1 (colours: gold in dark mode, oxblood in light mode)
+
+1. Unzip into your project folder (the one that has package.json). Say yes to "merge folders".
+   This adds: src/styles/redesign.css  and  patch-redesign-1.mjs
+2. In the VS Code terminal, from the project folder, run:
+      node patch-redesign-1.mjs
+   (It adds ONE line to src/main.jsx. Running it twice is harmless.)
+3. Run:  npm run dev   and open the site. Toggle dark/light with the Configurator.
+   Dark = gold accent, Light = oxblood accent. Other accents (rose, amber, sapphire) still work.
+
+To undo: delete the line  import './styles/redesign.css'  from src/main.jsx.

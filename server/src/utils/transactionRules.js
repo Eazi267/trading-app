@@ -32,6 +32,10 @@ export async function loadRuleSettings() {
 // `pendingWithdrawals` = money already requested but not yet reviewed, so
 // two quick requests can't each pass the balance check on their own.
 export async function checkTransactionRequest(user, { type, amount, method, chain }, settings, pendingWithdrawals = 0) {
+  // Optional: with REQUIRE_VERIFIED_EMAIL=1, money can't move until the email is confirmed.
+  if (process.env.REQUIRE_VERIFIED_EMAIL === '1' && !user.email_verified_at) {
+    return { error: 'Verify your email address first. We sent a code to your inbox; enter it on the Verify Email page.' }
+  }
   const min = Number(type === 'deposit' ? settings.depositMin : settings.withdrawalMin)
   const max = Number(type === 'deposit' ? settings.depositMax : settings.withdrawalMax)
   const fmt = (n) => `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`

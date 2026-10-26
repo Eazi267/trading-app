@@ -40,7 +40,9 @@ export function AuthProvider({ children }) {
       if (result.user) {
         setCurrentUser(result.user)
         if (result.user.role === 'admin') refreshUsers()
-      } else {
+      } else if (result.status === 401) {
+        // Only a real "you are not logged in" answer ends the session. A network
+        // blip must not log you out (or delete the cookie).
         setToken(null)
       }
       setLoading(false)

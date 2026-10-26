@@ -52,6 +52,9 @@ export default function TwoFactorPanel() {
         <h3><ShieldCheck size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Two-factor login</h3>
       </div>
       <div style={{ padding: '0 20px 20px', fontSize: 13.5 }}>
+        {currentUser.twoFactorSetupRequired && !recovery && (
+          <div className="form-error" style={{ marginBottom: 14 }}>Two-factor login is required for admin accounts. Set it up below to continue.</div>
+        )}
         {error && <div className="form-error" style={{ marginBottom: 14 }}>{error}</div>}
 
         {recovery && (
@@ -60,7 +63,7 @@ export default function TwoFactorPanel() {
             <p>Save these recovery codes somewhere safe. Each works once if you lose your phone. <strong>They will not be shown again.</strong></p>
             <pre style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: 14, lineHeight: 1.7 }}>{recovery.join('\n')}</pre>
             <CopyButton value={recovery.join('\n')} label="Copy codes" />
-            <button className="btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={() => setRecovery(null)}>I have saved them</button>
+            <button className="btn-primary" style={{ marginTop: 12, width: '100%' }} onClick={() => (currentUser.twoFactorSetupRequired ? window.location.assign('/dashboard') : setRecovery(null))}>I have saved them</button>
           </div>
         )}
 

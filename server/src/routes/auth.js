@@ -11,12 +11,26 @@ import { grantSignupBonus } from '../utils/signupBonus.js'
 import { checkPassword } from '../utils/passwordPolicy.js'
 import { logAudit } from '../utils/auditLog.js'
 import { checkSecondFactor } from '../utils/secondFactor.js'
+import { sendVerificationCode, sendPasswordChangedNotice } from '../utils/accountEmails.js'
+import { setAuthCookie, clearAuthCookie, CSRF_HEADER, CSRF_VALUE } from '../utils/authCookie.js'
 
 const router = Router()
 
 function signToken(user) {
   // v = the user's token_version: raising it in the DB cancels every older token.
   return jwt.sign({ sub: user.id, v: user.token_version ?? 0 }, process.env.JWT_SECRET, { expiresIn: '7d' })
+}
+
+// Starts a session: sets the HttpOnly cookie. The website identifies itself with
+// the X-Requested-With header and then gets NO token in the response body (so
+// nothing a script can read). Other clients (scripts, tests) still get the
+// token in the body and can send it as a Bearer header.
+function startSession(req, res, user, extra = {}, status = 200) {
+  const token = signToken(user)
+  setAuthCookie(res, token)
+  const body = { ...extra }
+  if (req.get(CSRF_HEADER) !== CSRF_VALUE) body.token = token
+  return res.status(status).json(body)
 }
 
 // Maps a DB row (snake_case, includes password_hash) to the shape the
@@ -82,9 +96,11 @@ router.post('/signup', signupLimiter, async (req, res) => {
   )
   const user = rows[0]
   await grantSignupBonus(user)
+  // Email them a verification code. Not awaited and failures ignored: a broken
+  // mail provider must never stop someone signing up.
+  sendVerificationCode(user).catch((err) => console.error('verification email failed:', err.message))
 
-  const token = signToken(user)
-  res.status(201).json({ token, user: publicUser(user) })
+  startSession(req, res, user, { user: publicUser(user) }, 201)
 })
 
 router.post('/login', loginLimiter, async (req, res) => {
@@ -112,8 +128,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.json({ twoFactorRequired: true, challenge })
   }
 
-  const token = signToken(user)
-  res.json({ token, user: publicUser(user) })
+  startSession(req, res, user, { user: publicUser(user) })
 })
 
 router.post('/login/2fa', twoFactorLimiter, async (req, res) => {
@@ -132,7 +147,14 @@ router.post('/login/2fa', twoFactorLimiter, async (req, res) => {
   if (check.via === 'recovery') {
     await logAudit({ action: 'two_factor_recovery_used', actor: user, targetUserId: user.id, targetUserName: user.name })
   }
-  res.json({ token: signToken(user), user: publicUser(user) })
+  startSession(req, res, user, { user: publicUser(user) })
+})
+
+// Signing out must clear the cookie from the server side: the page cannot
+// delete an HttpOnly cookie itself.
+router.post('/logout', (req, res) => {
+  clearAuthCookie(res)
+  res.json({ ok: true })
 })
 
 router.get('/me', requireAuth, (req, res) => {
@@ -160,7 +182,8 @@ router.post('/change-password', requireAuth, async (req, res) => {
     [newHash, req.user.id]
   )
   await logAudit({ action: 'password_changed', actor: req.user, targetUserId: req.user.id, targetUserName: req.user.name })
-  res.json({ ok: true, token: signToken(updated[0]) })
+  sendPasswordChangedNotice(req.user).catch(() => {})
+  startSession(req, res, updated[0], { ok: true })
 })
 
 export default router

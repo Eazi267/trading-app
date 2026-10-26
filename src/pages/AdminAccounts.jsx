@@ -9,6 +9,8 @@ function initials(name) {
   return (name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 }
 
+import AdminSecurityControls from '../components/AdminSecurityControls.jsx'
+
 export default function AdminAccounts() {
   const { currentUser, users, createAdmin, updateAdminTier, setAdminActive } = useAuth()
   const [search, setSearch] = useState('')
@@ -42,6 +44,8 @@ export default function AdminAccounts() {
         Create staff accounts and control what each one can access. Every admin tier's exact permissions are
         listed below the form — none of this is guesswork once an account exists.
       </p>
+
+      <AdminSecurityControls />
 
       <div className="glass-card fade-in-up-1" style={{ marginBottom: 20 }}>
         <div className="panel-head">

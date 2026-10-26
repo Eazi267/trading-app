@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken'
 import { pool } from '../db.js'
 import { hasPermission } from '../config/adminTiers.js'
+import { readAuthCookie, CSRF_HEADER, CSRF_VALUE } from '../utils/authCookie.js'
 
 // Verifies the Bearer token, loads the current user fresh from the DB
 // (not just trusting the token payload) and attaches it as req.user.
@@ -9,8 +10,16 @@ import { hasPermission } from '../config/adminTiers.js'
 // take effect immediately on the next request, not just at next login.
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null
+  const bearer = header.startsWith('Bearer ') ? header.slice(7) : null
+  const token = bearer || readAuthCookie(req)
   if (!token) return res.status(401).json({ error: 'Not authenticated.' })
+
+  // Cookie sessions are sent automatically by the browser, so state-changing
+  // requests must also carry our custom header (CSRF protection). A Bearer
+  // token is never sent automatically, so it needs no such check.
+  if (!bearer && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get(CSRF_HEADER) !== CSRF_VALUE) {
+    return res.status(403).json({ error: 'Blocked: missing security header.' })
+  }
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET)

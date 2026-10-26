@@ -1,0 +1,15 @@
+BATCH 18 - EMAIL VERIFICATION + FORGOT PASSWORD  (requires Batches 14-17 installed)
+
+1. Unzip over your project (merges into server/ and src/).
+2. From the project root (PowerShell):   node patch-batch18.mjs
+3. Server:
+     cd server
+     npm run migrate        (applies 023_email_codes.sql)
+     npm start
+4. Try it (no email account needed): sign up a new user. The 6-digit code is PRINTED IN
+   THE SERVER WINDOW (console mode). Enter it on the Verify Email page.
+   Then log out -> "Forgot password?" -> the code appears in the server window again.
+5. Going live: pick an email provider (Resend is the one built in), verify your domain
+   with it, then set EMAIL_PROVIDER=resend, RESEND_API_KEY and EMAIL_FROM on the server.
+   Only then set REQUIRE_VERIFIED_EMAIL=1 if you want verification to be mandatory.
+   Details: server/README.md, section "Email codes".

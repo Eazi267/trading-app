@@ -372,3 +372,63 @@ Admins can turn on authenticator-app login (Settings → Two-factor login). Work
 Also in Batch 15: the dead delete (bin) button on admin client transactions is gone (use Reverse in the transaction's View window).
 
 Not done yet: forcing every admin to enable 2FA, a QR code (you type the key instead), password reset and email verification.
+
+## Encrypted KYC images (Batch 16)
+
+ID and proof-of-address photos used to sit as plain text inside `users.kyc`, and rode along in every login, `/me` and admin client list. Now:
+- **Encrypted at rest.** Images live in a separate `kyc_files` table (migration 022), AES-256-GCM encrypted (`utils/fileCrypto.js`). A leaked database dump alone shows only scrambled bytes.
+- **Never in the user record.** `users.kyc` keeps only status and flags (`hasFrontImage`, `hasBackImage`). Logins, `/me` and client lists are small again and carry no photos.
+- **Fetched on demand:** `GET /api/kyc/:userId/image/:slot` (`front`, `back`, `enhanced`). Allowed for the owner or an admin with the finance permission; everyone else gets 403. Every admin view is audited (`kyc_image_viewed`).
+- **Upload checks:** JPG / PNG / WebP / GIF / HEIC / BMP / PDF only (no SVG, which can hide scripts), 3.5 MB per file. Oversize requests now return a clear 413 instead of a vague 500.
+- **Moving old photos:** after `npm run migrate`, run `node encryptKycImages.js` once. It moves any inline images into the encrypted table and is safe to re-run. Until you run it, old images still display (fallback).
+- **Key:** `KYC_ENCRYPTION_KEY` (or `JWT_SECRET` if unset). Set a separate one in production and BACK IT UP. If it is lost or changed, existing images cannot be opened and clients must re-upload.
+
+Still true: images are inside the database, so database backups hold encrypted copies. Moving to private object storage (S3 etc.) is the next step if volume grows.
+
+## Login in an HttpOnly cookie (Batch 17)
+
+The login session used to be a token kept in the browser's localStorage, readable by any script on the page, so a single injected script could steal it. Now:
+- **HttpOnly cookie** (`pulse_session`, 7 days). Page scripts cannot read it. Set by `login`, `signup`, `login/2fa` and `change-password`; cleared by the new `POST /api/auth/logout`. Secure (HTTPS-only) in production.
+- **The website no longer receives the token.** It identifies itself with an `X-Requested-With: pulse` header and the response body then omits `token`. Scripts, tests and other clients (no header) still get the token and can send it as `Authorization: Bearer ...` exactly as before.
+- **CSRF protection.** A browser attaches cookies even to requests a hostile site triggers, so a cookie-authenticated request that changes data (anything except GET) must carry `X-Requested-With: pulse`, otherwise 403. Bearer requests are not affected. CORS now allows credentials only for the origins in `CORS_ORIGIN`.
+- **Old sessions:** the previous localStorage token is deleted on first load; everyone logs in once more.
+- Frontend change: only `src/api/client.js` (everything already went through it).
+
+### Which setup to use
+
+| Setup | What to set |
+|---|---|
+| Local development (site on :5173, API on :4000) | nothing, works as is |
+| **One address, no domain needed** (the server also serves the site) | build the site with `VITE_API_URL=same-origin`, run the server with `SERVE_FRONTEND=1` and `CORS_ORIGIN` = the site's own URL |
+| Site and API on subdomains of one domain (app.example.com + api.example.com) | `CORS_ORIGIN=https://app.example.com`; the default `COOKIE_SAMESITE=lax` works |
+| Site and API on unrelated domains | `COOKIE_SAMESITE=none` (HTTPS required). Not recommended: Safari and Chrome increasingly block cookies in this case |
+
+`SERVE_FRONTEND=1` serves the Vite `dist` folder (run `npm run build` in the project root first): hashed assets cached for a year, every other page URL falls back to `index.html` so React routes and refreshes work.
+
+Not done yet: forcing every admin to use two-factor; password reset and email verification.
+
+## Email codes: verification and forgotten password (Batch 18)
+
+Emailed 6-digit one-time codes, built as a general mechanism (`utils/emailCodes.js`) so more uses (for example confirming a withdrawal) can be added later.
+
+- **Verify email.** A code is emailed at signup. `POST /api/auth/verify-email/send` (logged in) sends another; `POST /api/auth/verify-email/confirm { code }` confirms. The website shows a banner until verified, and a Verify Email page.
+- **Forgot password.** `POST /api/auth/password-reset/request { email }` and `POST /api/auth/password-reset/confirm { email, code, newPassword }`. The first call always gives the same reply whether or not the email has an account (no way to discover who is registered). Resetting signs the person out everywhere (`token_version`), marks the email verified, and emails a "your password was changed" notice. Admins with two-factor still need their code to log in afterwards.
+- **How codes are protected.** Only a keyed hash is stored. A code lasts 15 minutes, works once, and dies after 5 wrong guesses. A new code replaces any older one. At most 1 code a minute and 5 an hour per person, plus per-address rate limits. A too-weak new password is refused WITHOUT using up the code.
+- **Optional enforcement.** `REQUIRE_VERIFIED_EMAIL=1` blocks deposit and withdrawal requests until the email is verified. Off by default (existing users are all unverified, so turn it on once email delivery works).
+- Migration `023` adds `users.email_verified_at` and the `email_codes` table. Run `npm run migrate`.
+
+### Sending the emails
+
+Set these on the server:
+
+| Variable | Meaning |
+|---|---|
+| `EMAIL_PROVIDER` | `resend` to really send; `console` prints emails in the server log (default when not in production, for testing only) |
+| `RESEND_API_KEY` | API key from your Resend account |
+| `EMAIL_FROM` | e.g. `Pulse <noreply@yourdomain.com>`; the domain must be verified with the provider (DNS records) |
+
+- **No domain yet:** keep `console` mode while building and testing. In production without a provider nothing is sent and nothing is logged (a log would reveal the codes); the server prints one warning at start. With `REQUIRE_VERIFIED_EMAIL=1` and no provider the server refuses to start in production, because nobody could verify.
+- **A failing mail provider never breaks signup or reset**; the error is only logged.
+- The brand name in emails comes from the website's own Settings (editable), falling back to `APP_NAME`.
+
+Not done yet: forcing every admin to use two-factor; confirming withdrawals by emailed code (the mechanism is ready).

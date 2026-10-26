@@ -1,5 +1,7 @@
 import { useState , useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import KycImage from '../components/KycImage.jsx'
+import ClientEmailPanel from '../components/ClientEmailPanel.jsx'
 import { ArrowLeft, Send, Trash2, TrendingUp, TrendingDown, Repeat, ArrowDownToLine, ArrowUpFromLine, Receipt, Wallet } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import CollapsiblePanel, { useShowMore } from '../components/CollapsiblePanel.jsx'
@@ -466,12 +468,12 @@ if (sent.error) {
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Front</div>
-                    <img src={targetUser.kyc.frontImageDataUrl} alt="Document front" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
+                    <KycImage userId={targetUser.id} slot="front" alt="Document front" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
                   </div>
-                  {targetUser.kyc.backImageDataUrl && (
+                  {targetUser.kyc.hasBackImage && (
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>Back</div>
-                      <img src={targetUser.kyc.backImageDataUrl} alt="Document back" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
+                      <KycImage userId={targetUser.id} slot="back" alt="Document back" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)' }} />
                     </div>
                   )}
                 </div>
@@ -520,7 +522,7 @@ if (sent.error) {
               </span>
             </div>
 
-            <img src={targetUser.kycEnhanced.frontImageDataUrl} alt="Proof of address" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)', marginBottom: 14, display: 'block' }} />
+            <KycImage userId={targetUser.id} slot="enhanced" alt="Proof of address" style={{ width: 200, borderRadius: 8, border: '1px solid var(--border)', marginBottom: 14, display: 'block' }} />
 
             {targetUser.kycEnhanced.status === 'pending' ? (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -992,6 +994,8 @@ if (sent.error) {
           </>
         )}
       </CollapsiblePanel>
+
+      <ClientEmailPanel userId={targetUser.id} email={targetUser.email} transactions={userTransactions.filter((t) => t.type === 'deposit' || t.type === 'withdrawal')} />
 
       <CollapsiblePanel title="Deposit / withdrawal history" count={userTransactions.length} style={{ marginTop: 16 }}>
         {deleteError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{deleteError}</div>}
