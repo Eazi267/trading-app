@@ -1,3 +1,9 @@
+@import './shell.css';
+@import './dash.css';
+@import './auth.css';
+@import './mobile.css';
+@import './nav.css';
+
 /* =============================================================
    Pulse redesign — Stage 1: design tokens
    Loaded AFTER index.css (see main.jsx), so these values win.
@@ -22,6 +28,8 @@
   --accent-bright: #f0c870;
   --accent-bg: #231c0c;
   --on-accent: #17130a;
+  --brand-red: #e5493d;
+  --brand-red-bg: #2b1512;
   --success: #2ebd85;
   --success-bg: #0e2a20;
   --danger: #f6465d;
@@ -31,42 +39,51 @@
 }
 
 [data-theme='light'][data-accent='ember'] {
-  --bg: #f6f2ee;
+  --bg: #fbf8f3;
   --surface: #ffffff;
-  --surface-2: #f0eae5;
-  --text: #1d1618;
-  --text-secondary: #5d5255;
-  --text-muted: #8f8386;
-  --border: #e2d9d2;
-  --accent: #7a1f2e;
-  --accent-dark: #5e1623;
-  --accent-bright: #9b2d40;
-  --accent-bg: #f6e6e8;
-  --on-accent: #ffffff;
+  --surface-2: #f5efe4;
+  --text: #1b1710;
+  --text-secondary: #5c5547;
+  --text-muted: #8c8472;
+  --border: #e8dfcf;
+  --accent: #c8952a;
+  --accent-dark: #a67a1c;
+  --accent-bright: #8a6112; /* used for accent-coloured TEXT on white: darker for legibility */
+  --accent-bg: #fbf1d9;
+  --on-accent: #1b1305;
+  --brand-red: #d6392e;
+  --brand-red-bg: #fbe9e6;
   --success: #0e9f6e;
   --success-bg: #e3f5ee;
   --danger: #d93a4f;
   --danger-bg: #fbe6e9;
-  --glow: rgba(122, 31, 46, 0.16);
-  --shadow-color: rgba(60, 30, 35, 0.1);
+  --glow: rgba(200, 149, 42, 0.18);
+  --shadow-color: rgba(70, 50, 15, 0.1);
 }
 
 /* Text sitting on the accent color: dark on gold, white on oxblood. */
 [data-accent='ember'] .brand-mark,
-[data-accent='ember'] .nav-badge,
 [data-accent='ember'] .avatar,
 [data-accent='ember'] .configurator-trigger,
 [data-accent='ember'] .login-hero,
 [data-accent='ember'] .btn-primary,
+[data-accent='ember'] .tx-btn.deposit,
 [data-accent='ember'] .home-nav-mark,
 [data-accent='ember'] .home-footer-icon,
 [data-accent='ember'] .chat-bubble-mine {
   color: var(--on-accent);
 }
 
+/* Light theme: flat gold buttons (no gradient). */
+[data-theme='light'][data-accent='ember'] .btn-primary {
+  background: var(--accent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset, 0 6px 16px -10px var(--glow);
+}
+[data-theme='light'][data-accent='ember'] .btn-primary:hover { filter: none; background: #d6a23a; }
+
 /* Configurator swatch reflects the new default accent. */
 .swatch-ember { background: linear-gradient(150deg, #f0c870, #b88a30); }
-[data-theme='light'] .swatch-ember { background: linear-gradient(150deg, #9b2d40, #5e1623); }
+[data-theme='light'] .swatch-ember { background: linear-gradient(150deg, #e0b45a, #c8952a); }
 
 /* Selection + keyboard focus use the accent. */
 ::selection { background: var(--accent); color: var(--on-accent, #fff); }

@@ -13,6 +13,7 @@ import { logAudit } from '../utils/auditLog.js'
 import { checkSecondFactor } from '../utils/secondFactor.js'
 import { sendVerificationCode, sendPasswordChangedNotice } from '../utils/accountEmails.js'
 import { setAuthCookie, clearAuthCookie, CSRF_HEADER, CSRF_VALUE } from '../utils/authCookie.js'
+import { requireOtp } from '../middleware/otp.js'
 
 const router = Router()
 
@@ -165,7 +166,7 @@ router.get('/me', requireAuth, (req, res) => {
 // basic safeguard as changePassword() on the frontend: anyone
 // briefly at an unlocked session can't lock the real owner out
 // without knowing the existing password.
-router.post('/change-password', requireAuth, async (req, res) => {
+router.post('/change-password', requireAuth, requireOtp('password'), async (req, res) => {
   const { currentPassword, newPassword } = req.body || {}
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' })
   const passwordProblem = checkPassword(newPassword, { email: req.user.email, name: req.user.name })

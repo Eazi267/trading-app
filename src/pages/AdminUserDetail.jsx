@@ -17,6 +17,14 @@ import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
 import { METHOD_LABELS } from '../config/paymentMethods.js'
 import { hasPermission } from '../config/adminTiers.js'
 
+const CD_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'trading', label: 'Trading' },
+  { id: 'money', label: 'Money & fees' },
+  { id: 'account', label: 'Account & KYC' },
+  { id: 'contact', label: 'Contact' }
+]
+
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
@@ -103,6 +111,8 @@ useEffect(() => { refreshSentMessages(userId) }, [userId])
   const [messageBody, setMessageBody] = useState('')
   const [messageError, setMessageError] = useState('')
   const [messageSent, setMessageSent] = useState(false)
+  const [tab, setTab] = useState('overview')
+  const sec = (id) => 'cd-sec' + (tab === id ? '' : ' cd-off')
 
   const targetUser = users.find((u) => u.id === userId)
   const userOrders = orders.filter((o) => o.userId === userId)
@@ -257,19 +267,30 @@ if (sent.error) {
 
   return (
     <Layout pageTitle={targetUser.name}>
-      <button
-        onClick={() => navigate('/admin/users')}
-        style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, marginBottom: 10 }}
-      >
-        <ArrowLeft size={14} /> Back to Users
+      <button type="button" className="cd-back" onClick={() => navigate('/admin/users')}>
+        <ArrowLeft size={14} /> All clients
       </button>
 
-      <h1 className="page-title">{targetUser.name}</h1>
-      <p className="page-sub">
-        {targetUser.email} · UID <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{targetUser.uid}</span>
-        <CopyButton value={targetUser.uid} label="Copy UID" size={12} style={{ marginLeft: 2, marginRight: 2 }} /> — trade inside their active sessions below.
-      </p>
+      <header className="cd-head">
+        <span className="cd-av">{(targetUser.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+        <div className="cd-who">
+          <h1 className="dz-title">{targetUser.name}{targetUser.flaggedForReview && <span className="cd-flag">Flagged</span>}</h1>
+          <div className="dz-muted">
+            {targetUser.email} · UID <span className="mono">{targetUser.uid}</span>
+            <CopyButton value={targetUser.uid} label="Copy UID" size={12} style={{ marginLeft: 4 }} />
+          </div>
+        </div>
+        <span className="dz-chip">{getTier(targetUser.tier)?.name || 'No tier'}</span>
+        {targetUser.isDemoGenerated && <span className="dz-chip cl-pending">Demo account</span>}
+      </header>
 
+      <div className="cd-tabs" role="tablist" aria-label="Client sections">
+        {CD_TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className={'cd-tab' + (tab === t.id ? ' on' : '')} onClick={() => setTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
+
+      <div className={sec('overview')}>
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Client balance</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
@@ -326,7 +347,9 @@ if (sent.error) {
           })()}
         </div>
       </div>
+      </div>
 
+      <div className={sec('account')}>
       {canSupport && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Withdrawal wallet</h3></div>
@@ -354,7 +377,9 @@ if (sent.error) {
         </div>
       </div>
       )}
+      </div>
 
+      <div className={sec('money')}>
       {canFinance && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Apply a fee</h3></div>
@@ -435,7 +460,9 @@ if (sent.error) {
         </p>
       </div>
       )}
+      </div>
 
+      <div className={sec('account')}>
       {canFinance && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Identity verification</h3></div>
@@ -508,7 +535,9 @@ if (sent.error) {
           </div>
         </div>
       )}
+      </div>
 
+      <div className={sec('account')}>
       {canFinance && targetUser?.kycEnhanced && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-head"><h3>Enhanced verification (proof of address)</h3></div>
@@ -552,7 +581,9 @@ if (sent.error) {
           </div>
         </div>
       )}
+      </div>
 
+      <div className={sec('money')}>
       {canFinance && getOutstandingFees(userId).length > 0 && (
         <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
           <div className="panel-head">
@@ -620,7 +651,9 @@ if (sent.error) {
           </div>
         </div>
       )}
+      </div>
 
+      <div className={sec('contact')}>
       {canSupport && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Message this client</h3></div>
@@ -673,7 +706,9 @@ if (sent.error) {
         })()}
       </div>
       )}
+      </div>
 
+      <div className={sec('trading')}>
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Market prices</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
@@ -692,6 +727,8 @@ if (sent.error) {
         </div>
       </div>
 
+      </div>
+      <div className={sec('account')}>
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h3>Tier</h3></div>
         <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -752,6 +789,8 @@ if (sent.error) {
         )}
       </div>
 
+      </div>
+      <div className={sec('trading')}>
       {/* ---------- Per-session leveraged trading ---------- */}
       {canTrade && (
       <div className="panel" style={{ marginBottom: 16 }}>
@@ -956,7 +995,9 @@ if (sent.error) {
         )}
       </div>
       )}
+      </div>
 
+      <div className={sec('trading')}>
       {/* ---------- Trade history (legacy buy/sell + new open/close position, same audit log) ---------- */}
       <CollapsiblePanel title="Trade history" count={userOrders.length} style={{ marginTop: 16 }}>
         {userOrders.length === 0 ? (
@@ -994,9 +1035,13 @@ if (sent.error) {
           </>
         )}
       </CollapsiblePanel>
+      </div>
 
+      <div className={sec('contact')}>
       <ClientEmailPanel userId={targetUser.id} email={targetUser.email} transactions={userTransactions.filter((t) => t.type === 'deposit' || t.type === 'withdrawal')} />
+      </div>
 
+      <div className={sec('money')}>
       <CollapsiblePanel title="Deposit / withdrawal history" count={userTransactions.length} style={{ marginTop: 16 }}>
         {deleteError && <div className="form-error" style={{ margin: '0 20px 16px' }}>{deleteError}</div>}
         {userTransactions.length === 0 ? (
@@ -1074,7 +1119,9 @@ if (sent.error) {
           record itself is gone.
         </p>
       </CollapsiblePanel>
+      </div>
 
+      <div className={sec('overview')}>
       <CollapsiblePanel title="Trading sessions" count={userSessions.length} defaultOpen style={{ marginTop: 16 }}>
 
         {sessionError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{sessionError}</div>}
@@ -1195,6 +1242,7 @@ if (sent.error) {
           </>
         )}
       </CollapsiblePanel>
+      </div>
 
       <TransactionDetailModal transaction={viewingTx} isAdmin={true} onClose={() => setViewingTx(null)} />
     </Layout>

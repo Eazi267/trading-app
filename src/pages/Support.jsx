@@ -63,47 +63,36 @@ export default function Support() {
 
   return (
     <Layout pageTitle="Support">
-      <h1 className="page-title">Support</h1>
-      <p className="page-sub">
-        Open a case for anything you need help with — each one is tracked separately, with replies landing here and in your notifications.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Support</h1>
+        <div className="dz-muted">Open a case for anything you need help with. Each one is tracked separately, with replies landing here and in your notifications.</div>
+      </header>
 
-      <div className="tx-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 300px) 1fr', gap: 20, alignItems: 'start' }}>
-        <div className="panel">
-          <div className="panel-head">
+      <div className="sp-grid">
+        <div className="dz-card sp-list">
+          <div className="dz-card-head">
             <h3>Your cases ({myCases.length})</h3>
-            <button className="tx-btn deposit" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => { setShowNewCase(true); setSelectedCaseId(null) }}>
+            <button className="btn-primary sp-new" onClick={() => { setShowNewCase(true); setSelectedCaseId(null) }}>
               <Plus size={13} /> New
             </button>
           </div>
           {myCases.length === 0 ? (
-            <div className="empty-state"><LifeBuoy size={20} /><p>No cases yet.</p></div>
+            <div className="dz-empty"><LifeBuoy size={20} /><br />No cases yet.</div>
           ) : (
-            <div style={{ padding: 12 }} className="stagger-in">
+            <div className="sp-cases">
               {myCases.map((c) => {
-                const isActive = c.id === selectedCaseId
                 const lastMsg = c.messages[c.messages.length - 1]
                 return (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCaseId(c.id)}
-                    style={{
-                      width: '100%', textAlign: 'left', display: 'block', padding: '10px 12px', borderRadius: 10,
-                      border: 'none', cursor: 'pointer', marginBottom: 4,
-                      background: isActive ? 'var(--accent-bg)' : 'transparent'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.subject}</span>
-                      {c.unreadForClient && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-bright)', flex: 'none', marginTop: 4 }} />}
+                  <button key={c.id} type="button" className={'sp-case' + (c.id === selectedCaseId ? ' on' : '')} onClick={() => setSelectedCaseId(c.id)}>
+                    <div className="sp-case-top">
+                      <strong>{c.subject}</strong>
+                      {c.unreadForClient && <span className="sp-dot" aria-label="Unread reply" />}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      <span className={'status-pill status-' + (c.status === 'resolved' ? 'approved' : 'pending')} style={{ fontSize: 10 }}>{c.status}</span>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{CASE_CATEGORIES[c.category]}</span>
+                    <div className="sp-case-meta">
+                      <span className={'status-pill status-' + (c.status === 'resolved' ? 'approved' : 'pending')}>{c.status}</span>
+                      <span className="dz-muted">{CASE_CATEGORIES[c.category]}</span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {lastMsg?.senderRole === 'client' ? 'You: ' : ''}{lastMsg?.body}
-                    </div>
+                    <div className="sp-case-last">{lastMsg?.senderRole === 'client' ? 'You: ' : ''}{lastMsg?.body}</div>
                   </button>
                 )
               })}
@@ -111,68 +100,47 @@ export default function Support() {
           )}
         </div>
 
-        <div className="glass-card">
+        <div className="dz-card sp-pane">
           {showNewCase ? (
             <>
-              <div className="panel-head"><h3><Plus size={15} style={{ verticalAlign: -2, marginRight: 6 }} />New case</h3></div>
-              <div style={{ padding: '0 20px 20px' }}>
-                <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Category</label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-                >
-                  {Object.entries(CASE_CATEGORIES).filter(([id]) => id !== 'appeal').map(([id, label]) => (
-                    <option key={id} value={id}>{label}</option>
-                  ))}
-                </select>
-                <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Subject (optional)</label>
-                <input
-                  type="text"
-                  value={newSubject}
-                  onChange={(e) => setNewSubject(e.target.value)}
-                  placeholder={CASE_CATEGORIES[newCategory]}
-                  style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-                />
-                <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Message</label>
-                <textarea
-                  value={newBody}
-                  onChange={(e) => setNewBody(e.target.value)}
-                  placeholder="What do you need help with?"
-                  style={{ width: '100%', minHeight: 100, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', resize: 'none' }}
-                />
-                {newError && <div className="form-error" style={{ marginTop: 10 }}>{newError}</div>}
-                <button className="tx-btn deposit" style={{ marginTop: 10, padding: '9px 16px', fontSize: 13 }} onClick={handleCreateCase}>
-                  Open case
-                </button>
+              <div className="dz-card-head"><h3><Plus size={15} className="st-ico" />New case</h3></div>
+              <div className="st-form">
+                <label className="st-f">
+                  <span className="pg-label">Category</span>
+                  <select className="pg-field" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}>
+                    {Object.entries(CASE_CATEGORIES).filter(([id]) => id !== 'appeal').map(([id, label]) => (
+                      <option key={id} value={id}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="st-f">
+                  <span className="pg-label">Subject (optional)</span>
+                  <input className="pg-field" type="text" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder={CASE_CATEGORIES[newCategory]} />
+                </label>
+                <label className="st-f st-wide">
+                  <span className="pg-label">Message</span>
+                  <textarea className="pg-field" value={newBody} onChange={(e) => setNewBody(e.target.value)} placeholder="What do you need help with?" style={{ minHeight: 120, resize: 'vertical' }} />
+                </label>
               </div>
+              {newError && <div className="form-error" style={{ marginTop: 10 }}>{newError}</div>}
+              <button className="btn-primary pg-start-btn" onClick={handleCreateCase}>Open case</button>
             </>
           ) : !selected ? (
-            <div className="empty-state"><LifeBuoy size={20} /><p>Select a case, or open a new one.</p></div>
+            <div className="dz-empty"><LifeBuoy size={20} /><br />Select a case, or open a new one.</div>
           ) : (
             <>
-              <div className="panel-head">
+              <div className="dz-card-head sp-thread-head">
                 <div>
                   <h3>{selected.subject}</h3>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                    Case #{selected.id} · {CASE_CATEGORIES[selected.category]}
-                  </div>
+                  <div className="dz-muted">Case #{selected.id} · {CASE_CATEGORIES[selected.category]}</div>
                 </div>
-                <button
-                  className="tx-btn withdraw"
-                  style={{ padding: '6px 12px', fontSize: 12 }}
-                  onClick={() => setCaseStatus(selected.id, selected.status === 'resolved' ? 'open' : 'resolved')}
-                >
+                <button className="dz-btn-o" onClick={() => setCaseStatus(selected.id, selected.status === 'resolved' ? 'open' : 'resolved')}>
                   {selected.status === 'resolved' ? <><RotateCcw size={13} /> Reopen</> : <><CheckCircle2 size={13} /> Mark resolved</>}
                 </button>
               </div>
 
               {selected.relatedTransactionId && (
-                <div style={{ padding: '10px 20px 0' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: 'var(--accent-bg)', color: 'var(--accent-bright)' }}>
-                    <Receipt size={11} /> Linked to Transaction #{selected.relatedTransactionId}
-                  </span>
-                </div>
+                <span className="dz-chip sp-linked"><Receipt size={11} /> Linked to Transaction #{selected.relatedTransactionId}</span>
               )}
 
               <div className="chat-thread" ref={threadRef}>
@@ -184,7 +152,7 @@ export default function Support() {
                 ))}
               </div>
 
-              {replyError && <div className="form-error" style={{ margin: '0 20px 12px' }}>{replyError}</div>}
+              {replyError && <div className="form-error" style={{ margin: '0 0 12px' }}>{replyError}</div>}
 
               <div className="chat-composer">
                 <textarea
@@ -193,7 +161,7 @@ export default function Support() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReply() } }}
                   placeholder="Type a message..."
                 />
-                <button className="tx-btn deposit" style={{ padding: '0 18px', flex: 'none' }} onClick={handleReply}>
+                <button className="btn-primary" style={{ padding: '0 18px', flex: 'none' }} onClick={handleReply} aria-label="Send">
                   <Send size={15} />
                 </button>
               </div>

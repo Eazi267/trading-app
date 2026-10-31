@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Gift, Plus, Power } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
-import CollapsiblePanel from '../components/CollapsiblePanel.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 
@@ -14,9 +13,6 @@ function formatDate(iso) {
 }
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
-
-const inputStyle = { display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }
-const labelStyle = { fontSize: 11.5, color: 'var(--text-muted)' }
 
 // A campaign's real-world status, derived fresh every render from
 // its own active flag + date window — never a separate stored status
@@ -79,120 +75,89 @@ export default function AdminReferralCampaigns() {
 
   return (
     <Layout pageTitle="Referral Campaigns">
-      <h1 className="page-title">Referral Campaigns</h1>
-      <p className="page-sub">
-        Set up a bonus window (e.g. a Christmas Bonus). The referrer earns the bonus automatically the moment
-        someone they referred makes their first approved deposit — no separate approval step.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Referral Campaigns</h1>
+        <div className="dz-muted">Set up a bonus window (e.g. a Christmas Bonus). The referrer earns the bonus automatically the moment someone they referred makes their first approved deposit, with no separate approval step.</div>
+      </header>
 
-      {liveCampaign ? (
-        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--success)' }}>
-          <div className="panel-head"><h3><Gift size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Currently live</h3></div>
-          <p style={{ padding: '0 20px 16px', fontSize: 13.5 }}>
-            <strong>{liveCampaign.name}</strong> — {formatMoney(liveCampaign.bonusAmount)} per qualifying referral,
-            through {formatDate(liveCampaign.endDate)}.
-          </p>
+      <div className={'dz-card rf-campaign' + (liveCampaign ? ' sc-live' : '')}>
+        <div className="icon-badge"><Gift size={17} /></div>
+        <div>
+          {liveCampaign ? (
+            <>
+              <strong>Live now: {liveCampaign.name}</strong>
+              <p className="dz-muted" style={{ margin: '2px 0 0' }}>{formatMoney(liveCampaign.bonusAmount)} per qualifying referral, through {formatDate(liveCampaign.endDate)}.</p>
+            </>
+          ) : (
+            <>
+              <strong>No campaign is live</strong>
+              <p className="dz-muted" style={{ margin: '2px 0 0' }}>Referrals won't pay a bonus until one is active and inside its date window.</p>
+            </>
+          )}
         </div>
-      ) : (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <p style={{ padding: '16px 20px', fontSize: 13.5, color: 'var(--text-muted)' }}>
-            No campaign is live right now — referrals won't pay a bonus until one is active and inside its date window.
-          </p>
-        </div>
-      )}
+      </div>
 
-      {/* Collapsed by default — this is an occasional-use form, not
-          something that needs to occupy screen space every time an
-          admin just wants to check what's live or pause something. */}
-      <CollapsiblePanel title="New campaign" style={{ marginBottom: 16 }}>
-        {error && <div className="form-error" style={{ margin: '16px 20px 0' }}>{error}</div>}
-        {created && <div style={{ margin: '16px 20px 0', fontSize: 13, color: 'var(--success)' }}>Campaign created.</div>}
-        <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-          <label style={labelStyle}>
-            Campaign name
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder='e.g. "Christmas Bonus"'
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            Bonus amount (USD)
-            <input
-              type="number"
-              value={bonusAmount}
-              onChange={(e) => setBonusAmount(e.target.value)}
-              placeholder="0.00"
-              style={inputStyle}
-            />
-          </label>
-          <label style={labelStyle}>
-            Start date
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={inputStyle} />
-          </label>
-          <label style={labelStyle}>
-            End date
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inputStyle} />
-          </label>
-          <label style={{ ...labelStyle, gridColumn: '1 / -1' }}>
-            Internal note (optional)
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Not shown to clients"
-              style={inputStyle}
-            />
-          </label>
-        </div>
-        <div style={{ padding: '0 16px 16px' }}>
-          <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handleCreate}>
-            <Plus size={14} /> Create campaign
-          </button>
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 16px 16px', margin: 0 }}>
-          Only one campaign needs to be live at a time, but past campaigns stay listed below for the record —
-          bonuses already paid out are never affected by pausing or ending a campaign afterward.
-        </p>
-      </CollapsiblePanel>
-
-      <div className="panel">
-        <div className="panel-head"><h3>All campaigns ({referralCampaigns.length})</h3></div>
-        {referralCampaigns.length === 0 ? (
-          <div className="empty-state"><p>No campaigns created yet.</p></div>
-        ) : (
-          <div style={{ padding: 16 }}>
-            {referralCampaigns.map((c) => {
-              const status = campaignStatus(c)
-              const stats = getCampaignStats(c.id)
-              return (
-                <div key={c.id} className={'entity-card' + (c.active ? ' entity-card-accent-profit' : '')}>
-                  <div className="icon-badge"><Gift size={17} /></div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">
-                      {c.name} <span className={'status-pill ' + status.className} style={{ marginLeft: 8 }}>{status.label}</span>
+      <div className="dz-grid">
+        <div className="dz-main">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3>All campaigns ({referralCampaigns.length})</h3></div>
+            {referralCampaigns.length === 0 ? (
+              <div className="dz-empty">No campaigns created yet.</div>
+            ) : (
+              <div className="rf-list">
+                {referralCampaigns.map((c) => {
+                  const status = campaignStatus(c)
+                  const stats = getCampaignStats(c.id)
+                  return (
+                    <div key={c.id} className="rf-item sc-row">
+                      <span className="rf-av"><Gift size={15} /></span>
+                      <span className="rf-who">
+                        <strong>{c.name} <span className={'status-pill ' + status.className} style={{ marginLeft: 6 }}>{status.label}</span></strong>
+                        <span className="dz-muted">{formatMoney(c.bonusAmount)} bonus · {formatDate(c.startDate)} – {formatDate(c.endDate)}</span>
+                        <span className="dz-muted">{stats.count} referral{stats.count === 1 ? '' : 's'} · {formatMoney(stats.totalPaid)} paid{c.note ? ` · ${c.note}` : ''}</span>
+                      </span>
+                      <button type="button" className="dz-btn-o" onClick={() => setCampaignActive(c.id, !c.active)}>
+                        <Power size={13} /> {c.active ? 'Pause' : 'Reactivate'}
+                      </button>
                     </div>
-                    <div className="entity-card-meta">
-                      <span>{formatMoney(c.bonusAmount)} bonus</span>
-                      <span>{formatDate(c.startDate)} – {formatDate(c.endDate)}</span>
-                      <span>{stats.count} referral{stats.count === 1 ? '' : 's'} · {formatMoney(stats.totalPaid)} paid</span>
-                      {c.note && <span>{c.note}</span>}
-                    </div>
-                  </div>
-                  <button
-                    className="tx-btn"
-                    style={{ padding: '7px 12px', fontSize: 12.5, flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    onClick={() => setCampaignActive(c.id, !c.active)}
-                  >
-                    <Power size={13} /> {c.active ? 'Pause' : 'Reactivate'}
-                  </button>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><Plus size={15} className="st-ico" />New campaign</h3></div>
+            {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
+            {created && <div className="st-ok" style={{ marginBottom: 12 }}>Campaign created.</div>}
+            <div className="st-form sc-form1">
+              <label className="st-f">
+                <span className="pg-label">Campaign name</span>
+                <input className="pg-field" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder='e.g. "Christmas Bonus"' />
+              </label>
+              <label className="st-f">
+                <span className="pg-label">Bonus amount (USD)</span>
+                <input className="pg-field" type="number" value={bonusAmount} onChange={(e) => setBonusAmount(e.target.value)} placeholder="0.00" />
+              </label>
+              <label className="st-f">
+                <span className="pg-label">Start date</span>
+                <input className="pg-field" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </label>
+              <label className="st-f">
+                <span className="pg-label">End date</span>
+                <input className="pg-field" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              </label>
+              <label className="st-f st-wide">
+                <span className="pg-label">Internal note (optional)</span>
+                <input className="pg-field" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Not shown to clients" />
+              </label>
+            </div>
+            <button type="button" className="btn-primary pg-start-btn" onClick={handleCreate}><Plus size={14} /> Create campaign</button>
+            <p className="dz-muted st-hint">Only one campaign needs to be live at a time. Past campaigns stay listed for the record, and bonuses already paid are never affected by pausing or ending one.</p>
+          </div>
+        </aside>
       </div>
     </Layout>
   )

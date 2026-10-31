@@ -36,6 +36,28 @@ export async function sendPasswordResetCode(user) {
   return true
 }
 
+const OP_TEXT = {
+  withdrawal: 'a withdrawal request', deposit: 'a deposit request', wallet: 'saving your withdrawal wallet',
+  session: 'starting an investment session', password: 'changing your password'
+}
+
+// Emails a one-time code that confirms one sensitive action. Returns false if throttled
+// (an earlier, still-valid code is then the one to use).
+export async function sendOperationCode(user, operation) {
+  const purpose = 'op_' + operation
+  if (!(await canIssue(user.id, purpose))) return false
+  const code = await issueCode(user.id, purpose)
+  const brand = await brandName()
+  const what = OP_TEXT[operation] || 'this action'
+  await sendMailSafe({
+    to: user.email,
+    subject: `${brand}: your confirmation code is ${code}`,
+    text: `Hi ${user.name},\n\nYour ${brand} confirmation code for ${what} is:\n\n    ${code}\n\nIt expires in 15 minutes. If you didn't just try this, do not share the code and change your password.\n`,
+    html: `<p>Hi ${escapeHtml(user.name)},</p><p>Your ${escapeHtml(brand)} confirmation code for ${escapeHtml(what)} is:</p><p style="font-size:26px;letter-spacing:4px"><strong>${code}</strong></p><p>It expires in 15 minutes. If you didn't just try this, do not share the code and change your password.</p>`
+  })
+  return true
+}
+
 export async function sendPasswordChangedNotice(user) {
   const brand = await brandName()
   await sendMailSafe({

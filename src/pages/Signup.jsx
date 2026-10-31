@@ -52,6 +52,7 @@ export default function Signup() {
 
       <div className="login-form-side">
         <form className="login-card" onSubmit={handleSubmit}>
+          <div className="auth-brand"><span className="auth-brand-mark"><brand.LogoIcon size={18} /></span>{brand.name}</div>
           <h1>Create account</h1>
           <p className="login-sub">Join {brand.name} in a few seconds</p>
 
@@ -100,6 +101,10 @@ export default function Signup() {
           <button type="submit" className="btn-primary">
             Create account <ArrowRight size={16} />
           </button>
+
+          <p className="demo-note">
+            By creating an account you agree to our <Link to="/terms" target="_blank">Terms</Link> and <Link to="/privacy" target="_blank">Privacy Policy</Link>.
+          </p>
 
           <p className="demo-note">
             Already have an account? <Link to="/login">Log in</Link>

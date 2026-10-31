@@ -8,6 +8,7 @@ import { autoTransactionEmail } from '../utils/clientEmails.js'
 import { getActiveReferralCampaign, isFirstApprovedDeposit } from '../utils/referrals.js'
 import { getAvailableBalance } from '../utils/balance.js'
 import { loadRuleSettings, checkTransactionRequest } from '../utils/transactionRules.js'
+import { requireOtp } from '../middleware/otp.js'
 
 const router = Router()
 
@@ -102,7 +103,7 @@ function publicTx(row) {
 // same "balances calculated from transaction records, never
 // hand-edited" guarantee the frontend enforces, now enforced
 // server-side where a client genuinely can't bypass it by editing JS.
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireOtp((req) => (req.body?.type === 'withdrawal' ? 'withdrawal' : req.body?.type === 'deposit' ? 'deposit' : null)), async (req, res) => {
   const { type, amount, method, chain, note } = req.body || {}
   if (!ALLOWED_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid transaction type.' })
   const numAmount = Number(amount)

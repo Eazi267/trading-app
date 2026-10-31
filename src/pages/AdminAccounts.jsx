@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { UserPlus, ShieldCheck, Search } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import ToggleSwitch from '../components/ToggleSwitch.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
+import { apiRequest } from '../api/client.js'
 import { ADMIN_TIER_LIST } from '../config/adminTiers.js'
 
 function initials(name) {
@@ -12,7 +13,18 @@ function initials(name) {
 import AdminSecurityControls from '../components/AdminSecurityControls.jsx'
 
 export default function AdminAccounts() {
-  const { currentUser, users, createAdmin, updateAdminTier, setAdminActive } = useAuth()
+  const { currentUser, createAdmin, updateAdminTier, setAdminActive } = useAuth()
+  const [admins, setAdmins] = useState([])
+  const [listError, setListError] = useState('')
+  // Staff accounts come from their own endpoint (the shared users list
+  // is clients only), and are re-fetched after every change below.
+  const loadAdmins = useCallback(async () => {
+    const result = await apiRequest('/api/admin/admins')
+    if (result.error) return setListError(result.error)
+    setListError('')
+    setAdmins(result.users)
+  }, [])
+  useEffect(() => { loadAdmins() }, [loadAdmins])
   const [search, setSearch] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -21,7 +33,6 @@ export default function AdminAccounts() {
   const [error, setError] = useState('')
   const [created, setCreated] = useState(false)
 
-  const admins = users.filter((u) => u.role === 'admin')
   const q = search.trim().toLowerCase()
   const filtered = q ? admins.filter((a) => a.name?.toLowerCase().includes(q) || a.email?.toLowerCase().includes(q)) : admins
 
@@ -29,6 +40,7 @@ export default function AdminAccounts() {
     setError('')
     const result = await createAdmin({ name: name.trim(), email: email.trim(), password, adminTier })
     if (result.error) return setError(result.error)
+    await loadAdmins()
     setCreated(true)
     setName('')
     setEmail('')
@@ -39,120 +51,86 @@ export default function AdminAccounts() {
 
   return (
     <Layout pageTitle="Admin Accounts">
-      <h1 className="page-title">Admin Accounts</h1>
-      <p className="page-sub">
-        Create staff accounts and control what each one can access. Every admin tier's exact permissions are
-        listed below the form — none of this is guesswork once an account exists.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Admin Accounts</h1>
+        <div className="dz-muted">Create staff accounts and control what each one can access. Every admin tier's exact permissions are listed beside the form, so none of this is guesswork once an account exists.</div>
+      </header>
 
       <AdminSecurityControls />
 
-      <div className="glass-card fade-in-up-1" style={{ marginBottom: 20 }}>
-        <div className="panel-head">
-          <h3><UserPlus size={15} style={{ verticalAlign: -2, marginRight: 6 }} />New admin account</h3>
-        </div>
-        <div className="responsive-grid-2" style={{ padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Full name</label>
-            <input
-              type="text" value={name} onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Email</label>
-            <input
-              type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Temporary password</label>
-            <input
-              type="text" value={password} onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 12.5, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Admin tier</label>
-            <select
-              value={adminTier} onChange={(e) => setAdminTier(e.target.value)}
-              style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            >
-              {ADMIN_TIER_LIST.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-          </div>
-          {error && <div className="form-error" style={{ gridColumn: '1 / -1', margin: 0 }}>{error}</div>}
-          {created && <div style={{ gridColumn: '1 / -1', fontSize: 13, color: 'var(--success)' }}>Admin account created.</div>}
-          <button className="tx-btn deposit" style={{ gridColumn: '1 / -1', width: 'fit-content', padding: '9px 18px' }} onClick={handleCreate}>
-            <UserPlus size={15} /> Create admin account
-          </button>
-        </div>
-      </div>
-
-      <div className="glass-card fade-in-up-2" style={{ marginBottom: 20 }}>
-        <div className="panel-head">
-          <h3><ShieldCheck size={15} style={{ verticalAlign: -2, marginRight: 6 }} />What each tier can do</h3>
-        </div>
-        <div style={{ padding: 16 }} className="stagger-in">
-          {ADMIN_TIER_LIST.map((t) => (
-            <div key={t.id} className="entity-card" style={{ alignItems: 'flex-start' }}>
-              <div className="entity-card-body">
-                <div className="entity-card-title">{t.label}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 2 }}>{t.description}</div>
-              </div>
+      <div className="dz-grid">
+        <div className="dz-main">
+          <div className="dz-card">
+            <div className="cl-tools">
+              <h3 style={{ margin: 0, flex: '1 1 auto' }}>All admin accounts ({admins.length})</h3>
+              <label className="cl-search" style={{ flex: '0 1 240px' }}>
+                <Search size={15} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search admins…" />
+              </label>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">
-          <h3>All admin accounts ({admins.length})</h3>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input
-              value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search admins..."
-              style={{ padding: '7px 10px 7px 30px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </div>
-        </div>
-        {filtered.length === 0 ? (
-          <div className="empty-state"><p>{admins.length === 0 ? 'No admin accounts yet.' : 'No admins match this search.'}</p></div>
-        ) : (
-          <div style={{ padding: 16 }} className="stagger-in">
-            {filtered.map((a) => {
-              const isSelf = a.id === currentUser.id
-              const isActive = a.active !== false
-              return (
-                <div key={a.id} className="entity-card">
-                  <div className="icon-badge" style={{ fontSize: 13, fontWeight: 700 }}>{initials(a.name)}</div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">
-                      {a.name}{isSelf && <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}> (you)</span>}
+            {listError && <div className="form-error" style={{ marginBottom: 12 }}>{listError}</div>}
+            {filtered.length === 0 ? (
+              <div className="dz-empty">{admins.length === 0 ? 'No admin accounts yet.' : 'No admins match this search.'}</div>
+            ) : (
+              <div className="rf-list">
+                {filtered.map((a) => {
+                  const isSelf = a.id === currentUser.id
+                  const isActive = !a.deactivatedAt
+                  return (
+                    <div key={a.id} className={'rf-item sc-row' + (isActive ? '' : ' aa-off')}>
+                      <span className="rf-av">{initials(a.name)}</span>
+                      <span className="rf-who">
+                        <strong>{a.name}{isSelf && <span className="dz-muted"> (you)</span>}</strong>
+                        <span className="dz-muted">{a.email}</span>
+                      </span>
+                      <span className="sc-actions">
+                        <select className="pg-field aa-tier" value={a.adminTier || 'super_admin'} onChange={async (e) => { await updateAdminTier(a.id, e.target.value); loadAdmins() }} disabled={isSelf} aria-label={`Tier for ${a.name}`}>
+                          {ADMIN_TIER_LIST.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                        </select>
+                        <span className="aa-active">
+                          <span style={{ fontSize: 12, color: isActive ? 'var(--text-muted)' : 'var(--danger)' }}>{isActive ? 'Active' : 'Deactivated'}</span>
+                          <ToggleSwitch checked={isActive} onChange={async (val) => { await setAdminActive(a.id, val); loadAdmins() }} disabled={isSelf} />
+                        </span>
+                      </span>
                     </div>
-                    <div className="entity-card-meta"><span>{a.email}</span></div>
-                  </div>
-                  <select
-                    value={a.adminTier || 'super_admin'}
-                    onChange={(e) => updateAdminTier(a.id, e.target.value)}
-                    disabled={isSelf}
-                    style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12.5, flex: 'none' }}
-                  >
-                    {ADMIN_TIER_LIST.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                  </select>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
-                    <span style={{ fontSize: 11, color: isActive ? 'var(--text-muted)' : 'var(--danger)' }}>
-                      {isActive ? 'Active' : 'Deactivated'}
-                    </span>
-                    <ToggleSwitch checked={isActive} onChange={(val) => setAdminActive(a.id, val)} disabled={isSelf} />
-                  </div>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><UserPlus size={15} className="st-ico" />New admin account</h3></div>
+            {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
+            {created && <div className="st-ok" style={{ marginBottom: 12 }}>Admin account created.</div>}
+            <div className="st-form sc-form1">
+              <label className="st-f st-wide"><span className="pg-label">Full name</span>
+                <input className="pg-field" type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
+              <label className="st-f st-wide"><span className="pg-label">Email</span>
+                <input className="pg-field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+              <label className="st-f st-wide"><span className="pg-label">Temporary password</span>
+                <input className="pg-field" type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /></label>
+              <label className="st-f st-wide"><span className="pg-label">Admin tier</span>
+                <select className="pg-field" value={adminTier} onChange={(e) => setAdminTier(e.target.value)}>
+                  {ADMIN_TIER_LIST.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select></label>
+            </div>
+            <button type="button" className="btn-primary pg-start-btn" onClick={handleCreate}><UserPlus size={15} /> Create admin account</button>
+          </div>
+
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><ShieldCheck size={15} className="st-ico" />What each tier can do</h3></div>
+            <div className="rf-list">
+              {ADMIN_TIER_LIST.map((t) => (
+                <div key={t.id} className="rf-item">
+                  <span className="rf-who"><strong>{t.label}</strong><span className="dz-muted">{t.description}</span></span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </div>
     </Layout>
   )

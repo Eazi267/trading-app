@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { PiggyBank, Lock, Unlock, Receipt, Tag, Clock, Clock3, TrendingUp, TrendingDown, X as XIcon } from 'lucide-react'
+import { PiggyBank, Lock, Unlock, Receipt, Tag, Clock, Clock3, TrendingUp, TrendingDown, ArrowRight, X as XIcon } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import PageSkeleton from '../components/PageSkeleton.jsx'
 import { useApp, getFeeOwedAmount } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
@@ -58,82 +59,94 @@ export default function Balance() {
   // this stays correct even after navigating away and back.
   const hasPendingFeePayment = transactions.some((t) => t.type === 'fee_payment' && t.status === 'pending')
 
+  const { dataReady: _dataReady } = useApp()
+  if (!_dataReady) return <Layout pageTitle="Balance"><PageSkeleton /></Layout>
+
   return (
     <Layout pageTitle="Balance">
-      <h1 className="page-title">Balance</h1>
-      <p className="page-sub">
-        Your balance updates automatically as investments close and transactions are processed.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Balance</h1>
+        <div className="dz-muted">Your balance updates automatically as investments close and transactions are processed.</div>
+      </header>
 
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label"><PiggyBank size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Total balance</div>
-          <div className="stat-value">{formatMoney(total)}</div>
-          {displayCurrency.code !== 'USD' && (
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(total, displayCurrency.code)}</div>
+      <div className="dz-grid">
+        <div className="dz-card dz-hero pg-balance">
+          <div className="dz-label"><PiggyBank size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Total balance</div>
+          <div className="dz-bignum">{formatMoney(total)}</div>
+          {displayCurrency.code !== 'USD' && <div className="dz-muted">≈ {formatCurrency(total, displayCurrency.code)}</div>}
+
+          {(() => {
+            // Real proportions: money committed to sessions vs money free to use.
+            const committed = Math.min(Math.max(pending, 0), Math.max(total, 0))
+            const pctCommitted = total > 0 ? (committed / total) * 100 : 0
+            return (
+              <>
+                <div className="pg-split" role="img" aria-label={`${(100 - pctCommitted).toFixed(0)}% available, ${pctCommitted.toFixed(0)}% in sessions`}>
+                  <span className="pg-split-free" style={{ width: `${100 - pctCommitted}%` }} />
+                  <span className="pg-split-locked" style={{ width: `${pctCommitted}%` }} />
+                </div>
+                <div className="pg-split-legend">
+                  <div><i className="pg-dot free" /><span className="dz-label">Available</span><strong className="mono">{formatMoney(available)}</strong>{displayCurrency.code !== 'USD' && <em>≈ {formatCurrency(available, displayCurrency.code)}</em>}</div>
+                  <div><i className="pg-dot locked" /><span className="dz-label"><Lock size={11} style={{ verticalAlign: -1, marginRight: 4 }} />Pending in sessions</span><strong className="mono">{formatMoney(pending)}</strong>{displayCurrency.code !== 'USD' && <em>≈ {formatCurrency(pending, displayCurrency.code)}</em>}</div>
+                </div>
+              </>
+            )
+          })()}
+          {pending > 0 && (
+            <p className="dz-muted" style={{ marginTop: 14 }}>
+              Pending balance is committed to active sessions and isn't available to withdraw until those sessions close.
+            </p>
           )}
         </div>
-        <div className="stat-card">
-          <div className="stat-label"><Unlock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Available</div>
-          <div className="stat-value">{formatMoney(available)}</div>
-          {displayCurrency.code !== 'USD' && (
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(available, displayCurrency.code)}</div>
-          )}
-        </div>
-        <div className="stat-card">
-          <div className="stat-label"><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Pending in sessions</div>
-          <div className="stat-value">{formatMoney(pending)}</div>
-          {displayCurrency.code !== 'USD' && (
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(pending, displayCurrency.code)}</div>
-          )}
-        </div>
-        {sessionBalance !== 0 && (
-          <div className="stat-card" style={{ borderColor: 'var(--accent)' }}>
-            <div className="stat-label"><Clock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Session balance (awaiting certification)</div>
-            <div className={'stat-value ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
-              {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-actions">
+              <Link to="/transactions" className="btn-primary dz-btn">Deposit</Link>
+              <Link to="/transactions" className="dz-btn dz-btn-o">Withdraw</Link>
+              <Link to="/sessions" className="dz-btn dz-btn-o">Invest</Link>
             </div>
-            {displayCurrency.code !== 'USD' && (
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                {sessionBalance >= 0 ? '≈ +' : '≈ '}{formatCurrency(sessionBalance, displayCurrency.code)}
+          </div>
+          {sessionBalance !== 0 && (
+            <div className="dz-card" style={{ borderColor: 'var(--accent)' }}>
+              <div className="dz-label"><Clock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Session balance (awaiting certification)</div>
+              <div className={'dz-num mono ' + (sessionBalance >= 0 ? 'pnl-up' : 'pnl-down')}>
+                {sessionBalance >= 0 ? '+' : ''}{formatMoney(sessionBalance)}
               </div>
-            )}
-          </div>
-        )}
-        {outstandingFees > 0 && (
-          <div className="stat-card" style={{ borderColor: 'var(--danger)' }}>
-            <div className="stat-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Fee balance</div>
-            <div className="stat-value pnl-down">-{formatMoney(outstandingFees)}</div>
-            {displayCurrency.code !== 'USD' && (
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ -{formatCurrency(outstandingFees, displayCurrency.code)}</div>
-            )}
-          </div>
-        )}
+              {displayCurrency.code !== 'USD' && (
+                <div className="dz-muted">{sessionBalance >= 0 ? '≈ +' : '≈ '}{formatCurrency(sessionBalance, displayCurrency.code)}</div>
+              )}
+            </div>
+          )}
+          {outstandingFees > 0 && (
+            <div className="dz-card" style={{ borderColor: 'var(--danger)' }}>
+              <div className="dz-label"><Receipt size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Fee balance</div>
+              <div className="dz-num mono pnl-down">-{formatMoney(outstandingFees)}</div>
+              {displayCurrency.code !== 'USD' && (
+                <div className="dz-muted">≈ -{formatCurrency(outstandingFees, displayCurrency.code)}</div>
+              )}
+            </div>
+          )}
+        </aside>
       </div>
 
       {pendingSessionSettlements !== 0 && (
-        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
+        <p className="dz-note pg-info">
           A recent session closed with a result of {pendingSessionSettlements >= 0 ? '+' : ''}{formatMoney(pendingSessionSettlements)}. It's held for your account manager's review before it's added to or deducted from your main balance — this applies to both profit and loss results.
         </p>
       )}
 
       {pendingCappedProfit > 0 && (
-        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: -6, marginBottom: 16 }}>
+        <p className="dz-note pg-info">
           A recent session outperformed its tier's payout cap. The extra {formatMoney(pendingCappedProfit)} is held until
           your account manager applies a release fee for it and you pay it in full — check Outstanding Fees below,
           or contact your account manager if you don't see one yet.
         </p>
       )}
 
-      {pending > 0 && (
-        <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '-6px 0 16px' }}>
-          Pending balance is committed to active sessions and isn't available to withdraw until those sessions close.
-        </p>
-      )}
-
       {outstandingFeeList.length > 0 && (
-        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
-          <div className="panel-head"><h3>Fee Balance — {formatMoney(outstandingFees)} owed</h3></div>
+        <div className="dz-card" style={{ marginBottom: 16, borderColor: 'var(--danger)' }}>
+          <div className="dz-card-head"><h3>Fee Balance — {formatMoney(outstandingFees)} owed</h3></div>
           <p style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '0 20px', marginTop: -6, marginBottom: 12 }}>
             Fees are separate from your main balance.
           </p>
@@ -187,15 +200,13 @@ export default function Balance() {
         </div>
       )}
 
-      <div className="panel">
-        <div className="panel-head">
+      <div className="dz-card">
+        <div className="dz-card-head">
           <h3>Investment history</h3>
-          <Link to="/sessions" className="btn-primary" style={{ padding: '8px 14px', fontSize: 13 }}>
-            Start an investment
-          </Link>
+          <Link to="/sessions">Start an investment <ArrowRight size={12} /></Link>
         </div>
         {mySessions.length === 0 ? (
-          <div className="empty-state"><p>No sessions yet — start one to see it here.</p></div>
+          <div className="dz-empty">No sessions yet — start one to see it here.</div>
         ) : (
           <div style={{ padding: 16 }}>
             {mySessions.map((s) => {

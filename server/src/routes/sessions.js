@@ -8,6 +8,7 @@ import { getAvailableBalance } from '../utils/balance.js'
 import { getCurrentPrices } from '../services/priceEngine.js'
 import { positionEquity, sessionCurrentValue, settleSession } from '../utils/sessions.js'
 import { notify } from '../utils/notifications.js'
+import { requireOtp } from '../middleware/otp.js'
 
 const router = Router()
 
@@ -86,7 +87,7 @@ async function loadOwnedOrAdminSession(req, res, requirePerm = 'trade') {
 // goes straight to active) requires the settings table, so Managed
 // mode is deferred here; every session goes straight to 'active' for
 // now — flagged, not silently dropped.
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requireOtp((req) => (!req.body?.targetUserId || req.body.targetUserId === req.user.id ? 'session' : null)), async (req, res) => {
   const { targetUserId, tierId, amount, durationDays } = req.body || {}
   const ownerId = targetUserId || req.user.id
   const isSelfService = ownerId === req.user.id

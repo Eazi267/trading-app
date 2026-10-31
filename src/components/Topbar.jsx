@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, NavLink } from 'react-router-dom'
 import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home, Menu } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
 import { getNotificationMeta } from '../config/notificationTypes.js'
+import { useNavModel } from './navModel.jsx'
 
 function timeAgo(iso) {
   const ms = Date.now() - new Date(iso).getTime()
@@ -17,10 +18,12 @@ function timeAgo(iso) {
 }
 
 export default function Topbar({ pageTitle, onMenuClick }) {
-  const { theme, setTheme, priceFeedStatus } = useApp()
+  const { theme, setTheme, priceFeedStatus, priceSources } = useApp()
+  const allLive = Object.values(priceSources || {}).every((s) => s === 'live')
   const { currentUser, logout } = useAuth()
   const { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead } = useNotifications()
   const navigate = useNavigate()
+  const { primary } = useNavModel()
   const [notifOpen, setNotifOpen] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
   const notifRef = useRef(null)
@@ -49,19 +52,28 @@ export default function Topbar({ pageTitle, onMenuClick }) {
   const recentNotifications = myNotifications.slice(0, 6)
 
   return (
-    <div>
+    <>
+      <div className="topbar-wrap">
       <div className="topbar-row">
         <button className="icon-btn mobile-menu-btn" onClick={onMenuClick} aria-label="Open menu">
           <Menu size={18} />
         </button>
-        <span className={'badge-demo' + (priceFeedStatus.error ? ' badge-feed-warning' : '')}>
+        <span title="Price feed status" className={'badge-demo' + (priceFeedStatus.error ? ' badge-feed-warning' : '')}>
           {priceFeedStatus.error ? <WifiOff size={13} /> : <Wifi size={13} />}
-          {priceFeedStatus.error
-            ? ' Price feed unavailable — showing last known price'
-            : priceFeedStatus.lastUpdated
-              ? ` Live prices · updated ${timeAgo(priceFeedStatus.lastUpdated)}`
-              : ' Connecting to live prices…'}
+          <span className="bd-long">
+            {priceFeedStatus.error
+              ? ' Price feed unavailable — showing last known price'
+              : priceFeedStatus.lastUpdated
+                ? (allLive ? ` Live prices · updated ${timeAgo(priceFeedStatus.lastUpdated)}` : ` Some prices simulated · updated ${timeAgo(priceFeedStatus.lastUpdated)}`)
+                : ' Connecting to live prices…'}
+          </span>
+          <span className="bd-short">{priceFeedStatus.error ? ' Feed down' : !priceFeedStatus.lastUpdated ? ' Connecting' : allLive ? ' Live' : ' Simulated'}</span>
         </span>
+        <nav className="top-pill" aria-label="Main">
+          {primary.map(({ to, label, end }) => (
+            <NavLink key={to} to={to} end={end} className={({ isActive }) => 'top-pill-item' + (isActive ? ' active' : '')}>{label}</NavLink>
+          ))}
+        </nav>
         <div className="topbar-right">
           <div className="notif-wrap" ref={notifRef}>
             <button
@@ -123,10 +135,11 @@ export default function Topbar({ pageTitle, onMenuClick }) {
           </div>
         </div>
       </div>
+      </div>
 
       <div className="breadcrumb">
         <Home size={12} /> Pages <ChevronRight size={12} /> <span>{pageTitle}</span>
       </div>
-    </div>
+    </>
   )
 }

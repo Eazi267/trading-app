@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts'
-import { ArrowDownCircle, ArrowUpCircle, Inbox, Check, X, Clock, Hourglass, Wallet, Bitcoin, Landmark, Coins, Camera, ChevronDown, Receipt } from 'lucide-react'
+import { ArrowDownCircle, ArrowUpCircle, Inbox, Check, X, Clock, Hourglass, Wallet, Bitcoin, Landmark, Coins, Camera, ChevronDown, Receipt, ArrowRight } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import PageSkeleton from '../components/PageSkeleton.jsx'
 import ScreenshotUploader from '../components/ScreenshotUploader.jsx'
 import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
 import { useApp } from '../context/AppContext.jsx'
@@ -45,6 +46,17 @@ function StatCard({ icon: Icon, label, value, formatter, equivalent }) {
   )
 }
 
+function AdminKpi({ icon: Icon, label, value, formatter, alert }) {
+  const animated = useCountUp(value)
+  return (
+    <div className={'ad-kpi' + (alert ? ' alert' : '')}>
+      <span className="ad-kpi-ico"><Icon size={18} /></span>
+      <span className="ad-kpi-label">{label}</span>
+      <b className="ad-kpi-value">{formatter(animated)}</b>
+    </div>
+  )
+}
+
 function AdminTransactionsView() {
   const { transactions, approveTransaction, rejectTransaction, correctTransactionAmount, isSessionUnlocked } = useApp()
   const pending = transactions.filter((t) => t.status === 'pending')
@@ -76,55 +88,26 @@ function AdminTransactionsView() {
 
   return (
     <>
-      <h1 className="page-title">Deposits &amp; Withdrawals</h1>
-      <p className="page-sub">Approve, reject, and analyze every client deposit, withdrawal, and pending profit release.</p>
+      <header className="dz-head">
+        <h1 className="dz-title">Deposits &amp; Withdrawals</h1>
+        <div className="dz-muted">Approve, reject, and analyze every client deposit, withdrawal, and pending profit release.</div>
+      </header>
 
-      <div className="hero-stats-grid">
-        <StatCard icon={ArrowDownCircle} label="Pending deposits" value={summary.deposits.amount} formatter={formatMoney} />
-        <StatCard icon={ArrowUpCircle} label="Pending withdrawals" value={summary.withdrawals.amount} formatter={formatMoney} />
-        <StatCard icon={Hourglass} label="Pending profit reviews" value={summary.cappedProfitReleases.amount} formatter={formatMoney} />
-        <StatCard icon={Clock} label="Total awaiting action" value={pending.length} formatter={(v) => Math.round(v).toString()} />
+      <div className="ad-kpis">
+        <AdminKpi icon={ArrowDownCircle} label="Pending deposits" value={summary.deposits.amount} formatter={formatMoney} />
+        <AdminKpi icon={ArrowUpCircle} label="Pending withdrawals" value={summary.withdrawals.amount} formatter={formatMoney} />
+        <AdminKpi icon={Hourglass} label="Pending profit reviews" value={summary.cappedProfitReleases.amount} formatter={formatMoney} />
+        <AdminKpi icon={Clock} label="Total awaiting action" value={pending.length} formatter={(v) => Math.round(v).toString()} alert={pending.length > 0} />
       </div>
 
-      <div className="glass-card" style={{ marginBottom: 20 }}>
-        <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <h3>Deposits vs withdrawals — last {trendDays} days</h3>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[7, 14, 30, 60].map((d) => (
-              <button
-                key={d}
-                onClick={() => setTrendDays(d)}
-                className="tx-btn"
-                style={{
-                  padding: '5px 10px', fontSize: 11,
-                  background: trendDays === d ? 'var(--accent)' : 'var(--bg)',
-                  color: trendDays === d ? '#fff' : 'var(--text)',
-                  border: '1px solid var(--border)'
-                }}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
+      <div className="dz-card">
+        <div className="dz-card-head">
+          <h3>Awaiting action ({pending.length})</h3>
         </div>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={trend}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval={Math.max(0, Math.floor(trendDays / 10) - 1)} />
-            <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-            <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => formatMoney(v)} />
-            <Bar dataKey="deposits" fill="var(--success)" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="withdrawals" fill="var(--danger)" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head"><h3>Awaiting action ({pending.length})</h3></div>
         {pending.length === 0 ? (
-          <div className="empty-state"><Inbox size={20} /><p>Nothing pending right now.</p></div>
+          <div className="dz-empty"><Inbox size={20} /><br />Nothing pending right now.</div>
         ) : (
-          <div style={{ padding: 16 }} className="stagger-in">
+          <div className="rf-list">
             {pending.map((t) => {
               const isLockedExcess = t.type === 'capped_profit_release' && !isSessionUnlocked(t.sessionId)
               // fee_payment correction isn't offered here anymore — the
@@ -138,103 +121,78 @@ function AdminTransactionsView() {
               const isCorrecting = correctingId === t.id
               const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
               return (
-                <div key={t.id} className="entity-card entity-card-accent-pending" style={{ flexWrap: 'wrap' }}>
-                  <div className="icon-badge">{t.type === 'deposit' ? <ArrowDownCircle size={17} /> : t.type === 'fee_payment' ? <Receipt size={17} /> : <ArrowUpCircle size={17} />}</div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">
-                      {t.userName} · {formatType(t.type)}
-                      {t.clientConfirmed && (
-                        <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 7px', borderRadius: 999, background: 'var(--accent-bg)', color: 'var(--accent-bright)', verticalAlign: 1 }}>
-                          Awaiting review
-                        </span>
-                      )}
-                    </div>
-                    <div className="entity-card-meta">
-                      <span>{formatDate(t.date)}</span>
-                      {t.type === 'fee_payment' && (
-                        <span>{t.spilloverAmount > 0
-                          ? `${formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, ${formatMoney(t.spilloverAmount)} spills over`
-                          : 'Applied to Fee Balance'}</span>
-                      )}
-                      {isLockedExcess && <span style={{ color: 'var(--accent-bright)' }}>Needs a paid unlock fee before release</span>}
-                      {t.type === 'withdrawal' && t.withdrawalMethod && (
-                        <span>{METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</span>
-                      )}
-                      {(t.type === 'deposit' || t.type === 'fee_payment') && t.depositMethod && (
-                        <span>via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</span>
-                      )}
-                      {wasCorrected && (
-                        <span style={{ color: 'var(--accent-bright)' }}>
-                          Requested {formatMoney(t.requestedAmount)} → confirmed {formatMoney(t.amount)}
-                          {t.correctionEvidence?.length > 0 ? ` · ${t.correctionEvidence.length} screenshot${t.correctionEvidence.length === 1 ? '' : 's'}` : ''}
-                        </span>
-                      )}
-                    </div>
+                <div key={t.id} className="rf-item rq-row rq-pending">
+                  <span className="rf-av">{t.type === 'deposit' ? <ArrowDownCircle size={16} /> : t.type === 'fee_payment' ? <Receipt size={16} /> : <ArrowUpCircle size={16} />}</span>
+                  <span className="rf-who">
+                    <strong>
+                      <Link to={`/admin/users/${t.userId}`} className="ad-link">{t.userName}</Link> · {formatType(t.type)}
+                      {t.clientConfirmed && <span className="rq-badge">Awaiting review</span>}
+                    </strong>
+                    <span className="dz-muted">
+                      {formatDate(t.date)}
+                      {t.type === 'withdrawal' && t.withdrawalMethod && <> · {METHOD_LABELS[t.withdrawalMethod] || t.withdrawalMethod}{t.withdrawalChain ? ` (${t.withdrawalChain})` : ''}{t.destinationAddress ? ` → ${t.destinationAddress}` : ''}</>}
+                      {(t.type === 'deposit' || t.type === 'fee_payment') && t.depositMethod && <> · via {METHOD_LABELS[t.depositMethod] || t.depositMethod}{t.depositChain ? ` (${t.depositChain})` : ''}{t.depositReference ? ` · ${t.depositReference}` : ''}</>}
+                    </span>
+                    {t.type === 'fee_payment' && (
+                      <span className="dz-muted">{t.spilloverAmount > 0
+                        ? `${formatMoney(t.amount - t.spilloverAmount)} to Fee Balance, ${formatMoney(t.spilloverAmount)} spills over`
+                        : 'Applied to Fee Balance'}</span>
+                    )}
+                    {isLockedExcess && <span className="rq-note">Needs a paid unlock fee before release</span>}
+                    {wasCorrected && (
+                      <span className="rq-note">
+                        Requested {formatMoney(t.requestedAmount)} → confirmed {formatMoney(t.amount)}
+                        {t.correctionEvidence?.length > 0 ? ` · ${t.correctionEvidence.length} screenshot${t.correctionEvidence.length === 1 ? '' : 's'}` : ''}
+                      </span>
+                    )}
                     {t.clientConfirmed && t.clientProofEvidence?.length > 0 && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                      <span className="rq-proofs">
                         {t.clientProofEvidence.map((img, i) => (
                           <a key={i} href={img} target="_blank" rel="noreferrer" className="file-drop-preview" style={{ margin: 0 }}>
                             <img src={img} alt={`Client proof ${i + 1}`} style={{ maxWidth: 70, maxHeight: 56 }} />
                           </a>
                         ))}
-                      </div>
+                      </span>
                     )}
-                  </div>
-                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, flex: 'none' }}>{formatMoney(t.amount)}</div>
-                  <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
+                  </span>
+                  <span className="mono rq-amt">{formatMoney(t.amount)}</span>
+                  <span className="rq-actions">
                     {canCorrect && (
-                      <button
-                        className="tx-btn"
-                        style={{ padding: '6px 10px', fontSize: 12 }}
-                        onClick={() => (isCorrecting ? setCorrectingId(null) : startCorrecting(t))}
-                      >
+                      <button type="button" className="dz-btn-o" onClick={() => (isCorrecting ? setCorrectingId(null) : startCorrecting(t))}>
                         <Camera size={13} /> {wasCorrected ? 'Edit correction' : 'Correct amount'}
                         <ChevronDown size={12} style={{ transform: isCorrecting ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease)' }} />
                       </button>
                     )}
                     {isLockedExcess ? (
-                      <Link to={`/admin/users/${t.userId}`} className="tx-btn" style={{ padding: '6px 10px', fontSize: 12, textDecoration: 'none' }}>
-                        Add fee
-                      </Link>
+                      <Link to={`/admin/users/${t.userId}`} className="dz-btn-o">Add fee</Link>
                     ) : (
-                      <button className="icon-btn" onClick={() => approveTransaction(t.id)} aria-label="Approve"><Check size={15} /></button>
+                      <button type="button" className="icon-btn rq-ok" onClick={() => approveTransaction(t.id)} aria-label="Approve"><Check size={15} /></button>
                     )}
-                    <button className="icon-btn" onClick={() => rejectTransaction(t.id)} aria-label="Reject"><X size={15} /></button>
-                  </div>
+                    <button type="button" className="icon-btn rq-no" onClick={() => rejectTransaction(t.id)} aria-label="Reject"><X size={15} /></button>
+                  </span>
 
                   {isCorrecting && (
-                    <div style={{ width: '100%', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-                      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 10px' }}>
-                        Fix this before approving if the client sent more or less than they requested — the amount
-                        below is what actually lands on their balance, not what they typed.
+                    <div className="rq-correct">
+                      <p className="dz-muted st-hint" style={{ marginTop: 0 }}>
+                        Fix this before approving if the client sent more or less than they requested. The amount below is what actually lands on their balance, not what they typed.
                       </p>
                       {correctionError && <div className="form-error" style={{ marginBottom: 10 }}>{correctionError}</div>}
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
-                        <label style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                          Actual amount received (USD)
-                          <input
-                            type="number"
-                            value={correctionDraft.amount}
-                            onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, amount: e.target.value }))}
-                            style={{ display: 'block', width: 160, marginTop: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-                          />
+                      <div className="st-form">
+                        <label className="st-f">
+                          <span className="pg-label">Actual amount received (USD)</span>
+                          <input className="pg-field" type="number" value={correctionDraft.amount} onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, amount: e.target.value }))} />
                         </label>
-                        <input
-                          type="text"
-                          value={correctionDraft.note}
-                          onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, note: e.target.value }))}
-                          placeholder="Note (optional) — e.g. network fee deducted"
-                          style={{ flex: 1, minWidth: 200, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-                        />
+                        <label className="st-f">
+                          <span className="pg-label">Note (optional)</span>
+                          <input className="pg-field" type="text" value={correctionDraft.note} onChange={(e) => setCorrectionDraft((prev) => ({ ...prev, note: e.target.value }))} placeholder="e.g. network fee deducted" />
+                        </label>
                       </div>
                       <ScreenshotUploader
                         label="Evidence (transaction hash, wallet balance, bank receipt, etc.)"
                         images={correctionDraft.screenshots}
                         onChange={(screenshots) => setCorrectionDraft((prev) => ({ ...prev, screenshots }))}
                       />
-                      <button className="tx-btn deposit" style={{ marginTop: 10, padding: '8px 16px', fontSize: 13 }} onClick={() => saveCorrection(t.id)}>
-                        Save correction
-                      </button>
+                      <button type="button" className="btn-primary pg-start-btn" onClick={() => saveCorrection(t.id)}>Save correction</button>
                     </div>
                   )}
                 </div>
@@ -244,35 +202,55 @@ function AdminTransactionsView() {
         )}
       </div>
 
-      <div className="panel">
-        <div className="panel-head"><h3>Recently resolved</h3></div>
-        {resolved.length === 0 ? (
-          <div className="empty-state"><p>Nothing resolved yet.</p></div>
-        ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
-            <tbody>
-              {resolved.map((t) => {
-                const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
-                return (
-                  <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setViewingTx(t)}>
-                    <td>{t.userName}</td>
-                    <td>
-                      {formatType(t.type)}
-                      {wasCorrected && (
-                        <div style={{ fontSize: 11, color: 'var(--accent-bright)' }}>
-                          was {formatMoney(t.requestedAmount)}
-                        </div>
-                      )}
-                    </td>
-                    <td>{formatMoney(t.amount)}</td>
-                    <td><span className={'status-pill status-' + t.status}>{t.status}</span></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+      <div className="dz-grid rq-grid">
+        <div className="dz-main">
+          <div className="dz-card">
+            <div className="dz-card-head">
+              <h3>Recently resolved</h3>
+            </div>
+            {resolved.length === 0 ? (
+              <div className="dz-empty">Nothing resolved yet.</div>
+            ) : (
+              <div className="rf-list">
+                {resolved.map((t) => {
+                  const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
+                  return (
+                    <button key={t.id} type="button" className={'rf-item rq-resolved ' + (t.status === 'approved' ? 'rq-profit' : 'rq-loss')} onClick={() => setViewingTx(t)}>
+                      <span className="rf-av"><RequestTypeIcon type={t.type} /></span>
+                      <span className="rf-who">
+                        <strong>{t.userName} · {formatType(t.type)}</strong>
+                        <span className="dz-muted">{formatMoney(t.amount)}{wasCorrected ? ` (was ${formatMoney(t.requestedAmount)})` : ''}</span>
+                      </span>
+                      <span className={'status-pill status-' + t.status}>{t.status}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3>Deposits vs withdrawals</h3></div>
+            <div className="dz-ranges" role="tablist" aria-label="Range" style={{ marginBottom: 8 }}>
+              {[7, 14, 30, 60].map((d) => (
+                <button key={d} type="button" role="tab" aria-selected={trendDays === d} className={'dz-range' + (trendDays === d ? ' on' : '')} onClick={() => setTrendDays(d)}>{d}d</button>
+              ))}
+            </div>
+            <div className="ad-legend"><span><i style={{ background: 'var(--success)' }} />Deposits</span><span><i style={{ background: 'var(--danger)' }} />Withdrawals</span></div>
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={trend} margin={{ top: 6, right: 4, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="2 5" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} interval="preserveStartEnd" minTickGap={26} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10.5, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={44} />
+                <Tooltip cursor={{ fill: 'var(--surface-2)', opacity: 0.5 }} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }} formatter={(v) => formatMoney(v)} />
+                <Bar dataKey="deposits" fill="var(--success)" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="withdrawals" fill="var(--danger)" radius={[5, 5, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </aside>
       </div>
       <TransactionDetailModal transaction={viewingTx} isAdmin={true} onClose={() => setViewingTx(null)} />
     </>
@@ -296,7 +274,10 @@ export default function Transactions() {
   // amount so nothing needs retyping, and route the submit through
   // payFeeBalance instead of a plain deposit — see handleSubmit below.
   const feeMode = searchParams.get('fee') === '1'
-  const [activeTab, setActiveTab] = useState('deposit')
+  const tabParam = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(tabParam === 'withdraw' ? 'withdraw' : 'deposit')
+  // The phone's quick-actions sheet links here with ?tab=..., even when this page is already open.
+  useEffect(() => { if (tabParam === 'withdraw' || tabParam === 'deposit') setActiveTab(tabParam) }, [tabParam])
   const [viewingTx, setViewingTx] = useState(null)
   const [amount, setAmount] = useState(feeMode ? (searchParams.get('amount') || '') : '')
   const [formError, setFormError] = useState('')
@@ -389,13 +370,8 @@ export default function Transactions() {
               key={m}
               type="button"
               onClick={() => { onSelect(m); onChainSelect(CRYPTO_CHAINS[m]?.[0] || '') }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', fontSize: 13, fontWeight: 600,
-                borderRadius: 10, border: '1px solid ' + (isActive ? 'var(--accent)' : 'var(--border)'),
-                background: isActive ? 'var(--accent-bg)' : 'var(--bg)',
-                color: isActive ? 'var(--accent-bright)' : 'var(--text)',
-                cursor: 'pointer', transition: 'all 0.15s var(--ease)'
-              }}
+              className={'pg-method' + (isActive ? ' on' : '')}
+              aria-pressed={isActive}
             >
               <Icon size={15} /> {METHOD_LABELS[m]}
             </button>
@@ -405,68 +381,52 @@ export default function Transactions() {
     )
   }
 
+  const { dataReady: _dataReady } = useApp()
+  if (!_dataReady) return <Layout pageTitle="Deposit / Withdraw"><PageSkeleton /></Layout>
+
   return (
     <Layout pageTitle="Deposit / Withdraw">
-      <h1 className="page-title">Deposit / Withdraw</h1>
-      <p className="page-sub">
-        {feeMode
-          ? "Send funds toward your outstanding fee — pick how you're sending it below, same as any other deposit."
-          : 'Fund your account or request a payout — every request is reviewed by your account manager before it touches your balance.'}
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Deposit / Withdraw</h1>
+        <div className="dz-muted" style={{ maxWidth: 720 }}>
+          {feeMode
+            ? "Send funds toward your outstanding fee — pick how you're sending it below, same as any other deposit."
+            : 'Fund your account or request a payout — every request is reviewed by your account manager before it touches your balance.'}
+        </div>
+      </header>
 
-      <div className="hero-stats-grid">
-        <StatCard
-          icon={Wallet}
-          label="Your balance (approved only)"
-          value={accountBalance}
-          formatter={formatMoney}
-          equivalent={defaultCurrency.code !== 'USD' ? `≈ ${formatCurrency(accountBalance, defaultCurrency.code)}` : undefined}
-        />
-        <StatCard icon={Hourglass} label="Your pending requests" value={myPendingCount} formatter={(v) => Math.round(v).toString()} />
-      </div>
-
-      <div className="tx-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 420px) 1fr', gap: 20, alignItems: 'start' }}>
-        <div className="glass-card fade-in-up-1">
-          <div className="panel-head">
+      <div className="dz-grid pg-tx">
+        <div className="dz-card">
+          <div className="dz-card-head" style={{ marginBottom: 14 }}>
             {feeMode ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, width: '100%' }}>
                 <ArrowDownCircle size={15} style={{ color: 'var(--success)' }} /> Paying toward your Fee Balance
                 <button type="button" onClick={exitFeeMode} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, cursor: 'pointer', textDecoration: 'underline' }}>
                   Switch to a regular deposit
                 </button>
               </div>
             ) : (
-              <div className="segment-tabs">
-                <button
-                  type="button"
-                  className={'segment-tab' + (activeTab === 'deposit' ? ' active tab-accent-success' : '')}
-                  onClick={() => switchTab('deposit')}
-                >
+              <div className="pg-seg" role="tablist">
+                <button type="button" role="tab" aria-selected={activeTab === 'deposit'} className={activeTab === 'deposit' ? 'on' : ''} onClick={() => switchTab('deposit')}>
                   <ArrowDownCircle size={15} /> Deposit
                 </button>
-                <button
-                  type="button"
-                  className={'segment-tab' + (activeTab === 'withdraw' ? ' active tab-accent-danger' : '')}
-                  onClick={() => switchTab('withdraw')}
-                >
+                <button type="button" role="tab" aria-selected={activeTab === 'withdraw'} className={activeTab === 'withdraw' ? 'on' : ''} onClick={() => switchTab('withdraw')}>
                   <ArrowUpCircle size={15} /> Withdraw
                 </button>
               </div>
             )}
           </div>
 
-          <div style={{ padding: '0 20px 20px' }}>
-            <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Amount (USD)</label>
+          <div>
+            <label className="pg-label" htmlFor="tx-amount">Amount (USD)</label>
             <input
+              id="tx-amount"
               type="number"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => { setAmount(e.target.value); setFormError('') }}
               placeholder="0.00"
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--bg)',
-                color: 'var(--text)', marginBottom: 8, fontSize: 14
-              }}
+              className="pg-input pg-input-xl"
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -515,7 +475,7 @@ export default function Transactions() {
                       <select
                         value={depositChain}
                         onChange={(e) => setDepositChain(e.target.value)}
-                        style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                        className="pg-field" style={{ marginBottom: 10 }}
                       >
                         {CRYPTO_CHAINS[depositMethod].map((chain) => (
                           <option key={chain} value={chain}>{chain}</option>
@@ -532,14 +492,14 @@ export default function Transactions() {
                       value={depositReference}
                       onChange={(e) => setDepositReference(e.target.value)}
                       placeholder="Reference or note (optional)"
-                      style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                      className="pg-field"
                     />
                     <p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '6px 0 0' }}>
                       Coordinate the transfer with your account manager — this just records how you sent it.
                     </p>
                   </div>
                 )}
-                <button className="tx-btn deposit" style={{ width: '100%', marginTop: 14 }} onClick={() => handleSubmit('deposit')}>
+                <button className="btn-primary pg-start-btn" onClick={() => handleSubmit('deposit')}>
                   <ArrowDownCircle size={16} /> {feeMode ? 'Submit fee payment' : 'Request deposit'}
                 </button>
               </>
@@ -590,7 +550,7 @@ export default function Transactions() {
                           <select
                             value={withdrawalChain}
                             onChange={(e) => setWithdrawalChain(e.target.value)}
-                            style={{ width: '100%', marginBottom: 10, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                            className="pg-field" style={{ marginBottom: 10 }}
                           >
                             {CRYPTO_CHAINS[withdrawalMethod].map((chain) => (
                               <option key={chain} value={chain}>{chain}</option>
@@ -602,7 +562,7 @@ export default function Transactions() {
                           value={destinationAddress}
                           onChange={(e) => setDestinationAddress(e.target.value)}
                           placeholder={withdrawalMethod === 'bank' ? 'Account number, bank name' : 'Wallet address'}
-                          style={{ width: '100%', padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
+                          className="pg-field"
                         />
                         {CRYPTO_CHAINS[withdrawalMethod] && (
                           <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
@@ -613,7 +573,7 @@ export default function Transactions() {
                     )}
                   </div>
                 )}
-                <button className="tx-btn withdraw" style={{ width: '100%', marginTop: 14 }} onClick={() => handleSubmit('withdrawal')}>
+                <button className="btn-primary pg-start-btn" onClick={() => handleSubmit('withdrawal')}>
                   <ArrowUpCircle size={16} /> Request withdrawal
                 </button>
               </>
@@ -621,17 +581,32 @@ export default function Transactions() {
           </div>
         </div>
 
-        <div className="glass-card fade-in-up-2">
-          <div className="panel-head">
-            <h3>Your recent requests</h3>
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-label"><Wallet size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Your balance (approved only)</div>
+            <div className="dz-num mono">{formatMoney(accountBalance)}</div>
+            {defaultCurrency.code !== 'USD' && <div className="dz-muted">≈ {formatCurrency(accountBalance, defaultCurrency.code)}</div>}
+            <div className="dz-label" style={{ marginTop: 14 }}><Hourglass size={13} style={{ marginRight: 6, verticalAlign: -2 }} />Pending requests</div>
+            <div className="dz-num mono">{myPendingCount}</div>
           </div>
+          <div className="dz-card">
+            <div className="dz-card-head"><h3>How it works</h3></div>
+            <ol className="pg-steps">
+              <li><b>1</b><span>Submit your request here.</span></li>
+              <li><b>2</b><span>{activeTab === 'withdraw' && !feeMode ? 'We check your details and wallet.' : 'Send funds as arranged with your account manager.'}</span></li>
+              <li><b>3</b><span>Your account manager reviews it.</span></li>
+              <li><b>4</b><span>Once approved, your balance updates.</span></li>
+            </ol>
+          </div>
+        </aside>
+      </div>
+
+      <div className="dz-card">
+        <div className="dz-card-head"><h3>Your recent requests</h3><Link to="/transaction-history">Full history <ArrowRight size={12} /></Link></div>
           {myRequests.length === 0 ? (
-            <div className="empty-state">
-              <Inbox size={20} />
-              <p>No requests yet.</p>
-            </div>
+            <div className="dz-empty">No requests yet.</div>
           ) : (
-            <div style={{ padding: 16 }} className="stagger-in">
+            <div className="stagger-in">
               {myRequests.slice(0, 12).map((t) => {
                 const wasCorrected = t.requestedAmount != null && t.requestedAmount !== t.amount
                 return (
@@ -665,11 +640,10 @@ export default function Transactions() {
               })}
             </div>
           )}
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-            Looking for your complete account activity, including session results and fees? See{' '}
-            <Link to="/transaction-history" style={{ color: 'var(--accent-bright)' }}>Transaction History</Link>.
-          </p>
-        </div>
+        <p className="dz-muted" style={{ marginTop: 10 }}>
+          Looking for your complete account activity, including session results and fees? See{' '}
+          <Link to="/transaction-history" style={{ color: 'var(--accent-bright)' }}>Transaction History</Link>.
+        </p>
       </div>
       <TransactionDetailModal transaction={viewingTx} isAdmin={false} onClose={() => setViewingTx(null)} />
     </Layout>

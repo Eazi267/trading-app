@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CheckCircle2, Lock, TrendingUp, TrendingDown, Clock3, History, Sparkles, Sprout, Gem, Crown, X, ChevronDown, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import PageSkeleton from '../components/PageSkeleton.jsx'
 import { useApp, positionEquity } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -88,28 +89,24 @@ export default function Sessions() {
     if (result?.error) setCloseError(result.error)
   }
 
+  const { dataReady: _dataReady } = useApp()
+  if (!_dataReady) return <Layout pageTitle="Investments"><PageSkeleton /></Layout>
+
   return (
     <Layout pageTitle="Investments">
-      <h1 className="page-title">Investments</h1>
-      <p className="page-sub">
-        Pick a tier and commit part of your available balance to a session. Results are calculated from real price
-        movement — the tier only sets a ceiling on what a gain pays out; a loss is never capped.
-      </p>
-
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Available to commit</div>
-          <div className="stat-value">{formatMoney(available)}</div>
-          {displayCurrency.code !== 'USD' && (
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>≈ {formatCurrency(available, displayCurrency.code)}</div>
-          )}
+      <header className="dz-head">
+        <h1 className="dz-title">Investments</h1>
+        <div className="dz-muted" style={{ maxWidth: 720 }}>
+          Pick a tier and commit part of your available balance to a session. Results are calculated from real price
+          movement — the tier only sets a ceiling on what a gain pays out; a loss is never capped.
         </div>
-      </div>
+      </header>
 
-      <div className="panel">
-        <div className="panel-head"><h3>{isManaged ? 'Commit to an investment' : 'Start a new investment'}</h3></div>
-        <div style={{ padding: '16px 20px' }}>
-          <div className="tier-preview-grid">
+      <div className="dz-grid pg-start">
+        <div className="dz-card">
+          <div className="dz-card-head"><h3>{isManaged ? 'Commit to an investment' : 'Start a new investment'}</h3></div>
+
+          <div className="pg-tiers">
             {visibleTiers.map((tier, i) => {
               const isSelected = selectedTier === tier.id
               const TierIcon = tierIconFor(i)
@@ -121,56 +118,56 @@ export default function Sessions() {
                     setSelectedTier(tier.id)
                     setDuration(tier.durationDays)
                   }}
-                  className={'tier-preview-card' + (isSelected ? ' tier-preview-active' : '')}
-                  style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
+                  className={'pg-tier' + (isSelected ? ' on' : '')}
+                  aria-pressed={isSelected}
                 >
-                  <div className="tier-preview-head">
-                    <div className="icon-badge"><TierIcon size={16} /></div>
+                  <div className="pg-tier-head">
+                    <span className="pg-tier-icon"><TierIcon size={16} /></span>
                     <strong>{tier.name}</strong>
-                    {isSelected && <CheckCircle2 size={16} style={{ color: 'var(--accent-bright)' }} />}
+                    {isSelected && <CheckCircle2 size={16} className="pg-tier-check" />}
                   </div>
                   <p>{tier.description}</p>
-
-                  <div className="tier-preview-payout">{tier.maxPayoutMultiplier * 100}%</div>
-                  <div className="tier-preview-payout-label">Max payout of session amount</div>
-
-                  <div className="tier-preview-range">{formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}</div>
-                  <div className="tier-preview-pills">
-                    <span className="tier-preview-pill">{tier.leverageRange.min}x–{tier.leverageRange.max}x leverage</span>
-                    <span className="tier-preview-pill">{tier.durationRange.min}–{tier.durationRange.max}d</span>
+                  <div className="pg-tier-payout">{tier.maxPayoutMultiplier * 100}%</div>
+                  <div className="dz-muted">Max payout of session amount</div>
+                  <div className="pg-tier-range">{formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}</div>
+                  <div className="pg-pills">
+                    <span>{tier.leverageRange.min}x–{tier.leverageRange.max}x leverage</span>
+                    <span>{tier.durationRange.min}–{tier.durationRange.max}d</span>
                   </div>
                 </button>
               )
             })}
           </div>
 
-          <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 16px' }}>
+          <p className="dz-muted" style={{ margin: '4px 0 16px' }}>
             Need a session below {formatMoney(TIERS[0].minDeposit)} or above {formatMoney(TIERS[TIERS.length - 1].maxDeposit)}?
             {' '}Contact your account manager — they can set up a tailored session for accounts outside the standard range.
           </p>
 
           {isManaged && (
-            <p style={{ fontSize: 12.5, color: 'var(--accent-bright)', margin: '4px 0 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <p className="pg-managed">
               <Lock size={13} /> Managed mode: your commitment leaves your main balance right away, but the timer only starts once your account manager begins it.
             </p>
           )}
 
           {error && <div className="form-error">{error}</div>}
 
-          <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Amount to commit (USD)</label>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <label className="pg-label" htmlFor="pg-amount">Amount to commit (USD)</label>
+          <div className="pg-amount">
             <input
+              id="pg-amount"
               type="number"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
-              style={{
-                flex: 1, minWidth: 140, padding: '10px 12px', borderRadius: 8,
-                border: '1px solid var(--border)', background: 'var(--bg)',
-                color: 'var(--text)', fontSize: 14
-              }}
+              className="pg-input"
             />
-            <button className="tx-btn deposit" style={{ flex: 'none' }} onClick={handleStart}>{isManaged ? 'Commit funds' : 'Start session'}</button>
+            <div className="pg-quick">
+              {[['25%', 0.25], ['50%', 0.5], ['Max', 1]].map(([label, f]) => (
+                <button key={label} type="button" disabled={available <= 0} onClick={() => setAmount((Math.floor(available * f * 100) / 100).toFixed(2))}>{label}</button>
+              ))}
+            </div>
           </div>
 
           {(() => {
@@ -178,24 +175,11 @@ export default function Sessions() {
             const durationOptions = []
             for (let d = tier.durationRange.min; d <= tier.durationRange.max; d++) durationOptions.push(d)
             return (
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                  Session length ({tier.durationRange.min}–{tier.durationRange.max} days)
-                </label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ margin: '16px 0 6px' }}>
+                <div className="pg-label">Session length ({tier.durationRange.min}–{tier.durationRange.max} days)</div>
+                <div className="pg-durations">
                   {durationOptions.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setDuration(d)}
-                      className="tx-btn"
-                      style={{
-                        padding: '6px 12px', fontSize: 12,
-                        background: duration === d ? 'var(--accent)' : 'var(--bg)',
-                        color: duration === d ? '#fff' : 'var(--text)',
-                        border: '1px solid var(--border)'
-                      }}
-                    >
+                    <button key={d} type="button" onClick={() => setDuration(d)} className={duration === d ? 'on' : ''} aria-pressed={duration === d}>
                       {d} day{d === 1 ? '' : 's'}
                     </button>
                   ))}
@@ -203,18 +187,50 @@ export default function Sessions() {
               </div>
             )
           })()}
+
+          <button className="btn-primary pg-start-btn" onClick={handleStart}>{isManaged ? 'Commit funds' : 'Start session'}</button>
           {available <= 0 && (
-            <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 10 }}>
+            <p className="dz-muted" style={{ marginTop: 10 }}>
               You don't have available balance yet — deposit first from the Deposit / Withdraw page.
             </p>
           )}
         </div>
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-label">Available to commit</div>
+            <div className="dz-num mono">{formatMoney(available)}</div>
+            {displayCurrency.code !== 'USD' && (
+              <div className="dz-muted">≈ {formatCurrency(available, displayCurrency.code)}</div>
+            )}
+          </div>
+          {(() => {
+            const tier = getTier(selectedTier)
+            const value = parseFloat(amount)
+            const valid = Number.isFinite(value) && value > 0
+            const inRange = valid && value >= tier.minDeposit && value <= tier.maxDeposit
+            return (
+              <div className="dz-card pg-summary">
+                <div className="dz-card-head"><h3>Your commitment</h3></div>
+                <div className="pg-sum-row"><span>Tier</span><strong>{tier.name}</strong></div>
+                <div className="pg-sum-row"><span>Amount</span><strong className="mono">{valid ? formatMoney(value) : '—'}</strong></div>
+                <div className="pg-sum-row"><span>Length</span><strong>{duration} day{duration === 1 ? '' : 's'}</strong></div>
+                <div className="pg-sum-row"><span>Gain ceiling</span><strong className="mono">{valid ? formatMoney(value * tier.maxPayoutMultiplier) : `${tier.maxPayoutMultiplier * 100}%`}</strong></div>
+                {valid && !inRange && (
+                  <p className="pg-warn">This tier accepts {formatMoney(tier.minDeposit)} – {formatMoney(tier.maxDeposit)}. Pick another tier or adjust the amount.</p>
+                )}
+                {valid && value > available && <p className="pg-warn">That’s more than your available balance.</p>}
+                <p className="dz-muted" style={{ marginTop: 10 }}>The ceiling only limits gains. Losses are never capped, and the final result is certified before it reaches your balance.</p>
+              </div>
+            )
+          })()}
+        </aside>
       </div>
 
       {awaitingSessions.length > 0 && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-head"><h3><Clock3 size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Awaiting start</h3></div>
-          <div style={{ padding: 16 }}>
+        <div className="dz-card" style={{ marginBottom: 16 }}>
+          <div className="dz-card-head"><h3><Clock3 size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Awaiting start</h3></div>
+          <div>
             {awaitingSessions.map((s) => {
               const tier = getTier(s.tierId)
               return (
@@ -242,10 +258,10 @@ export default function Sessions() {
       )}
 
       {activeSessions.length > 0 && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-head"><h3><Sparkles size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Active investments</h3></div>
-          {closeError && <div className="form-error" style={{ margin: '16px 20px 0' }}>{closeError}</div>}
-          <div style={{ padding: 18 }}>
+        <div className="dz-card" style={{ marginBottom: 16 }}>
+          <div className="dz-card-head"><h3><Sparkles size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Active investments</h3></div>
+          {closeError && <div className="form-error" style={{ marginBottom: 12 }}>{closeError}</div>}
+          <div>
             <div className="investment-card-grid">
               {activeSessions.map((s) => {
                 const tier = getTier(s.tierId)
@@ -361,12 +377,12 @@ export default function Sessions() {
         </div>
       )}
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head"><h3><History size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Past investments</h3></div>
+      <div className="dz-card">
+        <div className="dz-card-head"><h3><History size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Past investments</h3></div>
         {closedSessions.length === 0 ? (
-          <div className="empty-state"><p>No completed investments yet.</p></div>
+          <div className="dz-empty">No completed investments yet.</div>
         ) : (
-          <div style={{ padding: 16 }}>
+          <div>
             {closedSessions.map((s) => {
               const tier = getTier(s.tierId)
               const isCancelled = s.status === 'cancelled'

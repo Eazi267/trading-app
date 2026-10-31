@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ShieldCheck, Mail } from 'lucide-react'
+import { ShieldCheck, Mail, KeyRound } from 'lucide-react'
 import ToggleSwitch from './ToggleSwitch.jsx'
 import { apiRequest } from '../api/client.js'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -13,6 +13,7 @@ export default function AdminSecurityControls() {
   const [c, setC] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [testMsg, setTestMsg] = useState('')
 
   useEffect(() => {
     apiRequest('/api/admin/controls').then((r) => (r.error ? setError(r.error) : setC(r)))
@@ -24,6 +25,14 @@ export default function AdminSecurityControls() {
     setBusy(false)
     if (r.error) return setError(r.error)
     setC(r)
+  }
+
+  async function sendTest() {
+    setTestMsg(''); setBusy(true)
+    const r = await apiRequest('/api/admin/controls/test-email', { method: 'POST' })
+    setBusy(false)
+    if (r.error) return setTestMsg(r.error)
+    setTestMsg(r.delivered ? `Sent. Check the inbox of ${r.to}.` : r.mode === 'console' ? 'Test mode: the email was written to the server log, not delivered.' : 'Not sent: no email provider is set up on the server.')
   }
 
   const canTwoFactor = hasPermission(currentUser, 'manageAdmins')
@@ -57,6 +66,10 @@ export default function AdminSecurityControls() {
               <div>
                 <strong style={{ fontSize: 14 }}><Mail size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Automatically email clients about deposits and withdrawals</strong>
                 <div style={muted}>Sends an email when a client makes a request and when it is approved or declined. Every email is recorded on the client's page.</div>
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" className="dz-btn-o" style={{ padding: '6px 12px', fontSize: 12.5, borderRadius: 10, cursor: 'pointer' }} onClick={sendTest} disabled={busy || !canAutoEmail}>Send me a test email</button>
+                  {testMsg && <span style={{ ...muted, marginLeft: 10 }}>{testMsg}</span>}
+                </div>
                 {c.emailMode !== 'resend' && (
                   <div style={{ ...muted, color: 'var(--danger)' }}>
                     {c.emailMode === 'console' ? 'Email is in TEST MODE: messages are written to the server log, not delivered.' : 'No email provider is set up on the server, so nothing can be delivered yet.'}
@@ -65,6 +78,26 @@ export default function AdminSecurityControls() {
                 {!canAutoEmail && <div style={muted}>Needs the “manage settings” permission.</div>}
               </div>
               <ToggleSwitch checked={c.autoTransactionEmails} disabled={busy || !canAutoEmail} onChange={(v) => flip('auto-emails', { enabled: v })} />
+            </div>
+            <div style={row}>
+              <div style={{ flex: 1 }}>
+                <strong style={{ fontSize: 14 }}><KeyRound size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Ask clients for an emailed code (OTP) before…</strong>
+                <div style={muted}>When on, the client gets a 6-digit code by email and must enter it to complete that action. Codes work once and expire after 15 minutes. Clients must have a verified email.</div>
+                {c.emailMode !== 'resend' && (
+                  <div style={{ ...muted, color: 'var(--danger)' }}>
+                    {c.emailMode === 'console' ? 'Email is in TEST MODE: codes are written to the server log, not delivered.' : 'No email provider is set up on the server, so these cannot be switched on yet.'}
+                  </div>
+                )}
+                {!canAutoEmail && <div style={muted}>Needs the “manage settings” permission.</div>}
+                <div style={{ marginTop: 10 }}>
+                  {Object.entries(c.otpLabels || {}).map(([op, label]) => (
+                    <div key={op} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: '1px dashed var(--border)' }}>
+                      <span style={{ fontSize: 13.5 }}>{label}</span>
+                      <ToggleSwitch checked={!!c.otp?.[op]} disabled={busy || !canAutoEmail || (c.emailMode === 'none' && !c.otp?.[op])} onChange={(v) => flip('otp', { operation: op, enabled: v })} />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </>
         )}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, Layers, Building2 } from 'lucide-react'
 import { useSettings } from '../context/SettingsContext.jsx'
+import { openCookieSettings } from '../utils/consent.js'
 
 // Same footer markup Home.jsx used to hardcode, pulled out for the
 // same reason PublicNav.jsx already exists: About Us, Privacy Policy,
@@ -19,7 +20,10 @@ export default function PublicFooter() {
       </Link>
       <div style={{ display: 'flex', gap: 18, justifyContent: 'center', marginTop: 20, fontSize: 12.5, flexWrap: 'wrap' }}>
         <Link to="/about" style={{ color: 'var(--text-muted)' }}>About Us</Link>
+        <Link to="/terms" style={{ color: 'var(--text-muted)' }}>Terms</Link>
         <Link to="/privacy" style={{ color: 'var(--text-muted)' }}>Privacy Policy</Link>
+        <Link to="/cookies" style={{ color: 'var(--text-muted)' }}>Cookies</Link>
+        <button type="button" onClick={openCookieSettings} style={{ color: 'var(--text-muted)', background: 'none', border: 'none', padding: 0, font: 'inherit', cursor: 'pointer' }}>Cookie settings</button>
         <Link to="/help" style={{ color: 'var(--text-muted)' }}>Help</Link>
       </div>
       {settings.companyAddress && (

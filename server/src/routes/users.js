@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { getAvailableBalance } from '../utils/balance.js'
 import { publicUser } from '../utils/publicUser.js'
 import { logAudit } from '../utils/auditLog.js'
+import { requireOtp } from '../middleware/otp.js'
 
 const router = Router()
 
@@ -59,7 +60,7 @@ router.patch('/me', requireAuth, async (req, res) => {
 // requires a human on the support side (see routes/admin.js's
 // wallet/unbind), so a compromised account can't silently redirect
 // future withdrawals — mirrors bindWallet()'s own reasoning exactly.
-router.post('/me/wallet', requireAuth, async (req, res) => {
+router.post('/me/wallet', requireAuth, requireOtp('wallet'), async (req, res) => {
   if (req.user.bound_wallet) return res.status(400).json({ error: 'A wallet is already bound to this account. Contact support to change it.' })
   const { method, chain, address } = req.body || {}
   if (!method || !address?.trim()) return res.status(400).json({ error: 'Choose a method and enter your wallet address.' })

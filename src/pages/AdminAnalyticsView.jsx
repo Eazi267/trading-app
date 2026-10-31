@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Wallet, Activity, Users, AlertTriangle } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
@@ -25,13 +26,40 @@ function formatTimeLeft(expiresAtIso) {
 
 const CHART_COLORS = ['var(--accent-bright)', 'var(--success)', 'var(--danger)', '#a78bfa', '#fbbf24']
 
-function StatCard({ icon: Icon, label, value, formatter, animationClass }) {
+function Kpi({ icon: Icon, label, value, formatter }) {
   const animated = useCountUp(value)
   return (
-    <div className={'glass-card hero-stat-card ' + animationClass}>
-      <div className="hero-stat-icon"><Icon size={17} /></div>
-      <div className="hero-stat-label">{label}</div>
-      <div className="hero-stat-value">{formatter(animated)}</div>
+    <div className="ad-kpi">
+      <span className="ad-kpi-ico"><Icon size={18} /></span>
+      <span className="ad-kpi-label">{label}</span>
+      <b className="ad-kpi-value">{formatter(animated)}</b>
+    </div>
+  )
+}
+
+function DonutCard({ title, empty, data, nameKey, valueKey, formatter }) {
+  return (
+    <div className="dz-card">
+      <div className="dz-card-head"><h3>{title}</h3></div>
+      {data.length === 0 ? (
+        <div className="dz-empty">{empty}</div>
+      ) : (
+        <div className="an2-donut">
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={data} dataKey={valueKey} nameKey={nameKey} innerRadius={48} outerRadius={74} paddingAngle={3} stroke="none">
+                {data.map((entry, i) => <Cell key={entry[nameKey]} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+              </Pie>
+              <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }} formatter={formatter} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="an2-legend">
+            {data.map((entry, i) => (
+              <div key={entry[nameKey]}><i style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />{entry[nameKey]}{entry.count !== undefined ? ` (${entry.count})` : ''}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -45,116 +73,56 @@ export default function AdminAnalyticsView() {
   const activeSessions = getActiveSessionsOverview(sessions, users)
   const byTier = getSessionsByTier(sessions).map((row) => ({ ...row, name: getTier(row.tierId)?.name || row.tierId }))
   const allocation = getPlatformAssetAllocation(sessions)
-  const hasActiveSessions = activeSessions.length > 0
-  const hasAllocation = allocation.length > 0
 
   return (
     <>
-      <h1 className="page-title">Admin Analytics</h1>
-      <p className="page-sub">Every active session and client account, at a glance — calculated live from real data.</p>
+      <header className="dz-head">
+        <h1 className="dz-title">Admin Analytics</h1>
+        <div className="dz-muted">Every active session and client account at a glance, calculated live from real data.</div>
+      </header>
 
-      <div className="hero-stats-grid">
+      <div className="ad-kpis">
         {loading ? (
-          [1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)
+          [1, 2, 3, 4].map((i) => <div key={i} className="skeleton ad-kpi-skel" />)
         ) : (
           <>
-            <StatCard icon={Activity} label="Active sessions" value={totals.activeSessionCount} formatter={(v) => Math.round(v).toString()} animationClass="fade-in-up fade-in-up-1" />
-            <StatCard icon={Wallet} label="Committed capital" value={totals.totalCommitted} formatter={formatMoney} animationClass="fade-in-up fade-in-up-2" />
-            <StatCard icon={Users} label="Total clients" value={totals.totalClients} formatter={(v) => Math.round(v).toString()} animationClass="fade-in-up fade-in-up-3" />
-            <StatCard icon={AlertTriangle} label="Flagged for review" value={totals.flaggedClients} formatter={(v) => Math.round(v).toString()} animationClass="fade-in-up fade-in-up-4" />
+            <Kpi icon={Activity} label="Active sessions" value={totals.activeSessionCount} formatter={(v) => Math.round(v).toString()} />
+            <Kpi icon={Wallet} label="Committed capital" value={totals.totalCommitted} formatter={formatMoney} />
+            <Kpi icon={Users} label="Total clients" value={totals.totalClients} formatter={(v) => Math.round(v).toString()} />
+            <Kpi icon={AlertTriangle} label="Flagged for review" value={totals.flaggedClients} formatter={(v) => Math.round(v).toString()} />
           </>
         )}
       </div>
 
-      <div className="glass-card" style={{ marginBottom: 20 }}>
-        <div className="panel-head"><h3>All active sessions — at a glance</h3></div>
-        {!hasActiveSessions ? (
-          <div className="empty-state"><p>No active sessions right now.</p></div>
+      <div className="dz-card">
+        <div className="dz-card-head"><h3>All active sessions, at a glance</h3></div>
+        {activeSessions.length === 0 ? (
+          <div className="dz-empty">No active sessions right now.</div>
         ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Tier</th><th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Leverage</th><th style={{ textAlign: 'right' }}>Live value</th><th style={{ textAlign: 'right' }}>Time left</th><th>Scenario</th></tr></thead>
-            <tbody>
-              {activeSessions.map(({ session, owner }) => {
-                const scenario = sessionScenarios[session.id]
-                return (
-                  <tr key={session.id}>
-                    <td style={{ fontWeight: 600 }}>{owner?.name || `User #${session.userId}`}</td>
-                    <td>{getTier(session.tierId)?.name || session.tierId}</td>
-                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(session.amount)}</td>
-                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{session.leverage}x</td>
-                    <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(sessionCurrentValue(session))}</td>
-                    <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 13 }}>{formatTimeLeft(session.expiresAt)}</td>
-                    <td>
-                      {!scenario ? (
-                        <span className="status-pill status-approved">Normal</span>
-                      ) : scenario.reset ? (
-                        <span className="status-pill status-pending">Resetting</span>
-                      ) : (
-                        <span className="status-pill status-pending">{scenario.mode}</span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="rf-list">
+            {activeSessions.map(({ session, owner }) => {
+              const scenario = sessionScenarios[session.id]
+              return (
+                <Link key={session.id} to={`/admin/users/${session.userId}`} className="rf-item ad-link sc-row">
+                  <span className="rf-av">{(owner?.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+                  <span className="rf-who">
+                    <strong>{owner?.name || `User #${session.userId}`}</strong>
+                    <span className="dz-muted">{getTier(session.tierId)?.name || session.tierId} · {formatMoney(session.amount)} · {session.leverage}x · {formatTimeLeft(session.expiresAt)} left</span>
+                    <span className="cl-tags">
+                      {!scenario ? <span className="dz-chip">Normal</span> : scenario.reset ? <span className="dz-chip cl-pending">Resetting</span> : <span className="dz-chip cl-pending">{scenario.mode}</span>}
+                    </span>
+                  </span>
+                  <span className="mono cl-bal">{formatMoney(sessionCurrentValue(session))}</span>
+                </Link>
+              )
+            })}
+          </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-        <div className="glass-card">
-          <div className="panel-head"><h3>Active sessions by tier</h3></div>
-          {byTier.length === 0 ? (
-            <div className="empty-state"><p>No active sessions right now.</p></div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
-              <ResponsiveContainer width="60%" height={180}>
-                <PieChart>
-                  <Pie data={byTier} dataKey="count" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={3}>
-                    {byTier.map((entry, i) => (
-                      <Cell key={entry.tierId} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="mini-donut-legend">
-                {byTier.map((entry, i) => (
-                  <div className="mini-donut-legend-item" key={entry.tierId}>
-                    <span className="mini-donut-swatch" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} /> {entry.name} ({entry.count})
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="glass-card">
-          <div className="panel-head"><h3>Platform exposure by instrument</h3></div>
-          {!hasAllocation ? (
-            <div className="empty-state"><p>No open positions right now.</p></div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
-              <ResponsiveContainer width="60%" height={180}>
-                <PieChart>
-                  <Pie data={allocation} dataKey="value" nameKey="symbol" innerRadius={45} outerRadius={70} paddingAngle={3}>
-                    {allocation.map((entry, i) => (
-                      <Cell key={entry.symbol} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => formatMoney(v)} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="mini-donut-legend">
-                {allocation.map((entry, i) => (
-                  <div className="mini-donut-legend-item" key={entry.symbol}>
-                    <span className="mini-donut-swatch" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} /> {entry.symbol}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="an2-pair">
+        <DonutCard title="Active sessions by tier" empty="No active sessions right now." data={byTier} nameKey="name" valueKey="count" formatter={(v) => v} />
+        <DonutCard title="Platform exposure by instrument" empty="No open positions right now." data={allocation} nameKey="symbol" valueKey="value" formatter={(v) => formatMoney(v)} />
       </div>
     </>
   )

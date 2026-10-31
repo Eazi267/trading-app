@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import Layout from '../components/Layout.jsx'
+import PageSkeleton from '../components/PageSkeleton.jsx'
 import TransactionDetailModal from '../components/TransactionDetailModal.jsx'
-import { Inbox, ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent, RotateCcw } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Receipt, Gift, Percent, RotateCcw } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { getFullTransactionHistory } from '../utils/analytics.js'
@@ -32,29 +33,65 @@ function TypeIcon({ type }) {
   return <Receipt size={17} />
 }
 
+const FILTERS = [
+  { id: 'all', label: 'All', types: null },
+  { id: 'deposits', label: 'Deposits', types: ['deposit'] },
+  { id: 'withdrawals', label: 'Withdrawals', types: ['withdrawal'] },
+  { id: 'results', label: 'Session results', types: ['session_settlement', 'capped_profit_release'] },
+  { id: 'fees', label: 'Fees', types: ['fee', 'fee_payment', 'fee_discount'] },
+  { id: 'other', label: 'Bonuses & other', types: ['referral_bonus', 'signup_bonus', 'reversal'] }
+]
+
 export default function TransactionHistory() {
   const { transactions } = useApp()
   const { currentUser } = useAuth()
   const fullHistory = getFullTransactionHistory(transactions, currentUser.id)
   const [viewingTx, setViewingTx] = useState(null)
+  const [filter, setFilter] = useState('all')
+
+  const active = FILTERS.find((f) => f.id === filter)
+  const shown = active.types ? fullHistory.filter((t) => active.types.includes(t.type)) : fullHistory
+
+  // Totals use approved records only, so they match what actually hit the balance.
+  const approved = fullHistory.filter((t) => t.status === 'approved')
+  const sum = (types) => approved.filter((t) => types.includes(t.type)).reduce((n, t) => n + Number(t.amount), 0)
+  const deposited = sum(['deposit'])
+  const withdrawn = sum(['withdrawal'])
+  const results = sum(['session_settlement', 'capped_profit_release'])
+
+  const { dataReady: _dataReady } = useApp()
+  if (!_dataReady) return <Layout pageTitle="Transaction History"><PageSkeleton /></Layout>
 
   return (
     <Layout pageTitle="Transaction History">
-      <h1 className="page-title">Transaction History</h1>
-      <p className="page-sub">
-        Every deposit, withdrawal, fee, fee payment, session settlement, and pending-profit review on your
-        account.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Transaction History</h1>
+        <div className="dz-muted" style={{ maxWidth: 720 }}>
+          Every deposit, withdrawal, fee, fee payment, session settlement, and pending-profit review on your account.
+        </div>
+      </header>
 
-      <div className="panel">
+      <div className="dz-card dz-stats pg-hist-stats">
+        <div><span className="dz-label">Total deposited</span><strong className="mono">{formatMoney(deposited)}</strong></div>
+        <div><span className="dz-label">Total withdrawn</span><strong className="mono">{formatMoney(withdrawn)}</strong></div>
+        <div><span className="dz-label">Session results</span><strong className={'mono ' + (results > 0 ? 'pnl-up' : results < 0 ? 'pnl-down' : '')}>{results > 0 ? '+' : ''}{formatMoney(results)}</strong></div>
+        <div className="dz-muted" style={{ fontSize: 11 }}>Approved records only.</div>
+      </div>
+
+      <div className="pg-filters" role="tablist" aria-label="Filter transactions">
+        {FILTERS.map((f) => (
+          <button key={f.id} type="button" role="tab" aria-selected={filter === f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>
+        ))}
+      </div>
+
+      <div className="dz-card">
         {fullHistory.length === 0 ? (
-          <div className="empty-state">
-            <Inbox size={20} />
-            <p>Nothing yet — deposits, withdrawals, and session results will show up here.</p>
-          </div>
+          <div className="dz-empty">Nothing yet — deposits, withdrawals, and session results will show up here.</div>
+        ) : shown.length === 0 ? (
+          <div className="dz-empty">No {active.label.toLowerCase()} to show.</div>
         ) : (
-          <div style={{ padding: 16 }}>
-            {fullHistory.map((t) => {
+          <div>
+            {shown.map((t) => {
               const isCredit = t.type === 'deposit' || t.type === 'session_settlement' || t.type === 'capped_profit_release' || t.type === 'referral_bonus' || t.type === 'signup_bonus' || (t.type === 'reversal' && t.details?.direction !== 'debit')
               const isFeePayment = t.type === 'fee_payment'
               const signedAmount = isCredit ? t.amount : -t.amount

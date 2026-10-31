@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getCurrentPrices } from '../services/priceEngine.js'
+import { getCurrentPrices, getPriceSources } from '../services/priceEngine.js'
 
 const router = Router()
 
@@ -7,7 +7,7 @@ const router = Router()
 // snapshot. This is the ONLY place a price for session/position math
 // comes from; no route anywhere accepts a price as request input.
 router.get('/', (req, res) => {
-  res.json({ prices: getCurrentPrices() })
+  res.json({ prices: getCurrentPrices(), sources: getPriceSources() })
 })
 
 export default router

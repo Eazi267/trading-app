@@ -172,6 +172,8 @@ const DEFAULT_SETTINGS = {
   // having full account-management access.
   aboutUsHtml: '',
   privacyPolicyHtml: '',
+  termsHtml: '',
+  cookiePolicyHtml: '',
 
   // Custom primary accent color (hex) — separate from the existing
   // preset accent swatches in Configurator.jsx. If set, overrides

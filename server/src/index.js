@@ -8,6 +8,7 @@ import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import authRouter from './routes/auth.js'
 import twoFactorRouter from './routes/twoFactor.js'
+import otpRouter from './routes/otp.js'
 import accountEmailRouter from './routes/accountEmail.js'
 import { emailDeliveryConfigured } from './utils/mailer.js'
 import transactionsRouter from './routes/transactions.js'
@@ -87,6 +88,7 @@ app.use('/api', rateLimit({
   message: { error: 'Too many requests. Please slow down and try again shortly.' }
 }))
 
+app.use('/api/otp', otpRouter)
 app.use('/api/auth/2fa', twoFactorRouter)
 app.use('/api/auth', accountEmailRouter)
 app.use('/api/auth', authRouter)

@@ -1,0 +1,22 @@
+/* Stage 5: dashboard performance panel */
+.perf-chip{font-size:11px;color:var(--text-muted);border:1px solid var(--border);border-radius:999px;padding:3px 10px}
+.perf-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:4px 20px 12px}
+.perf-stats span{display:block;font-size:11.5px;color:var(--text-muted);margin-bottom:3px}
+.perf-stats strong{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600}
+.perf-note{display:flex;gap:8px;align-items:flex-start;margin:0 20px 8px;padding:10px 12px;font-size:12.5px;line-height:1.45;color:var(--text-secondary);background:var(--accent-bg);border:1px solid var(--border);border-radius:8px}
+.perf-note svg{flex:none;margin-top:2px;color:var(--accent-bright)}
+.perf-foot{padding:0 20px 14px;font-size:11.5px;color:var(--text-muted)}
+@media (max-width:640px){.perf-stats{grid-template-columns:1fr 1fr}}
+
+/* Stage 6: compact 2x2 stat cards and tidy chart header on phones */
+@media (max-width: 640px) {
+  .page-content .hero-stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .page-content .hero-stat-card { padding: 14px; }
+  .page-content .hero-stat-card .hero-stat-icon { margin-bottom: 8px; }
+  .page-content .hero-stat-card .hero-stat-value { font-size: 19px; }
+  .perf-card .panel-head { flex-wrap: wrap; gap: 6px; }
+  .perf-chip { font-size: 10.5px; white-space: nowrap; }
+  .perf-note { margin: 0 14px 8px; }
+  .perf-stats { padding: 4px 14px 12px; }
+  .perf-foot { padding: 0 14px 14px; }
+}

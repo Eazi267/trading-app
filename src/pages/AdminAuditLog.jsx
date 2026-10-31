@@ -29,7 +29,7 @@ function formatAction(action) {
 function DetailChips({ details }) {
   if (!details || Object.keys(details).length === 0) return null
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+    <span className="cl-tags">
       {Object.entries(details).map(([key, value]) => {
         if (value === null || value === undefined || value === '') return null
         const display =
@@ -40,19 +40,9 @@ function DetailChips({ details }) {
               : typeof value === 'object'
                 ? JSON.stringify(value)
                 : String(value)
-        return (
-          <span
-            key={key}
-            style={{
-              fontSize: 11.5, padding: '2px 8px', borderRadius: 999,
-              background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)'
-            }}
-          >
-            {formatAction(key)}: {display}
-          </span>
-        )
+        return <span key={key} className="dz-chip au-chip">{formatAction(key)}: {display}</span>
       })}
-    </div>
+    </span>
   )
 }
 
@@ -188,117 +178,80 @@ export default function AdminAuditLog() {
   const recent = filtered.filter((e) => new Date(e.timestamp).getTime() >= cutoff)
   const older = filtered.filter((e) => new Date(e.timestamp).getTime() < cutoff)
 
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000
+  const last24 = auditLog.filter((e) => new Date(e.timestamp).getTime() >= dayAgo).length
+  const actors = new Set(auditLog.map((e) => e.actorName)).size
+
   return (
     <Layout pageTitle="Audit Log">
-      <h1 className="page-title">Audit Log</h1>
-      <p className="page-sub">
-        Every state-changing action taken on this platform — who did it, to which client, and when.
-        Read-only: entries are written by the server and the database refuses to change or delete them.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Audit Log</h1>
+        <div className="dz-muted">Every state-changing action on this platform: who did it, to which client, and when. Read-only. Entries are written by the server and the database refuses to change or delete them.</div>
+      </header>
 
       {loadError && <div className="form-error" style={{ marginBottom: 16 }}>{loadError}</div>}
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div style={{ padding: '14px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ position: 'relative', flex: '1 1 220px' }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-            <input
-              type="text"
-              placeholder="Search by admin, client, or action…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </div>
-          <select
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          >
-            <option value="all">All actions</option>
-            {actionTypes.map((a) => (
-              <option key={a} value={a}>{formatAction(a)}</option>
-            ))}
-          </select>
-          <select
-            value={clientFilter}
-            onChange={(e) => setClientFilter(e.target.value)}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          >
-            <option value="all">All clients</option>
-            {clientNames.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-          >
-            <option value="newest">Sort: Newest first</option>
-            <option value="oldest">Sort: Oldest first</option>
-            <option value="client">Sort: Client name</option>
-            <option value="action">Sort: Action type</option>
-          </select>
-        </div>
+      <div className="ad-kpis ad-kpis-3">
+        <div className="ad-kpi"><span className="ad-kpi-ico"><ClipboardList size={18} /></span><span className="ad-kpi-label">Entries loaded</span><b className="ad-kpi-value">{auditLog.length}</b></div>
+        <div className="ad-kpi"><span className="ad-kpi-ico"><Clock size={18} /></span><span className="ad-kpi-label">Last 24 hours</span><b className="ad-kpi-value">{last24}</b></div>
+        <div className="ad-kpi"><span className="ad-kpi-ico"><UserCog size={18} /></span><span className="ad-kpi-label">People who acted</span><b className="ad-kpi-value">{actors}</b></div>
       </div>
 
-      <div className="panel">
-        <div className="panel-head">
-          <h3><ClipboardList size={15} style={{ verticalAlign: -2, marginRight: 6 }} />{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="tx-btn" onClick={load} style={{ padding: '6px 10px', fontSize: 12, flex: 'none' }}>
-              <RefreshCw size={12} /> Refresh
-            </button>
-            <button type="button" className="tx-btn" onClick={handleExport} disabled={filtered.length === 0} style={{ padding: '6px 10px', fontSize: 12, flex: 'none' }}>
-              <Download size={12} /> Export CSV
-            </button>
-          </div>
+      <div className="dz-card">
+        <div className="cl-tools">
+          <label className="cl-search">
+            <Search size={15} />
+            <input type="text" placeholder="Search by admin, client, or action…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </label>
+          <label className="cl-sort">
+            <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} aria-label="Filter by action">
+              <option value="all">All actions</option>
+              {actionTypes.map((a) => <option key={a} value={a}>{formatAction(a)}</option>)}
+            </select>
+          </label>
+          <label className="cl-sort">
+            <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} aria-label="Filter by client">
+              <option value="all">All clients</option>
+              {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          <label className="cl-sort">
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="client">Client name</option>
+              <option value="action">Action type</option>
+            </select>
+          </label>
         </div>
-        {hasMore && (
-          <div style={{ padding: '10px 20px 0', fontSize: 12, color: 'var(--text-muted)' }}>
-            Showing the latest 1,000 entries — older history exists in the database.
-          </div>
-        )}
+
+        <div className="dz-card-head">
+          <h3>{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</h3>
+          <span className="sc-actions">
+            <button type="button" className="dz-btn-o" onClick={load}><RefreshCw size={12} /> Refresh</button>
+            <button type="button" className="dz-btn-o" onClick={handleExport} disabled={filtered.length === 0}><Download size={12} /> Export CSV</button>
+          </span>
+        </div>
+        {hasMore && <p className="dz-muted st-hint" style={{ marginTop: 0 }}>Showing the latest 1,000 entries. Older history exists in the database.</p>}
+
         {loading && auditLog.length === 0 ? (
-          <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
-            Loading the audit log…
-          </div>
+          <div className="dz-empty">Loading the audit log…</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13.5 }}>
-            No audit entries match this filter.
-          </div>
+          <div className="dz-empty">No audit entries match this filter.</div>
         ) : (
           <>
-            <div style={{ padding: 16 }} className={sortBy === 'newest' || sortBy === 'oldest' ? 'stagger-in' : ''}>
-              {recent.map((e) => (
-                <AuditEntryRow key={e.id} entry={e} />
-              ))}
-              {recent.length === 0 && older.length > 0 && (
-                <div style={{ padding: '12px 4px', color: 'var(--text-muted)', fontSize: 13 }}>
-                  Nothing in the last 7 days for this filter.
-                </div>
-              )}
+            <div className="rf-list">
+              {recent.map((e) => <AuditEntryRow key={e.id} entry={e} />)}
+              {recent.length === 0 && older.length > 0 && <div className="dz-empty">Nothing in the last 7 days for this filter.</div>}
             </div>
             {older.length > 0 && (
-              <div style={{ padding: '0 16px 16px' }}>
-                <button
-                  type="button"
-                  className="tx-btn"
-                  onClick={() => setShowOlder((v) => !v)}
-                  style={{ width: '100%', justifyContent: 'center', padding: '9px 10px', fontSize: 12.5 }}
-                >
+              <div style={{ marginTop: 12 }}>
+                <button type="button" className="dz-btn-o au-older" onClick={() => setShowOlder((v) => !v)}>
                   <History size={13} />
                   {showOlder ? 'Hide' : 'Show'} older history ({older.length} entr{older.length === 1 ? 'y' : 'ies'} over a week old)
                   <ChevronDown size={12} style={{ transform: showOlder ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease)' }} />
                 </button>
-                {showOlder && (
-                  <div style={{ paddingTop: 12 }}>
-                    {older.map((e) => (
-                      <AuditEntryRow key={e.id} entry={e} />
-                    ))}
-                  </div>
-                )}
+                {showOlder && <div className="rf-list" style={{ marginTop: 8 }}>{older.map((e) => <AuditEntryRow key={e.id} entry={e} />)}</div>}
               </div>
             )}
           </>
@@ -311,19 +264,16 @@ export default function AdminAuditLog() {
 function AuditEntryRow({ entry: e }) {
   const Icon = iconFor(e.action)
   return (
-    <div className="entity-card">
-      <div className="icon-badge"><Icon size={17} /></div>
-      <div className="entity-card-body">
-        <div className="entity-card-title">{formatAction(e.action)}</div>
-        <div className="entity-card-meta">
-          <span>{formatDate(e.timestamp)}</span>
-          <span>By {e.actorName}</span>
-          {e.targetUserName && (
-            <span>Client: <Link to={`/admin/users/${e.targetUserId}`} style={{ color: 'inherit', textDecoration: 'underline' }}>{e.targetUserName}</Link></span>
-          )}
-        </div>
+    <div className="rf-item au-row">
+      <span className="rf-av"><Icon size={15} /></span>
+      <span className="rf-who">
+        <strong>{formatAction(e.action)}</strong>
+        <span className="dz-muted">
+          {formatDate(e.timestamp)} · By {e.actorName}
+          {e.targetUserName && <> · Client: <Link to={`/admin/users/${e.targetUserId}`} className="ad-link" style={{ color: 'var(--accent-bright)' }}>{e.targetUserName}</Link></>}
+        </span>
         <DetailChips details={e.details} />
-      </div>
+      </span>
     </div>
   )
 }

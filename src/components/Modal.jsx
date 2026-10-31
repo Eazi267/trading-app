@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
@@ -14,10 +15,19 @@ import { X } from 'lucide-react'
 // the whole screen. The portal sidesteps the whole problem by
 // leaving that DOM subtree entirely.
 export default function Modal({ open, onClose, title, description, children }) {
+  // Escape closes the dialog, like any native one.
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
   if (!open) return null
 
   return createPortal(
     <div
+      className="md-wrap"
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
@@ -26,6 +36,10 @@ export default function Modal({ open, onClose, title, description, children }) {
       }}
     >
       <div
+        className="md-box"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18,

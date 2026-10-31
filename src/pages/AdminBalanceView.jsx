@@ -12,13 +12,13 @@ function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 }
 
-function StatCard({ icon: Icon, label, value, formatter, animationClass }) {
+function Kpi({ icon: Icon, label, value, formatter }) {
   const animated = useCountUp(value)
   return (
-    <div className={'glass-card hero-stat-card ' + animationClass}>
-      <div className="hero-stat-icon"><Icon size={17} /></div>
-      <div className="hero-stat-label">{label}</div>
-      <div className="hero-stat-value">{formatter(animated)}</div>
+    <div className="ad-kpi">
+      <span className="ad-kpi-ico"><Icon size={18} /></span>
+      <span className="ad-kpi-label">{label}</span>
+      <b className="ad-kpi-value">{formatter(animated)}</b>
     </div>
   )
 }
@@ -31,7 +31,7 @@ export default function AdminBalanceView() {
   const totals = getPlatformTotals(users, transactions, sessions)
   const balances = getClientBalances(users, transactions, sessions).sort((a, b) => b.total - a.total)
 
-  // Total balance grouped by each client's assigned tier — a real
+  // Total balance grouped by each client's assigned tier: a real
   // breakdown of where the platform's AUM actually sits.
   const byTier = TIERS.map((tier) => ({
     name: tier.name,
@@ -43,60 +43,57 @@ export default function AdminBalanceView() {
 
   return (
     <>
-      <h1 className="page-title">Admin Balance Overview</h1>
-      <p className="page-sub">Every client's balance, and where the platform's total balance actually sits.</p>
+      <header className="dz-head">
+        <h1 className="dz-title">Admin Balance Overview</h1>
+        <div className="dz-muted">Every client's balance, and where the platform's total balance actually sits.</div>
+      </header>
 
-      <div className="hero-stats-grid">
+      <div className="ad-kpis">
         {loading ? (
-          [1, 2, 3, 4].map((i) => <div key={i} className="glass-card hero-stat-card"><div className="skeleton" style={{ height: 76 }} /></div>)
+          [1, 2, 3, 4].map((i) => <div key={i} className="skeleton ad-kpi-skel" />)
         ) : (
           <>
-            <StatCard icon={Wallet} label="Total AUM" value={totals.totalAUM} formatter={formatMoney} animationClass="fade-in-up fade-in-up-1" />
-            <StatCard icon={Unlock} label="Total available" value={totals.totalAvailable} formatter={formatMoney} animationClass="fade-in-up fade-in-up-2" />
-            <StatCard icon={Lock} label="Committed to sessions" value={totals.totalCommitted} formatter={formatMoney} animationClass="fade-in-up fade-in-up-3" />
-            <StatCard icon={Hourglass} label="Pending profit review" value={totals.totalPendingReview} formatter={formatMoney} animationClass="fade-in-up fade-in-up-4" />
+            <Kpi icon={Wallet} label="Total AUM" value={totals.totalAUM} formatter={formatMoney} />
+            <Kpi icon={Unlock} label="Total available" value={totals.totalAvailable} formatter={formatMoney} />
+            <Kpi icon={Lock} label="Committed to sessions" value={totals.totalCommitted} formatter={formatMoney} />
+            <Kpi icon={Hourglass} label="Pending profit review" value={totals.totalPendingReview} formatter={formatMoney} />
           </>
         )}
       </div>
 
-      <div className="glass-card" style={{ marginBottom: 20 }}>
-        <div className="panel-head"><h3>Balance breakdown by tier</h3></div>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={byTier}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-            <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-            <Tooltip contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }} formatter={(v) => formatMoney(v)} />
-            <Bar dataKey="total" fill="var(--accent-bright)" radius={[4, 4, 0, 0]} />
+      <div className="dz-card">
+        <div className="dz-card-head"><h3>Balance breakdown by tier</h3></div>
+        <ResponsiveContainer width="100%" height={210}>
+          <BarChart data={byTier} margin={{ top: 6, right: 4, left: -8, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="2 5" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} width={48} />
+            <Tooltip cursor={{ fill: 'var(--surface-2)', opacity: 0.5 }} contentStyle={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }} formatter={(v) => formatMoney(v)} />
+            <Bar dataKey="total" fill="var(--accent-bright)" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="glass-card">
-        <div className="panel-head">
+      <div className="dz-card">
+        <div className="dz-card-head">
           <h3>Every client's balance</h3>
-          <Link to="/admin/users" style={{ fontSize: 12.5, color: 'var(--accent-bright)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            Manage clients <ArrowRight size={12} />
-          </Link>
+          <Link to="/admin/users">Manage clients <ArrowRight size={12} /></Link>
         </div>
         {balances.length === 0 ? (
-          <div className="empty-state"><p>No clients yet.</p></div>
+          <div className="dz-empty">No clients yet.</div>
         ) : (
-          <table>
-            <thead><tr><th>Client</th><th>Tier</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Available</th><th style={{ textAlign: 'right' }}>Committed</th><th style={{ textAlign: 'right' }}>Pending review</th></tr></thead>
-            <tbody>
-              {balances.map((b) => (
-                <tr key={b.user.id}>
-                  <td><Link to={`/admin/users/${b.user.id}`} style={{ color: 'inherit', fontWeight: 600 }}>{b.user.name}</Link></td>
-                  <td>{getTier(b.user.tier)?.name || 'None'}</td>
-                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.total)}</td>
-                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.available)}</td>
-                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace" }}>{formatMoney(b.committed)}</td>
-                  <td style={{ textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: b.pendingReview > 0 ? 'var(--accent-bright)' : 'var(--text-muted)' }}>{b.pendingReview > 0 ? formatMoney(b.pendingReview) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="rf-list">
+            {balances.map((b) => (
+              <Link key={b.user.id} to={`/admin/users/${b.user.id}`} className="rf-item ad-link">
+                <span className="rf-av">{(b.user.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+                <span className="rf-who">
+                  <strong>{b.user.name}</strong>
+                  <span className="dz-muted">{getTier(b.user.tier)?.name || 'No tier'} · available {formatMoney(b.available)} · committed {formatMoney(b.committed)}{b.pendingReview > 0 ? ` · pending review ${formatMoney(b.pendingReview)}` : ''}</span>
+                </span>
+                <span className="mono cl-bal">{formatMoney(b.total)}</span>
+              </Link>
+            ))}
+          </div>
         )}
       </div>
     </>

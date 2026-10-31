@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FastForward, Activity, Bitcoin, Coins, Landmark, Gem, RotateCcw } from 'lucide-react'
+import { FastForward, Activity, Bitcoin, Coins, Landmark, Gem, RotateCcw, Zap, Clock, TrendingUp } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
@@ -58,19 +58,9 @@ const PRESETS = [
 
 function ToggleGroup({ options, value, onChange, getLabel = (o) => o.label, getValue = (o) => o.value }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div className="sc-seg" role="group">
       {options.map((opt) => (
-        <button
-          key={getValue(opt)}
-          onClick={() => onChange(getValue(opt))}
-          className="tx-btn"
-          style={{
-            padding: '6px 12px', fontSize: 12,
-            background: value === getValue(opt) ? 'var(--accent)' : 'var(--bg)',
-            color: value === getValue(opt) ? '#fff' : 'var(--text)',
-            border: '1px solid var(--border)'
-          }}
-        >
+        <button key={getValue(opt)} type="button" aria-pressed={value === getValue(opt)} className={'sc-seg-btn' + (value === getValue(opt) ? ' on' : '')} onClick={() => onChange(getValue(opt))}>
           {getLabel(opt)}
         </button>
       ))}
@@ -145,55 +135,40 @@ export default function AdminScenario() {
     })
   })
 
+  const stateLabel = !selectedSymbolScenario
+    ? 'Normal market'
+    : selectedSymbolScenario.reset
+    ? `Resetting (${selectedSymbolScenario.reset.level})`
+    : `${selectedSymbolScenario.mode}, ${selectedSymbolScenario.strength}/3`
+  const scenarioCountFor = (id) => Object.keys(sessionScenarios[id] || {}).length
+
   return (
     <Layout pageTitle="Scenario Control">
-      <h1 className="page-title">Scenario Control</h1>
-      <p className="page-sub">
-        Applies to ONE symbol within ONE session at a time. A session can run several
-        different scenarios at once — BTC/USD bullish while EUR/USD stays normal in the
-        same session — since each symbol's synthetic price ticks independently. Nothing
-        here sets a balance or payout directly.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Scenario Control</h1>
+        <div className="dz-muted">Applies to ONE symbol within ONE session at a time. A session can run several scenarios at once, since each symbol's synthetic price ticks independently. Nothing here sets a balance or payout directly.</div>
+      </header>
 
       {liveScenarios.length > 0 && (
-        <div className="glass-card fade-in-up-1" style={{ marginBottom: 20 }}>
-          <div className="panel-head">
-            <h3><Activity size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Live right now ({liveScenarios.length})</h3>
-          </div>
-          <div style={{ padding: 16 }} className="stagger-in">
+        <div className="dz-card">
+          <div className="dz-card-head"><h3><Activity size={15} className="st-ico" />Live right now ({liveScenarios.length})</h3></div>
+          <div className="rf-list">
             {liveScenarios.map(({ session, symbol, scenario }) => {
               const owner = users.find((u) => u.id === session.userId)
               const Icon = symbolIcon(symbol)
               return (
-                <div key={session.id + symbol} className="entity-card">
-                  <div className="icon-badge"><Icon size={16} /></div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">
-                      {symbol} <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>on</span>{' '}
-                      <Link to={`/admin/users/${session.userId}`} style={{ color: 'inherit' }}>{owner?.name || `User #${session.userId}`}</Link>
-                    </div>
-                    <div className="entity-card-meta">
-                      {scenario.reset ? (
-                        <span className="status-pill status-pending">Resetting ({formatResetTimeLeft(scenario.reset)})</span>
-                      ) : (
-                        <span className="status-pill status-pending">{scenario.mode}, strength {scenario.strength}/3</span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
-                    <button
-                      className="tx-btn"
-                      style={{ padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => { setSelectedSessionId(session.id); setSelectedSymbol(symbol) }}
-                    >
-                      Control
-                    </button>
+                <div key={session.id + symbol} className="rf-item sc-row">
+                  <span className="rf-av"><Icon size={15} /></span>
+                  <span className="rf-who">
+                    <strong>{symbol} <span className="dz-muted">on</span> <Link to={`/admin/users/${session.userId}`} className="ad-link" style={{ color: 'var(--accent-bright)' }}>{owner?.name || `User #${session.userId}`}</Link></strong>
+                    <span className="dz-muted">{scenario.reset ? `Resetting (${formatResetTimeLeft(scenario.reset)})` : `${scenario.mode}, strength ${scenario.strength}/3`}</span>
+                  </span>
+                  <span className="sc-actions">
+                    <button type="button" className="dz-btn-o" onClick={() => { setSelectedSessionId(session.id); setSelectedSymbol(symbol) }}>Control</button>
                     {!scenario.reset && (
-                      <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => resetSessionScenario(session.id, symbol, 'normal')}>
-                        <RotateCcw size={12} /> Reset
-                      </button>
+                      <button type="button" className="dz-btn-o" onClick={() => resetSessionScenario(session.id, symbol, 'normal')}><RotateCcw size={12} /> Reset</button>
                     )}
-                  </div>
+                  </span>
                 </div>
               )
             })}
@@ -201,244 +176,143 @@ export default function AdminScenario() {
         </div>
       )}
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <div className="panel-head"><h3>Session to control</h3></div>
+      <div className="dz-card">
+        <div className="dz-card-head"><h3>Session to control</h3></div>
         {activeSessions.length === 0 ? (
-          <div className="empty-state"><p>No active sessions right now.</p></div>
+          <div className="dz-empty">No active sessions right now.</div>
         ) : (
-          <div style={{ padding: '16px 20px' }}>
-            <select
-              value={selectedSession?.id || ''}
-              onChange={(e) => setSelectedSessionId(Number(e.target.value))}
-              style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13, minWidth: 320 }}
-            >
-              {activeSessions.map((s) => {
-                const owner = users.find((u) => u.id === s.userId)
-                const tier = getTier(s.tierId)
-                const scenarioCount = Object.keys(sessionScenarios[s.id] || {}).length
-                return (
-                  <option key={s.id} value={s.id}>
-                    {owner?.name || `User #${s.userId}`} — {tier?.name || s.tierId} — {formatMoney(s.amount)}
-                    {scenarioCount > 0 ? ` — ${scenarioCount} scenario${scenarioCount === 1 ? '' : 's'} active` : ' — normal'}
-                  </option>
-                )
-              })}
-            </select>
-          </div>
+          <select className="pg-field" value={selectedSession?.id || ''} onChange={(e) => setSelectedSessionId(Number(e.target.value))} aria-label="Session to control">
+            {activeSessions.map((s) => {
+              const owner = users.find((u) => u.id === s.userId)
+              const tier = getTier(s.tierId)
+              const n = scenarioCountFor(s.id)
+              return (
+                <option key={s.id} value={s.id}>
+                  {owner?.name || `User #${s.userId}`} — {tier?.name || s.tierId} — {formatMoney(s.amount)}{n > 0 ? ` — ${n} scenario${n === 1 ? '' : 's'} active` : ' — normal'}
+                </option>
+              )
+            })}
+          </select>
         )}
       </div>
 
       {selectedSession && (
         <>
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Trading pair</h3></div>
-            <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap' }} className="stagger-in">
-              {symbols.map((symbol) => {
-                const Icon = symbolIcon(symbol)
-                const hasScenario = !!sessionScenarios[selectedSession.id]?.[symbol]
-                const isSelected = symbol === selectedSymbol
-                return (
-                  <button
-                    key={symbol}
-                    onClick={() => setSelectedSymbol(symbol)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', fontSize: 13, fontWeight: 600,
-                      borderRadius: 10, border: '1px solid ' + (isSelected ? 'var(--accent)' : 'var(--border)'),
-                      background: isSelected ? 'var(--accent-bg)' : 'var(--bg)',
-                      color: isSelected ? 'var(--accent-bright)' : 'var(--text)',
-                      cursor: 'pointer', position: 'relative'
-                    }}
-                  >
-                    <Icon size={15} /> {symbol}
-                    {hasScenario && (
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-bright)', marginLeft: 2 }} />
-                    )}
-                  </button>
-                )
-              })}
+          <div className="sc-pairs" role="tablist" aria-label="Trading pair">
+            {symbols.map((symbol) => {
+              const Icon = symbolIcon(symbol)
+              const hasScenario = !!sessionScenarios[selectedSession.id]?.[symbol]
+              return (
+                <button key={symbol} type="button" role="tab" aria-selected={symbol === selectedSymbol} className={'sc-pair' + (symbol === selectedSymbol ? ' on' : '')} onClick={() => setSelectedSymbol(symbol)}>
+                  <Icon size={14} /> {symbol}{hasScenario && <i className="sc-dot" />}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="ad-kpis ad-kpis-3">
+            <div className="ad-kpi">
+              <span className="ad-kpi-ico"><Zap size={18} /></span>
+              <span className="ad-kpi-label">{selectedSymbol} state on this session</span>
+              <b className="ad-kpi-value sc-small">{stateLabel}</b>
+              {selectedSymbolScenario?.reset && <span className="dz-muted">{formatResetTimeLeft(selectedSymbolScenario.reset)}</span>}
+            </div>
+            <div className="ad-kpi">
+              <span className="ad-kpi-ico"><TrendingUp size={18} /></span>
+              <span className="ad-kpi-label">{selectedSymbol} price on this session</span>
+              <b className="ad-kpi-value sc-small">{formatMoney(selectedSymbolScenario?.price ?? prices[selectedSymbol])}</b>
+              {selectedSymbolScenario && <span className="dz-muted">Real market: {formatMoney(prices[selectedSymbol])}</span>}
+            </div>
+            <div className="ad-kpi">
+              <span className="ad-kpi-ico"><Clock size={18} /></span>
+              <span className="ad-kpi-label">Time left on session</span>
+              <b className="ad-kpi-value sc-small">{formatTimeLeft(selectedSession.expiresAt)}</b>
             </div>
           </div>
 
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Status — {selectedSymbol} on this session</h3></div>
-            <div className="stats-grid" style={{ padding: '16px 20px' }}>
-              <div className="stat-card">
-                <div className="stat-label">Current state</div>
-                <div className="stat-value" style={{ fontSize: 16 }}>
-                  {!selectedSymbolScenario
-                    ? 'Normal market'
-                    : selectedSymbolScenario.reset
-                    ? `Resetting (${selectedSymbolScenario.reset.level})`
-                    : `${selectedSymbolScenario.mode}, ${selectedSymbolScenario.strength}/3`}
+          <div className="dz-grid">
+            <div className="dz-main">
+              <div className="dz-card">
+                <div className="dz-card-head"><h3>Custom scenario · {selectedSymbol}</h3></div>
+                <div className="sc-fields">
+                  <div><span className="pg-label">Direction</span><ToggleGroup options={MODES} value={draft.mode} onChange={(v) => updateDraft({ mode: v })} getValue={(o) => o.id} /></div>
+                  <div><span className="pg-label">Strength</span><ToggleGroup options={STRENGTHS} value={draft.strength} onChange={(v) => updateDraft({ strength: v })} /></div>
+                  <div><span className="pg-label">Volatility</span><ToggleGroup options={VOLATILITIES} value={draft.volatility} onChange={(v) => updateDraft({ volatility: v })} /></div>
+                  <div><span className="pg-label">Speed</span><ToggleGroup options={SPEEDS} value={draft.speed} onChange={(v) => updateDraft({ speed: v })} /></div>
                 </div>
-                {selectedSymbolScenario?.reset && (
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                    {formatResetTimeLeft(selectedSymbolScenario.reset)}
-                  </div>
-                )}
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">{selectedSymbol} price on this session</div>
-                <div className="stat-value">{formatMoney(selectedSymbolScenario?.price ?? prices[selectedSymbol])}</div>
-                {selectedSymbolScenario && (
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Real market: {formatMoney(prices[selectedSymbol])}</div>
-                )}
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">Time left on session</div>
-                <div className="stat-value">{formatTimeLeft(selectedSession.expiresAt)}</div>
+                <button type="button" className="btn-primary pg-start-btn" onClick={handleApply}>Apply to {selectedSymbol} on this session</button>
               </div>
             </div>
-          </div>
 
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Quick presets — {selectedSymbol}, this session</h3></div>
-            <div style={{ padding: '16px 20px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {PRESETS.map((preset) => (
-                <button key={preset.label} className="tx-btn deposit" style={{ padding: '10px 16px', fontSize: 13 }} onClick={() => handlePreset(preset)}>
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
+            <aside className="dz-side">
+              <div className="dz-card">
+                <div className="dz-card-head"><h3>Quick presets</h3></div>
+                <div className="sc-presets">
+                  {PRESETS.map((preset) => (
+                    <button key={preset.label} type="button" className="dz-btn-o" onClick={() => handlePreset(preset)}>{preset.label}</button>
+                  ))}
+                </div>
+                <p className="dz-muted st-hint">A preset applies immediately to {selectedSymbol} on this session.</p>
+              </div>
 
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Custom scenario — {selectedSymbol}, this session</h3></div>
-            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Direction</div>
-                <ToggleGroup options={MODES} value={draft.mode} onChange={(v) => updateDraft({ mode: v })} getValue={(o) => o.id} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Strength</div>
-                <ToggleGroup options={STRENGTHS} value={draft.strength} onChange={(v) => updateDraft({ strength: v })} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Volatility</div>
-                <ToggleGroup options={VOLATILITIES} value={draft.volatility} onChange={(v) => updateDraft({ volatility: v })} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Speed</div>
-                <ToggleGroup options={SPEEDS} value={draft.speed} onChange={(v) => updateDraft({ speed: v })} />
-              </div>
-              <div>
-                <button className="tx-btn deposit" style={{ padding: '10px 18px', fontSize: 13 }} onClick={handleApply}>
-                  Apply to {selectedSymbol} on this session
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head"><h3>Reset</h3></div>
-            <div style={{ padding: '16px 20px' }}>
-              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 0, marginBottom: 12 }}>
-                Gradually interpolates {selectedSymbol}'s price on this session back to the real market — pick how
-                fast. Other symbols on this session, and every other session, are untouched.
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                {RESET_LEVELS.map((level) => (
-                  <button
-                    key={level.id}
-                    disabled={!selectedSymbolScenario}
-                    className="tx-btn withdraw"
-                    style={{ padding: '10px 16px', fontSize: 13, opacity: selectedSymbolScenario ? 1 : 0.5, cursor: selectedSymbolScenario ? 'pointer' : 'not-allowed' }}
-                    onClick={() => handleReset(level.id)}
-                  >
-                    {level.label}
-                    <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>{level.hint}</div>
+              <div className="dz-card">
+                <div className="dz-card-head"><h3>Reset</h3></div>
+                <p className="dz-muted st-hint" style={{ marginTop: 0 }}>Gradually moves {selectedSymbol}'s price on this session back to the real market. Other symbols and sessions are untouched.</p>
+                <div className="sc-presets">
+                  {RESET_LEVELS.map((level) => (
+                    <button key={level.id} type="button" disabled={!selectedSymbolScenario} className="dz-btn-o sc-reset" onClick={() => handleReset(level.id)}>
+                      {level.label}<small>{level.hint}</small>
+                    </button>
+                  ))}
+                </div>
+                {scenarioCountFor(selectedSession.id) > 1 && (
+                  <button type="button" className="dz-btn-o" style={{ marginTop: 10 }} onClick={() => resetAllSessionScenarios(selectedSession.id, 'normal')}>
+                    Reset all {scenarioCountFor(selectedSession.id)} symbols on this session
                   </button>
-                ))}
+                )}
               </div>
-              {Object.keys(sessionScenarios[selectedSession.id] || {}).length > 1 && (
-                <button
-                  className="tx-btn withdraw"
-                  style={{ padding: '8px 14px', fontSize: 12.5 }}
-                  onClick={() => resetAllSessionScenarios(selectedSession.id, 'normal')}
-                >
-                  Reset all {Object.keys(sessionScenarios[selectedSession.id]).length} symbols on this session
-                </button>
-              )}
-            </div>
+            </aside>
           </div>
         </>
       )}
 
-      {/* Merged: previously two separate tables ("at a glance" +
-          "fast-forward") duplicating the same client/tier columns.
-          One card list now covers both — status at a glance AND the
-          fast-forward control live on the same row. */}
-      <div className="panel">
-        <div className="panel-head">
+      <div className="dz-card">
+        <div className="dz-card-head">
           <h3>All active sessions ({activeSessions.length})</h3>
           {activeSessions.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {showBulkInput && (
-                <input
-                  type="number"
-                  value={bulkHours}
-                  onChange={(e) => setBulkHours(e.target.value)}
-                  placeholder="Hours"
-                  autoFocus
-                  style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
-                />
-              )}
-              <button
-                className="tx-btn withdraw"
-                style={{ padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                onClick={() => (showBulkInput ? handleBulkFastForward() : setShowBulkInput(true))}
-              >
+            <span className="sc-actions">
+              {showBulkInput && <input className="pg-field sc-hrs" type="number" value={bulkHours} onChange={(e) => setBulkHours(e.target.value)} placeholder="Hours" autoFocus />}
+              <button type="button" className="dz-btn-o" onClick={() => (showBulkInput ? handleBulkFastForward() : setShowBulkInput(true))}>
                 <FastForward size={13} /> {showBulkInput ? 'Confirm' : 'Fast-forward all'}
               </button>
-            </div>
+            </span>
           )}
         </div>
         {activeSessions.length === 0 ? (
-          <div className="empty-state"><p>No active sessions right now.</p></div>
+          <div className="dz-empty">No active sessions right now.</div>
         ) : (
-          <div style={{ padding: 16 }} className="stagger-in">
+          <div className="rf-list">
             {activeSessions.map((s) => {
               const owner = users.find((u) => u.id === s.userId)
               const tier = getTier(s.tierId)
-              const symbolScenarios = sessionScenarios[s.id] || {}
-              const scenarioEntries = Object.entries(symbolScenarios)
+              const entries = Object.entries(sessionScenarios[s.id] || {})
               return (
-                <div key={s.id} className={'entity-card' + (s.id === selectedSession?.id ? ' entity-card-accent-pending' : '')} style={{ alignItems: 'flex-start' }}>
-                  <div className="icon-badge"><Activity size={17} /></div>
-                  <div className="entity-card-body">
-                    <div className="entity-card-title">
-                      <Link to={`/admin/users/${s.userId}`} style={{ color: 'inherit', fontWeight: 600 }}>{owner?.name || `User #${s.userId}`}</Link> · {tier?.name || s.tierId} · {formatMoney(s.amount)}
-                    </div>
-                    <div className="entity-card-meta">
-                      <span>{formatTimeLeft(s.expiresAt)}</span>
-                      {scenarioEntries.length === 0 ? (
-                        <span className="status-pill status-approved">Normal</span>
-                      ) : (
-                        scenarioEntries.map(([symbol, scenario]) => (
-                          <span key={symbol} className="status-pill status-pending">
-                            {symbol} {scenario.reset ? `resetting` : `${scenario.mode} ${scenario.strength}/3`}
-                          </span>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
-                    {selectedSession?.id !== s.id && (
-                      <button className="tx-btn" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setSelectedSessionId(s.id)}>
-                        Control
-                      </button>
-                    )}
-                    <input
-                      type="number"
-                      value={fastForwardHours[s.id] || ''}
-                      onChange={(e) => setFastForwardHours((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                      placeholder="Hrs"
-                      style={{ width: 56, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12 }}
-                    />
-                    <button className="tx-btn withdraw" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => handleFastForward(s.id)}>
-                      FF
-                    </button>
-                  </div>
+                <div key={s.id} className={'rf-item sc-row' + (s.id === selectedSession?.id ? ' sc-selected' : '')}>
+                  <span className="rf-av"><Activity size={15} /></span>
+                  <span className="rf-who">
+                    <strong><Link to={`/admin/users/${s.userId}`} className="ad-link">{owner?.name || `User #${s.userId}`}</Link> · {tier?.name || s.tierId} · {formatMoney(s.amount)}</strong>
+                    <span className="dz-muted">{formatTimeLeft(s.expiresAt)}</span>
+                    <span className="cl-tags">
+                      {entries.length === 0 ? <span className="dz-chip">Normal</span> : entries.map(([symbol, scenario]) => (
+                        <span key={symbol} className="dz-chip cl-pending">{symbol} {scenario.reset ? 'resetting' : `${scenario.mode} ${scenario.strength}/3`}</span>
+                      ))}
+                    </span>
+                  </span>
+                  <span className="sc-actions">
+                    {selectedSession?.id !== s.id && <button type="button" className="dz-btn-o" onClick={() => setSelectedSessionId(s.id)}>Control</button>}
+                    <input className="pg-field sc-hrs" type="number" value={fastForwardHours[s.id] || ''} onChange={(e) => setFastForwardHours((prev) => ({ ...prev, [s.id]: e.target.value }))} placeholder="Hrs" aria-label="Hours to fast-forward" />
+                    <button type="button" className="dz-btn-o" onClick={() => handleFastForward(s.id)}>FF</button>
+                  </span>
                 </div>
               )
             })}

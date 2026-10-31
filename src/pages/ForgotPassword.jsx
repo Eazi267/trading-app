@@ -42,8 +42,9 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="login-form-side" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+    <div className="login-form-side auth-solo">
       <form className="login-card" onSubmit={step === 'email' ? requestCode : resetPassword}>
+        <div className="auth-brand"><span className="auth-brand-mark"><brand.LogoIcon size={18} /></span>{brand.name}</div>
         <h1>{done ? 'Password changed' : 'Reset your password'}</h1>
         <p className="login-sub">{brand.name}</p>
 

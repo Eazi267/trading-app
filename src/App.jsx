@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuditProvider } from './context/AuditContext.jsx'
 import { EmailProvider } from './context/EmailContext.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
@@ -37,9 +37,12 @@ import AdminBusinessSettings from './pages/AdminBusinessSettings.jsx'
 import AdminAuditLog from './pages/AdminAuditLog.jsx'
 import AdminEmailOutbox from './pages/AdminEmailOutbox.jsx'
 import AdminSupportInbox from './pages/AdminSupportInbox.jsx'
+import Terms from './pages/Terms.jsx'
+import CookiePolicy from './pages/CookiePolicy.jsx'
+import CookieConsent from './components/CookieConsent.jsx'
+import OtpHost from './components/OtpHost.jsx'
 import Notifications from './pages/Notifications.jsx'
 import TransactionHistory from './pages/TransactionHistory.jsx'
-import Statement from './pages/Statement.jsx'
 
 export default function App() {
   return (
@@ -51,6 +54,8 @@ export default function App() {
           <SupportProvider>
           <AppProvider>
         <BrowserRouter>
+          <OtpHost />
+          <CookieConsent />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
@@ -59,6 +64,8 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/about" element={<AboutUs />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/cookies" element={<CookiePolicy />} />
             <Route path="/help" element={<Help />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/markets" element={<ProtectedRoute><Markets /></ProtectedRoute>} />
@@ -71,7 +78,7 @@ export default function App() {
             <Route path="/kyc" element={<ProtectedRoute><KycVerification /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
             <Route path="/transaction-history" element={<ProtectedRoute><TransactionHistory /></ProtectedRoute>} />
-            <Route path="/statement" element={<ProtectedRoute><Statement /></ProtectedRoute>} />
+            <Route path="/statement" element={<Navigate to="/dashboard" replace />} />
             <Route path="/admin/users" element={<ProtectedRoute requireRole="admin"><AdminUsers /></ProtectedRoute>} />
             <Route path="/admin/users/:id" element={<ProtectedRoute requireRole="admin"><AdminUserDetail /></ProtectedRoute>} />
             <Route path="/admin/accounts" element={<ProtectedRoute requireRole="admin" requirePermission="manageAdmins"><AdminAccounts /></ProtectedRoute>} />

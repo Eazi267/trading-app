@@ -53,6 +53,7 @@ export default function Login() {
 
       <div className="login-form-side">
         <form className="login-card" onSubmit={handleSubmit}>
+          <div className="auth-brand"><span className="auth-brand-mark"><brand.LogoIcon size={18} /></span>{brand.name}</div>
           <h1>Welcome back</h1>
           <p className="login-sub">Log in to your account</p>
 

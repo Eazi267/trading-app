@@ -1,0 +1,71 @@
+/* =============================================================
+   Pulse redesign — Stage 3: app shell (sidebar, top bar, login,
+   buttons). Imported by redesign.css. Scoped to the default
+   "ember" accent so the other accents keep working.
+   ============================================================= */
+
+/* Link-style buttons never underline. */
+.btn-primary, a.btn-primary:hover, .tx-btn, a.tx-btn:hover, .home-nav-login { text-decoration: none; }
+
+/* ---- Light theme: flat gold instead of dark-gold gradients ---- */
+[data-theme='light'][data-accent='ember'] .brand-mark,
+[data-theme='light'][data-accent='ember'] .avatar,
+[data-theme='light'][data-accent='ember'] .tx-btn.deposit,
+[data-theme='light'][data-accent='ember'] .configurator-trigger,
+[data-theme='light'][data-accent='ember'] .home-nav-mark,
+[data-theme='light'][data-accent='ember'] .home-footer-icon,
+[data-theme='light'][data-accent='ember'] .chat-bubble-mine {
+  background: var(--accent);
+  box-shadow: none;
+}
+[data-theme='light'][data-accent='ember'] .investment-card::before,
+[data-theme='light'][data-accent='ember'] .tier-preview-card::before {
+  background: var(--accent);
+}
+
+/* ---- Sidebar ---- */
+/* Dark theme keeps the charcoal sidebar. Light theme gets a clean white one. */
+[data-theme='light'][data-accent='ember'] .sidebar {
+  background: var(--surface);
+}
+[data-theme='light'][data-accent='ember'] .brand { color: var(--text); }
+[data-theme='light'][data-accent='ember'] .nav-item { color: var(--text-secondary); }
+[data-theme='light'][data-accent='ember'] .nav-item:hover { color: var(--text); background: var(--surface-2); }
+[data-theme='light'][data-accent='ember'] .nav-item.active { color: var(--accent-bright); background: var(--accent-bg); }
+[data-accent='ember'] .nav-item.active::before { background: var(--accent); }
+
+/* Unread / notification counters are red (a "needs attention" colour). */
+[data-accent='ember'] .nav-badge,
+[data-accent='ember'] .notif-badge {
+  background: var(--brand-red);
+  color: #fff;
+}
+
+/* ---- Login / signup: calm charcoal panel with a gold glow ---- */
+[data-accent='ember'] .login-hero {
+  color: #f2f3f5;
+  background:
+    radial-gradient(circle at 85% 10%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 52%),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 44px 44px,
+    #12100c;
+  animation: none;
+}
+[data-accent='ember'] .login-hero::after { display: none; }
+[data-accent='ember'] .login-hero-mark { background: var(--accent); color: var(--on-accent); backdrop-filter: none; }
+[data-accent='ember'] .login-hero-brand { color: #fff; }
+[data-accent='ember'] .login-hero h2 { color: #fff; }
+[data-accent='ember'] .login-hero-feature svg { color: var(--accent); }
+[data-accent='ember'] .login-hero p { color: rgba(255, 255, 255, 0.72); }
+[data-accent='ember'] .login-hero-feature { color: rgba(255, 255, 255, 0.86); }
+[data-accent='ember'] .login-hero-foot { color: rgba(255, 255, 255, 0.5); }
+
+/* Some pages set white text inline on a selected (accent-coloured) button.
+   Gold needs dark text, so this keeps those labels readable everywhere. */
+[data-accent='ember'] [style*="background: var(--accent)"] { color: var(--on-accent) !important; }
+
+/* ---- Stage 6: mobile ---- */
+@media (max-width: 900px) {
+  /* A closed drawer must not leak its shadow onto the page. */
+  .sidebar:not(.open) { box-shadow: none; }
+}

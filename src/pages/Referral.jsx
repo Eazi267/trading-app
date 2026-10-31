@@ -51,95 +51,87 @@ export default function Referral() {
 
   return (
     <Layout pageTitle="Referrals">
-      <h1 className="page-title">Refer a friend</h1>
-      <p className="page-sub">Share your code — anyone who signs up with it shows up here.</p>
+      <header className="dz-head">
+        <h1 className="dz-title">Refer a friend</h1>
+        <div className="dz-muted">Share your code. Anyone who signs up with it shows up here.</div>
+      </header>
 
       {liveCampaign && (
-        <div className="panel" style={{ marginBottom: 16, borderColor: 'var(--success)' }}>
-          <div className="panel-head"><h3><Gift size={15} style={{ verticalAlign: -2, marginRight: 6 }} />{liveCampaign.name}</h3></div>
-          <p style={{ padding: '0 20px 16px', fontSize: 13.5 }}>
-            Earn <strong>{formatMoney(liveCampaign.bonusAmount)}</strong> the moment someone you refer makes their
-            first deposit — credited automatically, through {formatDate(liveCampaign.endDate)}.
-          </p>
+        <div className="dz-card rf-campaign">
+          <div className="icon-badge"><Gift size={17} /></div>
+          <div>
+            <strong>{liveCampaign.name}</strong>
+            <p className="dz-muted" style={{ margin: '2px 0 0' }}>
+              Earn <strong className="mono">{formatMoney(liveCampaign.bonusAmount)}</strong> the moment someone you refer makes their first deposit. Credited automatically, through {formatDate(liveCampaign.endDate)}.
+            </p>
+          </div>
         </div>
       )}
 
-      <div className="panel" style={{ maxWidth: 480 }}>
-        <div className="panel-head">
-          <h3><Gift size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Your referral code</h3>
-        </div>
-        <div style={{ padding: '0 20px 20px' }}>
-          <div style={{
-            fontFamily: 'JetBrains Mono, monospace', fontSize: 22, letterSpacing: 2,
-            background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8,
-            padding: '14px 16px', textAlign: 'center', marginBottom: 14
-          }}>
-            {currentUser.referralCode}
+      <div className="dz-grid rf-grid">
+        <div className="dz-main">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3>Your referral code</h3></div>
+            <div className="rf-code mono">{currentUser.referralCode}</div>
+            <span className="pg-label">Shareable link</span>
+            <div className="rf-link">
+              <input className="pg-field" readOnly value={referralLink} onFocus={(e) => e.target.select()} />
+              <button type="button" className="btn-primary rf-copy" onClick={handleCopy} aria-label="Copy link">
+                {copied ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy</>}
+              </button>
+            </div>
           </div>
-          <label style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Shareable link</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              readOnly
-              value={referralLink}
-              style={{ flex: 1, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-            <button className="tx-btn deposit" style={{ flex: 'none', padding: '10px 16px' }} onClick={handleCopy}>
-              {copied ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head">
-          <h3><Users size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Your referrals ({referrals.length})</h3>
-        </div>
-        {referrals.length === 0 ? (
-          <div className="empty-state"><p>No one has signed up with your code yet.</p></div>
-        ) : (
-          <div style={{ padding: 16 }}>
-            {referrals.map((r) => (
-              <div key={r.id} className="entity-card">
-                <div className="icon-badge" style={{ fontSize: 12, fontWeight: 700 }}>
-                  {(r.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}
-                </div>
-                <div className="entity-card-body">
-                  <div className="entity-card-title">{r.name}</div>
-                  <div className="entity-card-meta">
-                    <span>{r.email}</span>
-                    <span>Joined {formatDate(r.createdAt)}</span>
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><Users size={15} className="st-ico" />Your referrals ({referrals.length})</h3></div>
+            {referrals.length === 0 ? (
+              <div className="dz-empty">No one has signed up with your code yet.</div>
+            ) : (
+              <div className="rf-list">
+                {referrals.map((r) => (
+                  <div key={r.id} className="rf-item">
+                    <div className="rf-av">{(r.name || '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</div>
+                    <div className="rf-who">
+                      <strong>{r.name}</strong>
+                      <span className="dz-muted">{r.email}</span>
+                    </div>
+                    <span className="dz-muted rf-date">Joined {formatDate(r.createdAt)}</span>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-head">
-          <h3><Gift size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Bonuses earned ({earnedBonuses.length})</h3>
         </div>
-        {earnedBonuses.length === 0 ? (
-          <div className="empty-state"><p>No referral bonuses yet — they're credited automatically once someone you refer makes their first deposit during a live campaign.</p></div>
-        ) : (
-          <div style={{ padding: 16 }}>
-            {earnedBonuses.map((b) => (
-              <div key={b.id} className="entity-card entity-card-accent-profit">
-                <div className="icon-badge"><Gift size={17} /></div>
-                <div className="entity-card-body">
-                  <div className="entity-card-title">{b.campaignName}</div>
-                  <div className="entity-card-meta">
-                    <span>Referred {b.referredUserName}</span>
-                    <span>{formatDate(b.date)}</span>
-                  </div>
-                </div>
-                <div className="pnl-up" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, flex: 'none' }}>
-                  +{formatMoney(b.amount)}
-                </div>
-              </div>
-            ))}
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3>How it works</h3></div>
+            <ol className="pg-steps">
+              <li><b>1</b><span>Send your link or code to a friend.</span></li>
+              <li><b>2</b><span>They sign up with it.</span></li>
+              <li><b>3</b><span>When they make a first deposit during a live campaign, your bonus is credited automatically.</span></li>
+            </ol>
           </div>
-        )}
+
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><Gift size={15} className="st-ico" />Bonuses earned ({earnedBonuses.length})</h3></div>
+            {earnedBonuses.length === 0 ? (
+              <div className="dz-empty">No referral bonuses yet.</div>
+            ) : (
+              <div className="rf-list">
+                {earnedBonuses.map((b) => (
+                  <div key={b.id} className="rf-item">
+                    <div className="rf-who">
+                      <strong>{b.campaignName}</strong>
+                      <span className="dz-muted">Referred {b.referredUserName} · {formatDate(b.date)}</span>
+                    </div>
+                    <span className="pnl-up mono">+{formatMoney(b.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
     </Layout>
   )

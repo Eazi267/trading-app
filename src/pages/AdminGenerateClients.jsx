@@ -1,16 +1,17 @@
-import { useState } from 'react'
-import { Users, Sparkles, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Users, Sparkles, Trash2, FlaskConical } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
+import { apiRequest } from '../api/client.js'
 
 function formatMoney(n) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 }
 
 export default function AdminGenerateClients() {
-  const { users, generateDemoClients, removeDemoClients } = useAuth()
+  const { generateDemoClients, removeDemoClients } = useAuth()
   const { generateDemoActivity, purgeDataForUsers } = useApp()
   const { settings } = useSettings()
 
@@ -20,6 +21,14 @@ export default function AdminGenerateClients() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [clearedCount, setClearedCount] = useState(null)
+  // The shared client list hides generated demo accounts on purpose, so
+  // this page asks the server for its own count.
+  const [existingDemoCount, setExistingDemoCount] = useState(0)
+  const loadDemoCount = useCallback(async () => {
+    const res = await apiRequest('/api/admin/users?includeDemo=1')
+    if (res.users) setExistingDemoCount(res.users.filter((u) => u.isDemoGenerated).length)
+  }, [])
+  useEffect(() => { loadDemoCount() }, [loadDemoCount])
 
   if (!settings.demoModeEnabled) {
     return (
@@ -30,8 +39,6 @@ export default function AdminGenerateClients() {
       </Layout>
     )
   }
-
-  const existingDemoCount = users.filter((u) => u.isDemoGenerated).length
 
   async function handleGenerate() {
     setError('')
@@ -52,7 +59,16 @@ export default function AdminGenerateClients() {
       newUsers.map((u) => u.id),
       { minDeposit: parseFloat(minDeposit), maxDeposit: parseFloat(maxDeposit) }
     )
+    // generateDemoActivity currently refuses (sessions and transactions
+    // come from the real backend now), so the accounts are created but
+    // start empty. Say so plainly rather than crash on missing totals.
+    if (stats?.error) {
+      setResult({ usersGenerated: newUsers.length, emptyAccounts: true })
+      loadDemoCount()
+      return
+    }
     setResult(stats)
+    loadDemoCount()
   }
 
   async function handleClear() {
@@ -60,89 +76,70 @@ export default function AdminGenerateClients() {
     purgeDataForUsers(removedIds)
     setClearedCount(removedIds.length)
     setResult(null)
+    loadDemoCount()
   }
 
   return (
     <Layout pageTitle="Generate Demo Clients">
-      <h1 className="page-title">Generate Demo Clients</h1>
-      <p className="page-sub">
-        Populate the platform with real client accounts, real deposits, and real trading sessions for a
-        presentation — every number here still comes from the same calculation the rest of the app uses, not a
-        typed-in balance.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Generate Demo Clients</h1>
+        <div className="dz-muted">Populate the platform with client accounts, deposits and trading sessions for a presentation. Every number still comes from the same calculation the rest of the app uses, not a typed-in balance.</div>
+      </header>
 
-      <div className="panel" style={{ marginBottom: 16, maxWidth: 560 }}>
-        <div className="panel-head"><h3><Sparkles size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Generate clients</h3></div>
-        {error && <div className="form-error" style={{ margin: '16px 20px 0' }}>{error}</div>}
-        <div style={{ padding: '16px 20px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-            Number of clients
-            <input
-              type="number"
-              min="1"
-              max="200"
-              value={count}
-              onChange={(e) => setCount(e.target.value)}
-              style={{ width: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-            Min deposit (USD)
-            <input
-              type="number"
-              value={minDeposit}
-              onChange={(e) => setMinDeposit(e.target.value)}
-              style={{ width: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-            Max deposit (USD)
-            <input
-              type="number"
-              value={maxDeposit}
-              onChange={(e) => setMaxDeposit(e.target.value)}
-              style={{ width: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13 }}
-            />
-          </label>
+      <div className="dz-card rf-campaign eo-note">
+        <div className="icon-badge"><FlaskConical size={17} /></div>
+        <div>
+          <strong>Demo data only</strong>
+          <p className="dz-muted" style={{ margin: '2px 0 0' }}>Generated clients are marked as demo accounts, are never included in broadcasts, and can be removed in one click. Real clients are never touched.</p>
         </div>
-        <div style={{ padding: '0 20px 16px' }}>
-          <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={handleGenerate}>
-            <Sparkles size={14} /> Generate
-          </button>
-        </div>
-        {result && (
-          <div style={{ margin: '0 20px 16px', padding: 12, borderRadius: 8, background: 'var(--success-bg)', color: 'var(--success)', fontSize: 13 }}>
-            Created {result.usersGenerated} clients, {formatMoney(result.totalDeposited)} in deposits,{' '}
-            {result.sessionsCreated} sessions ({result.sessionsClosed} settled, {result.sessionsCreated - result.sessionsClosed} still active).
-          </div>
-        )}
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-          Each account gets a real deposit and 1–3 real trading sessions, some settled through the actual
-          settlement engine, some left active — a mix, not a uniform pattern.
-        </p>
       </div>
 
-      <div className="panel" style={{ maxWidth: 560 }}>
-        <div className="panel-head"><h3><Users size={15} style={{ verticalAlign: -2, marginRight: 6 }} />Generated clients ({existingDemoCount})</h3></div>
-        {clearedCount !== null && (
-          <div style={{ margin: '16px 20px 0', fontSize: 13, color: 'var(--text-muted)' }}>Removed {clearedCount} generated clients and their data.</div>
-        )}
-        <div style={{ padding: '16px 20px' }}>
-          {existingDemoCount === 0 ? (
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No generated clients right now.</p>
-          ) : (
-            <button
-              className="tx-btn withdraw"
-              style={{ padding: '9px 16px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={handleClear}
-            >
-              <Trash2 size={14} /> Remove all generated clients
-            </button>
-          )}
+      <div className="dz-grid">
+        <div className="dz-main">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><Sparkles size={15} className="st-ico" />Generate clients</h3></div>
+            {error && <div className="form-error" style={{ marginBottom: 12 }}>{error}</div>}
+            <div className="st-form gc-form">
+              <label className="st-f">
+                <span className="pg-label">Number of clients</span>
+                <input className="pg-field" type="number" min="1" max="200" value={count} onChange={(e) => setCount(e.target.value)} />
+              </label>
+              <label className="st-f">
+                <span className="pg-label">Min deposit (USD)</span>
+                <input className="pg-field" type="number" value={minDeposit} onChange={(e) => setMinDeposit(e.target.value)} />
+              </label>
+              <label className="st-f">
+                <span className="pg-label">Max deposit (USD)</span>
+                <input className="pg-field" type="number" value={maxDeposit} onChange={(e) => setMaxDeposit(e.target.value)} />
+              </label>
+            </div>
+            <button type="button" className="btn-primary pg-start-btn" onClick={handleGenerate}><Sparkles size={14} /> Generate</button>
+            {result && (
+              <div className="gc-result">
+                {result.emptyAccounts ? (
+                  <>Created {result.usersGenerated} demo client{result.usersGenerated === 1 ? '' : 's'}. They start with no deposits or sessions: demo activity can't be generated anymore because transactions and sessions now come from the real backend.</>
+                ) : (
+                  <>Created {result.usersGenerated} clients, {formatMoney(result.totalDeposited)} in deposits,{' '}
+                  {result.sessionsCreated} sessions ({result.sessionsClosed} settled, {result.sessionsCreated - result.sessionsClosed} still active).</>
+                )}
+              </div>
+            )}
+            <p className="dz-muted st-hint">Each generated account is a real demo client record. Demo deposits and sessions are no longer generated automatically, so these accounts start empty; add activity to them from the Clients page if you need it for a presentation.</p>
+          </div>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', padding: '0 20px 16px' }}>
-          Only removes accounts created by this tool — real clients are never affected.
-        </p>
+
+        <aside className="dz-side">
+          <div className="dz-card">
+            <div className="dz-card-head"><h3><Users size={15} className="st-ico" />Generated clients ({existingDemoCount})</h3></div>
+            {clearedCount !== null && <p className="dz-muted" style={{ marginTop: 0 }}>Removed {clearedCount} generated clients and their data.</p>}
+            {existingDemoCount === 0 ? (
+              <div className="dz-empty">No generated clients right now.</div>
+            ) : (
+              <button type="button" className="dz-btn-o" onClick={handleClear}><Trash2 size={14} /> Remove all generated clients</button>
+            )}
+            <p className="dz-muted st-hint">Only removes accounts created by this tool. Real clients are never affected.</p>
+          </div>
+        </aside>
       </div>
     </Layout>
   )

@@ -5,13 +5,23 @@ import { logAudit } from '../utils/auditLog.js'
 
 const router = Router()
 
+// node-pg turns a DATE column into a JS Date, which JSON-encodes as a
+// full timestamp. The client expects a plain "YYYY-MM-DD" (it appends
+// "T23:59:59" to find the end of the last day), so format it here.
+function dateOnly(value) {
+  if (!value) return value
+  if (typeof value === 'string') return value.slice(0, 10)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+}
+
 function publicCampaign(row) {
   return {
     id: row.id,
     name: row.name,
     bonusAmount: Number(row.bonus_amount),
-    startDate: row.start_date,
-    endDate: row.end_date,
+    startDate: dateOnly(row.start_date),
+    endDate: dateOnly(row.end_date),
     note: row.note,
     active: row.active,
     createdAt: row.created_at

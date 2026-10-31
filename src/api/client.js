@@ -37,9 +37,16 @@ export function setToken(token) {
 // `{ error }` shape every AuthContext/AppContext function already returns on
 // failure, so call sites don't need to know whether a failure came from
 // validation or the network.
-export async function apiRequest(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'pulse' }
+// A super admin can require an emailed code for some client actions. When the
+// server answers "otpRequired", the website shows a small dialog (OtpHost), then
+// repeats the SAME request with the code in the X-Otp-Code header. Call sites
+// need no changes. Set by OtpHost; returns the typed code, or null if cancelled.
+let otpHandler = null
+export function setOtpHandler(fn) { otpHandler = fn }
 
+async function sendOnce(path, method, body, otp) {
+  const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'pulse' }
+  if (otp) headers['X-Otp-Code'] = otp
   let response
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -50,18 +57,30 @@ export async function apiRequest(path, { method = 'GET', body } = {}) {
     })
   } catch {
     // status 0 = the server never answered (network trouble), as opposed to a real "no".
-    return { error: "Can't reach the server. Check your connection and that the backend is running.", status: 0 }
+    return { network: true }
   }
-
   let data = null
   try {
     data = await response.json()
   } catch {
-    // No JSON body (e.g. a 204) — fine for some endpoints, handled below.
+    // No JSON body (e.g. a 204): fine for some endpoints, handled below.
   }
+  return { response, data }
+}
 
-  if (!response.ok) {
+export async function apiRequest(path, { method = 'GET', body } = {}) {
+  let otp = null
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { response, data, network } = await sendOnce(path, method, body, otp)
+    if (network) return { error: "Can't reach the server. Check your connection and that the backend is running.", status: 0 }
+    if (response.ok) return data || {}
+    if (response.status === 403 && data?.otpRequired && otpHandler) {
+      const typed = await otpHandler({ operation: data.operation, message: data.error, wrongCode: !!data.wrongCode })
+      if (!typed) return { error: 'Cancelled: no code was entered, so nothing was changed.', status: 403, cancelled: true }
+      otp = typed
+      continue
+    }
     return { error: data?.error || `Request failed (${response.status}).`, status: response.status }
   }
-  return data || {}
+  return { error: 'Too many wrong codes. Start again to get a new one.', status: 403 }
 }

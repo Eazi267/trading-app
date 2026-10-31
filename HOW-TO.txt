@@ -1,28 +1,18 @@
-PULSE - CATCH-UP PACKAGE (fixes: Cannot find module ... server/src/utils/authCookie.js)
+PULSE REDESIGN - STAGE 4 (Trading terminal)
 
-WHY: your server has the newer auth.js but is missing files from Batches 17-18 (and maybe 16/20).
-This package brings the server + site fully up to date in one go. Safe to apply even if some
-parts are already in place.
+1. Unzip INTO your trading-app folder (the one with package.json). Choose "Replace" when asked.
+   It replaces/adds 4 files:
+      src/pages/AdminTrading.jsx          (replaced - the new Trading Console / terminal)
+      src/components/CandlestickChart.jsx (replaced - chart now fits its space, also fixes Markets)
+      src/styles/terminal.css             (new)
+      src/styles/shell.css                (updated - readable labels on selected gold buttons)
+   Optional safety: copy AdminTrading.jsx and CandlestickChart.jsx somewhere first.
+2. Run:  npm run dev   then log in as an admin and open  Trading Console  in the sidebar.
+   (Only admins with the "trade" permission can open or close positions - unchanged.)
 
-STEP 0 - Stop the server and the site (Ctrl+C in each terminal).
-STEP 1 - Unzip INTO your trading-app folder (the one with package.json). Choose
-         "Replace the files" / "merge folders" when asked.
-         (This overwrites files inside server/ and adds new files in src/ - all files I wrote.
-          Your server/.env is NOT touched.)
-STEP 2 - Open a terminal in the trading-app folder and run these, one per line, in this order:
-      node patch-batch16.mjs
-      node patch-batch18.mjs
-      node patch-batch19.mjs
-      node patch-batch20.mjs
-   Each prints "patched ..." or "already applied". Running them again is harmless.
-STEP 3 - Update the database:
-      cd server
-      npm run migrate
-STEP 4 - Start the server:   npm run dev      (still inside server)
-         Then the site (new terminal, in trading-app):   npm run dev
-STEP 5 - One-time: encrypt old ID images (only if you had KYC uploads before):
-      cd server
-      node encryptKycImages.js
+What you get: instrument tabs, price strip (Live feed / Simulated label), active-session list,
+candlestick chart, order panel (Long/Short, margin, quick 25/50/75/100%, confirm step),
+tabs for Open positions / Trade history / Session & leverage. Every action works exactly as
+before and is still audit-logged by the server.
 
-If something still errors, copy the first red line and send it to me.
-Afterwards you can delete the *.bak files the patch scripts leave behind.
+To undo: put your old AdminTrading.jsx and CandlestickChart.jsx back.

@@ -5,6 +5,7 @@ import {
   Coins, Bitcoin, Landmark, Layers, Plus, Trash2
 } from 'lucide-react'
 import Layout from '../components/Layout.jsx'
+import { defaultLegalHtml } from '../config/legalDefaults.js'
 import Modal from '../components/Modal.jsx'
 import FileDropInput from '../components/FileDropInput.jsx'
 import ToggleSwitch from '../components/ToggleSwitch.jsx'
@@ -14,7 +15,7 @@ import { CRYPTO_CHAINS, METHOD_LABELS } from '../config/paymentMethods.js'
 
 const METHOD_ICONS = { usdt: Coins, btc: Bitcoin, bank: Landmark }
 
-const inputStyle = { display: 'block', width: '100%', marginTop: 4, padding: '9px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13.5 }
+const inputStyle = { display: 'block', width: '100%', marginTop: 6, padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box' }
 
 const SAMPLE_ABOUT_HTML = `<h2>About Us</h2>
 <p>We help account managers oversee client portfolios with a transparent, auditable record of every deposit, withdrawal, and result.</p>
@@ -33,26 +34,17 @@ const SAMPLE_PRIVACY_HTML = `<h2>Privacy Policy</h2>
 <p>We never sell your information to third parties.</p>`
 const labelStyle = { fontSize: 12.5, color: 'var(--text-muted)' }
 
-// One row in the settings list — icon, label, chevron. Tapping opens
-// the matching modal. This is the "list of rows, each opens a
-// focused dialog" pattern instead of one long page of stacked forms.
-function SettingRow({ icon: Icon, label, onClick }) {
+// One card in the settings grid: icon, label, a one-line status, and
+// a chevron. Tapping opens the matching focused dialog.
+function SettingRow({ icon: Icon, label, hint, onClick }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        all: 'unset', cursor: 'pointer', width: '100%', boxSizing: 'border-box',
-        display: 'flex', alignItems: 'center', gap: 14,
-        padding: '15px 18px', borderRadius: 14,
-        background: 'var(--surface-2)', border: '1px solid var(--border)',
-        marginBottom: 10, transition: 'border-color .15s var(--ease), transform .15s var(--ease)'
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--accent-dark)'; e.currentTarget.style.transform = 'translateX(2px)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.transform = 'none' }}
-    >
-      <div className="icon-badge"><Icon size={18} /></div>
-      <span style={{ flex: 1, textAlign: 'left', fontSize: 14.5, fontWeight: 500 }}>{label}</span>
-      <ChevronRight size={17} style={{ color: 'var(--accent-bright)' }} />
+    <button type="button" className="bs-card" onClick={onClick}>
+      <span className="bs-ico"><Icon size={18} /></span>
+      <span className="bs-text">
+        <strong>{label}</strong>
+        {hint && <small>{hint}</small>}
+      </span>
+      <ChevronRight size={16} className="bs-chev" />
     </button>
   )
 }
@@ -60,7 +52,7 @@ function SettingRow({ icon: Icon, label, onClick }) {
 function ModalSaveButton({ onClick, saved, children = 'Save' }) {
   return (
     <div style={{ marginTop: 14 }}>
-      <button className="tx-btn deposit" style={{ padding: '9px 16px', fontSize: 13.5 }} onClick={onClick}>
+      <button type="button" className="btn-primary bs-save" onClick={onClick}>
         {children}
       </button>
       {saved && <span style={{ marginLeft: 10, fontSize: 12.5, color: 'var(--success)' }}>Saved.</span>}
@@ -78,7 +70,7 @@ function useSavedFlag() {
 }
 
 export default function AdminBusinessSettings() {
-  const { settings, updateSettings, resetSettings } = useSettings()
+  const { settings, updateSettings, resetSettings, brand } = useSettings()
   const [openModal, setOpenModal] = useState(null) // which row's modal is open, or null
 
   // --- Investment tiers ---
@@ -186,40 +178,59 @@ export default function AdminBusinessSettings() {
   const [privacyHtml, setPrivacyHtml] = useState(settings.privacyPolicyHtml)
   const [aboutSaved, flashAbout] = useSavedFlag()
   const [privacySaved, flashPrivacy] = useSavedFlag()
+  const [termsHtml, setTermsHtml] = useState(settings.termsHtml || '')
+  const [cookieHtml, setCookieHtml] = useState(settings.cookiePolicyHtml || '')
+  const [termsSaved, flashTerms] = useSavedFlag()
+  const [cookieSaved, flashCookie] = useSavedFlag()
 
   // --- Custom color ---
   const [customColor, setCustomColor] = useState(settings.customPrimaryColor || '#ea580c')
 
-  const ROWS = [
-    { key: 'logo', icon: Image, label: 'Setup site logo and icon' },
-    { key: 'company', icon: Info, label: 'Edit company info' },
-    { key: 'signup', icon: Gift, label: 'Signup bonus' },
-    { key: 'currency', icon: DollarSign, label: 'Currency setup' },
-    { key: 'tiers', icon: Layers, label: 'Investment tiers' },
-    { key: 'deposit', icon: ArrowDownToLine, label: 'Deposit setup' },
-    { key: 'withdrawal', icon: ArrowUpFromLine, label: 'Withdrawal setup' },
-    { key: 'email', icon: Mail, label: 'Email settings' },
-    { key: 'blockchain', icon: ShieldCheck, label: 'Blockchain verification' },
-    { key: 'help', icon: HelpCircle, label: 'Edit help page' },
-    { key: 'privacy', icon: Shield, label: 'Change privacy policy' },
-    { key: 'about', icon: FileText, label: 'Edit about us page' },
-    { key: 'color', icon: Palette, label: 'Edit site color' },
-    { key: 'other', icon: SettingsIcon, label: 'Other setup' }
+  const usd = (n) => (n === undefined || n === null || n === '' ? '—' : `$${Number(n).toLocaleString()}`)
+  const GROUPS = [
+    { title: 'Brand and company', rows: [
+      { key: 'logo', icon: Image, label: 'Site logo and icon', hint: settings.brandName },
+      { key: 'company', icon: Info, label: 'Company info', hint: settings.companyEmail || 'Address, phone, email, page title' },
+      { key: 'color', icon: Palette, label: 'Site color', hint: 'Accent colour of the whole site' }
+    ] },
+    { title: 'Money', rows: [
+      { key: 'currency', icon: DollarSign, label: 'Currency setup', hint: `Default equivalent: ${settings.currencyCode || 'USD'}` },
+      { key: 'tiers', icon: Layers, label: 'Investment tiers', hint: `${(settings.tiers || []).length} tiers, ${(settings.vipTiers || []).length} VIP` },
+      { key: 'deposit', icon: ArrowDownToLine, label: 'Deposit setup', hint: `${usd(settings.depositMin)} to ${usd(settings.depositMax)}` },
+      { key: 'withdrawal', icon: ArrowUpFromLine, label: 'Withdrawal setup', hint: `${usd(settings.withdrawalMin)} to ${usd(settings.withdrawalMax)}` },
+      { key: 'signup', icon: Gift, label: 'Signup bonus', hint: settings.signupBonusEnabled ? `On, ${usd(settings.signupBonusAmount)}` : 'Off' }
+    ] },
+    { title: 'Messages and content', rows: [
+      { key: 'email', icon: Mail, label: 'Email settings', hint: settings.emailFromName || 'Welcome email and sender' },
+      { key: 'help', icon: HelpCircle, label: 'Help page', hint: `${(settings.helpQA || []).length} questions` },
+      { key: 'about', icon: FileText, label: 'About us page', hint: 'Public page content' },
+      { key: 'privacy', icon: Shield, label: 'Privacy policy', hint: settings.privacyPolicyHtml ? 'Your own text' : 'Standard template shown' },
+      { key: 'terms', icon: FileText, label: 'Terms of service', hint: settings.termsHtml ? 'Your own text' : 'Standard template shown' },
+      { key: 'cookies', icon: Shield, label: 'Cookie policy', hint: settings.cookiePolicyHtml ? 'Your own text' : 'Standard template shown' }
+    ] },
+    { title: 'Verification and other', rows: [
+      { key: 'blockchain', icon: ShieldCheck, label: 'Blockchain verification', hint: settings.blockchainProviderName || 'Provider shown on deposits' },
+      { key: 'other', icon: SettingsIcon, label: 'Other setup', hint: 'Feature switches and reset' }
+    ] }
   ]
 
   return (
     <Layout pageTitle="Business Settings">
-      <h1 className="page-title">Business Settings</h1>
-      <p className="page-sub">
-        These settings are what make one deployment of this platform different from another — all without
-        touching any code.
-      </p>
+      <header className="dz-head">
+        <h1 className="dz-title">Business Settings</h1>
+        <div className="dz-muted">These settings are what make one deployment of this platform different from another, all without touching any code. Open a card to edit it.</div>
+      </header>
 
-      <div style={{ maxWidth: 460 }}>
-        {ROWS.map((row) => (
-          <SettingRow key={row.key} icon={row.icon} label={row.label} onClick={() => setOpenModal(row.key)} />
-        ))}
-      </div>
+      {GROUPS.map((g) => (
+        <section key={g.title} className="bs-group">
+          <h2 className="bs-title">{g.title}</h2>
+          <div className="bs-grid">
+            {g.rows.map((row) => (
+              <SettingRow key={row.key} icon={row.icon} label={row.label} hint={row.hint} onClick={() => setOpenModal(row.key)} />
+            ))}
+          </div>
+        </section>
+      ))}
 
       {/* ---------- Logo & icon ---------- */}
       <Modal open={openModal === 'logo'} onClose={() => setOpenModal(null)} title="Setup site logo and icon" description="Brand name, tagline, and the logo shown across the platform.">
@@ -762,6 +773,28 @@ export default function AdminBusinessSettings() {
           Common tags: <code>&lt;h2&gt;</code> heading, <code>&lt;p&gt;</code> paragraph, <code>&lt;ul&gt;&lt;li&gt;</code> bullet list, <code>&lt;strong&gt;</code> bold.
         </p>
         <ModalSaveButton onClick={() => { updateSettings({ privacyPolicyHtml: privacyHtml }); flashPrivacy() }} saved={privacySaved} />
+      </Modal>
+
+      {/* ---------- Terms of service ---------- */}
+      <Modal open={openModal === 'terms'} onClose={() => setOpenModal(null)} title="Terms of service page" description="Accepts HTML, shown on the public /terms page. Leave empty to show the standard template. It is a general template, not legal advice: have a lawyer review it.">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <button className="tx-btn" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => setTermsHtml(defaultLegalHtml('terms', brand.name, settings.companyAddress))}>
+            Load the standard template to edit
+          </button>
+        </div>
+        <textarea rows={9} value={termsHtml} onChange={(e) => setTermsHtml(e.target.value)} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} />
+        <ModalSaveButton onClick={() => { updateSettings({ termsHtml: termsHtml }); flashTerms() }} saved={termsSaved} />
+      </Modal>
+
+      {/* ---------- Cookie policy ---------- */}
+      <Modal open={openModal === 'cookies'} onClose={() => setOpenModal(null)} title="Cookie policy page" description="Accepts HTML, shown on the public /cookies page. Leave empty to show the standard template. It is a general template, not legal advice: have a lawyer review it.">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <button className="tx-btn" style={{ padding: '5px 10px', fontSize: 11.5 }} onClick={() => setCookieHtml(defaultLegalHtml('cookies', brand.name, settings.companyAddress))}>
+            Load the standard template to edit
+          </button>
+        </div>
+        <textarea rows={9} value={cookieHtml} onChange={(e) => setCookieHtml(e.target.value)} style={{ ...inputStyle, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} />
+        <ModalSaveButton onClick={() => { updateSettings({ cookiePolicyHtml: cookieHtml }); flashCookie() }} saved={cookieSaved} />
       </Modal>
 
       {/* ---------- About us ---------- */}

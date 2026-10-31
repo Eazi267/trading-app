@@ -114,6 +114,11 @@ export function getBalanceHistory(transactions, userId) {
     else if (t.type === 'referral_bonus') running += t.amount
     else if (t.type === 'signup_bonus') running += t.amount
     else if (t.type === 'reversal') running += t.details?.direction === 'debit' ? -t.amount : t.amount
+    return {
+      ts: new Date(t.date).getTime(),
+      date: new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      balance: running
+    }
   })
 }
 

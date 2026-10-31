@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import Sidebar from './Sidebar.jsx'
 import Topbar from './Topbar.jsx'
+import MobileDock from './MobileDock.jsx'
 import Configurator from './Configurator.jsx'
 import ToastContainer from './ToastContainer.jsx'
 import RippleEffect from './RippleEffect.jsx'
 import EmailVerifyBanner from './EmailVerifyBanner.jsx'
+import PullToRefresh from './PullToRefresh.jsx'
 
 export default function Layout({ pageTitle, children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -28,6 +30,8 @@ export default function Layout({ pageTitle, children }) {
         <Topbar pageTitle={pageTitle} onMenuClick={() => setSidebarOpen((o) => !o)} />
         <div className="page-content fade-in-up" key={pageTitle}><EmailVerifyBanner />{children}</div>
       </main>
+      <MobileDock />
+      <PullToRefresh />
       <Configurator />
       <ToastContainer />
       <RippleEffect />

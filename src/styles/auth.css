@@ -1,0 +1,39 @@
+/* Stage 8e: sign-in / sign-up / forgot password. Loaded from redesign.css (after index.css). */
+.login-split { grid-template-columns: 1.05fr 1fr; }
+.login-hero {
+  background: radial-gradient(900px 500px at 15% 0%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 60%),
+              radial-gradient(700px 500px at 100% 100%, color-mix(in srgb, var(--brand-red, #c0392b) 20%, transparent), transparent 60%),
+              #0b0c0f;
+  animation: none;
+  padding: 56px 64px;
+}
+.login-hero::after { display: none; }
+.login-hero-mark { background: linear-gradient(150deg, var(--accent-bright), var(--accent-dark)); color: var(--on-accent, #17130a); backdrop-filter: none; box-shadow: 0 8px 24px var(--glow, rgba(0,0,0,.3)); }
+.login-hero-brand { font-size: 18px; font-weight: 700; letter-spacing: .01em; }
+.login-hero h2 { font-size: 40px; line-height: 1.12; letter-spacing: -.02em; max-width: 460px; }
+.login-hero p { color: rgba(255,255,255,.68); }
+.login-hero-features { gap: 12px; }
+.login-hero-feature { padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.9); max-width: 380px; }
+.login-hero-feature svg { color: var(--accent-bright); flex: none; }
+
+.login-form-side { padding: 32px 24px; }
+.login-card { max-width: 400px; }
+.login-card h1 { font-size: 28px; letter-spacing: -.02em; }
+.login-sub { margin-bottom: 26px; }
+.login-card label { color: var(--text-secondary); }
+.login-card .field-input-wrap input,
+.login-card .field-input-wrap select { padding: 13px 14px 13px 40px; border-radius: 14px; background: var(--surface); }
+.login-card .btn-primary { margin-top: 6px; padding: 14px; border-radius: 14px; font-size: 14.5px; justify-content: center; gap: 8px; }
+.login-card a { color: var(--accent-bright); }
+.auth-brand { display: none; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; margin-bottom: 22px; }
+.auth-brand-mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: linear-gradient(150deg, var(--accent-bright), var(--accent-dark)); color: var(--on-accent, #17130a); }
+.auth-solo { min-height: 100vh; }
+
+@media (max-width: 860px) {
+  .login-split { grid-template-columns: 1fr; }
+  .login-form-side { align-items: flex-start; min-height: 100vh; padding: 28px 20px 40px; background:
+    radial-gradient(500px 260px at 50% -40px, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%), var(--bg); }
+  .auth-brand { display: flex; }
+  .login-card h1 { font-size: 26px; }
+  .login-card .field-input-wrap input, .login-card .field-input-wrap select { font-size: 16px; }
+}

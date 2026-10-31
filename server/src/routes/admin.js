@@ -122,14 +122,22 @@ router.post('/users/:id/reactivate', requireAuth, requirePermission('manageAdmin
   res.json({ user: publicUser(rows[0]) })
 })
 
-// Full client roster — AdminUsers.jsx's own page. Real accounts only
-// by default; ?includeDemo=true also returns is_demo_generated rows.
+// Full client roster — AdminUsers.jsx's own page. Demo-generated accounts
+// are included (the UI labels them "Demo"); ?includeDemo=0 returns real only.
 router.get('/users', requireAuth, requireRole('admin'), async (req, res) => {
   const { includeDemo, flagged } = req.query
   const conditions = ["role = 'user'"]
-  if (!includeDemo) conditions.push('is_demo_generated = false')
+  if (includeDemo === '0' || includeDemo === 'false') conditions.push('is_demo_generated = false')
   if (flagged) conditions.push('flagged_for_review = true')
   const { rows } = await pool.query(`SELECT * FROM users WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`)
+  res.json({ users: rows.map(publicUser) })
+})
+
+// Staff accounts for the Admin Accounts page. Kept separate from
+// GET /users (which is clients only and feeds every other page) so no
+// other screen suddenly sees admins mixed into its client lists.
+router.get('/admins', requireAuth, requirePermission('manageAdmins'), async (req, res) => {
+  const { rows } = await pool.query("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at ASC")
   res.json({ users: rows.map(publicUser) })
 })
 

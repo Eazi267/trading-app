@@ -6,6 +6,7 @@ import { useSettings } from './SettingsContext.jsx'
 import { requestDepositVerification } from '../services/blockchainVerification.js'
 import { useNotifications } from './NotificationContext.jsx'
 import { getTier, clampLeverage, clampDuration, TIERS } from '../config/tiers.js'
+import { preferencesAllowed } from '../utils/consent.js'
 import { apiRequest, getToken } from '../api/client.js'
 
 const AppContext = createContext(null)
@@ -128,7 +129,7 @@ export function AppProvider({ children }) {
   // useSupport() no longer needed here — appealTransaction now calls
   // the backend directly (see server/README.md Batch 4/5) instead of
   // creating a support case locally via createCase().
-  const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'dark')
+  const [theme, setThemeState] = useState(() => localStorage.getItem('pulse_theme') || 'light')
   const [accent, setAccentState] = useState(() => localStorage.getItem('pulse_accent') || 'ember')
   const [prices, setPrices] = useState(STARTING_PRICES)
   const serverPricesRef = useRef({})
@@ -139,6 +140,9 @@ export function AppProvider({ children }) {
   // "feed unavailable, showing last known price") instead of implying
   // every price on screen is always fresh.
   const [priceFeedStatus, setPriceFeedStatus] = useState({ lastUpdated: null, error: null })
+  // Per-symbol origin reported by the server: 'live' | 'delayed' | 'simulated'.
+  // Starts from the static split so labels don't flash before the first fetch.
+  const [priceSources, setPriceSources] = useState(() => Object.fromEntries(Object.keys(STARTING_PRICES).map((s) => [s, REAL_SYMBOLS.includes(s) ? 'live' : 'simulated'])))
 
   // Demo-only scenario control — per SESSION, not global. Each active
   // session can carry its own bias/volatility/speed (or none at all).
@@ -181,6 +185,11 @@ export function AppProvider({ children }) {
   // same pattern as orders/transactions. A session records a tier
   // choice + a starting amount, and closes into a capped payout.
   const [sessions, setSessions] = useState([])
+  // True once the first load of transactions and sessions has finished, so pages
+  // can show a skeleton while real data is on its way (not a made-up delay).
+  const [txLoaded, setTxLoaded] = useState(false)
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  useEffect(() => { setTxLoaded(false); setSessionsLoaded(false) }, [currentUser?.id])
 
   // Real backend now (see server/README.md) — fetched on load and
   // refetched after any mutating action, rather than kept in sync
@@ -193,6 +202,7 @@ export function AppProvider({ children }) {
     const path = currentUser.role === 'admin' ? '/api/transactions' : '/api/transactions/mine'
     const result = await apiRequest(path)
     if (result.transactions) setTransactions(result.transactions)
+    setTxLoaded(true)
   }, [currentUser])
 
   useEffect(() => { refreshTransactions() }, [refreshTransactions])
@@ -228,6 +238,7 @@ export function AppProvider({ children }) {
     if (!getToken() || !currentUser) return
     const path = currentUser.role === 'admin' ? '/api/sessions' : '/api/sessions/mine'
     const result = await apiRequest(path)
+    setSessionsLoaded(true)
     if (!result.sessions) return
     const wasActive = sessionsRef.current.filter((s) => s.status === 'active').map((s) => s.id)
     const settledNow = result.sessions.some((s) => wasActive.includes(s.id) && s.status !== 'active')
@@ -241,14 +252,21 @@ export function AppProvider({ children }) {
     return () => clearInterval(id)
   }, [refreshSessions])
 
+  // Used by pull-to-refresh on phones: refetch everything that changes on its own.
+  const refreshAll = useCallback(
+    () => Promise.all([refreshTransactions(), refreshSessions(), refreshOrders()]),
+    [refreshTransactions, refreshSessions, refreshOrders]
+  )
+  const dataReady = !currentUser || (txLoaded && sessionsLoaded)
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('pulse_theme', theme)
+    if (preferencesAllowed()) localStorage.setItem('pulse_theme', theme)
   }, [theme])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-accent', accent)
-    localStorage.setItem('pulse_accent', accent)
+    if (preferencesAllowed()) localStorage.setItem('pulse_accent', accent)
   }, [accent])
 
   // Refs mirroring the latest sessions/users state. The price-tick
@@ -340,6 +358,7 @@ export function AppProvider({ children }) {
       if (cancelled) return
       if (result.prices) {
         serverPricesRef.current = result.prices
+        if (result.sources) setPriceSources(result.sources)
         setPrices((prev) => ({ ...prev, ...result.prices }))
         setPriceFeedStatus({ lastUpdated: new Date().toISOString(), error: null })
       } else {
@@ -1081,9 +1100,12 @@ export function AppProvider({ children }) {
     setAccent: setAccentState,
     prices,
     refreshTransactions,
+    refreshAll,
+    dataReady,
     refreshReferralCampaigns,
     history,
     priceFeedStatus,
+    priceSources,
     getRecentRange,
     orders,
     watchlist,
