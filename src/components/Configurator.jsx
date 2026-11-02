@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Settings2, X, Moon, Sun } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useSettings } from '../context/SettingsContext.jsx'
@@ -9,6 +9,13 @@ export default function Configurator() {
   const [open, setOpen] = useState(false)
   const { theme, setTheme, accent, setAccent } = useApp()
   const { brand } = useSettings()
+
+  // The avatar menu (phones) opens this panel too.
+  useEffect(() => {
+    const show = () => setOpen(true)
+    window.addEventListener('pulse:open-configurator', show)
+    return () => window.removeEventListener('pulse:open-configurator', show)
+  }, [])
 
   return (
     <>

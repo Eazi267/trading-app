@@ -30,6 +30,13 @@ router.put('/', requireAuth, requirePermission('manageSettings'), async (req, re
   const { rows: current } = await pool.query('SELECT data FROM settings WHERE id = 1')
   const currentData = current[0]?.data || {}
 
+  // The letters at the start of every account and transaction ID.
+  if ('idPrefix' in updates) {
+    const letters = String(updates.idPrefix || '').trim().toUpperCase()
+    if (!/^[A-Z]{2,4}$/.test(letters)) return res.status(400).json({ error: 'The ID prefix must be 2 to 4 letters (A to Z), for example PM.' })
+    updates.idPrefix = letters
+  }
+
   // The signup bonus pays real money to every new client, so its two
   // settings are checked: a true/false switch and a sane amount.
   if ('signupBonusEnabled' in updates && typeof updates.signupBonusEnabled !== 'boolean') {

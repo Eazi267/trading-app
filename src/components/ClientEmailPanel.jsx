@@ -63,7 +63,7 @@ export default function ClientEmailPanel({ userId, email, transactions }) {
           <select value={txId} onChange={(e) => setTxId(e.target.value)} style={field}>
             <option value="">{txOptions.length ? `Choose a ${template}…` : `This client has no ${template}s`}</option>
             {txOptions.map((t) => (
-              <option key={t.id} value={t.id}>#{t.id} · ${Number(t.amount).toFixed(2)} · {t.status}</option>
+              <option key={t.id} value={t.id}>{t.ref || `#${t.id}`} · ${Number(t.amount).toFixed(2)} · {t.status}</option>
             ))}
           </select>
         ) : (

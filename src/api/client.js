@@ -2,7 +2,21 @@
 // When the SERVER also serves the website (SERVE_FRONTEND=1) build with
 // VITE_API_URL=same-origin so requests go to the same address as the page.
 const RAW_API_URL = import.meta.env.VITE_API_URL
-const API_URL = RAW_API_URL === 'same-origin' ? '' : (RAW_API_URL || 'http://localhost:4000')
+
+// A "localhost" API address only works on the computer itself. When the site is opened
+// from another device (a phone on your WiFi, or a forwarded/dev-tunnel address) that
+// address would point at the phone, so we use the site's own address instead; during
+// development Vite passes /api requests on to the real server (see vite.config.js).
+function chooseApiUrl() {
+  if (RAW_API_URL === 'same-origin') return ''
+  const configured = RAW_API_URL || 'http://localhost:4000'
+  try {
+    const isLocal = (host) => host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+    if (isLocal(new URL(configured).hostname) && !isLocal(window.location.hostname)) return ''
+  } catch { /* not a valid address: use as given */ }
+  return configured
+}
+const API_URL = chooseApiUrl()
 
 // The login itself now lives in an HttpOnly cookie that the server sets: page
 // scripts cannot read it, so a script injected by an attacker cannot steal the

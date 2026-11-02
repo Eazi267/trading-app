@@ -20,18 +20,18 @@ export default function PublicNav() {
             <brand.LogoIcon size={18} />
           )}
         </div>
-        {brand.name}
+        <span className="home-nav-name">{brand.name}</span>
       </Link>
       <div className="home-nav-actions">
         {currentUser ? (
-          <Link to="/dashboard" className="btn-primary" style={{ padding: '9px 16px', fontSize: 13.5 }}>
-            Go to dashboard <ArrowRight size={15} />
+          <Link to="/dashboard" className="btn-primary home-nav-cta" style={{ padding: '9px 16px', fontSize: 13.5 }}>
+            <span className="cta-long">Go to dashboard</span><span className="cta-short">Dashboard</span> <ArrowRight size={15} />
           </Link>
         ) : (
           <>
             <Link to="/login" className="home-nav-login">Log in</Link>
-            <Link to="/signup" className="btn-primary" style={{ padding: '9px 16px', fontSize: 13.5 }}>
-              Get started <ArrowRight size={15} />
+            <Link to="/signup" className="btn-primary home-nav-cta" style={{ padding: '9px 16px', fontSize: 13.5 }}>
+              <span className="cta-long">Get started</span><span className="cta-short">Sign up</span> <ArrowRight size={15} />
             </Link>
           </>
         )}

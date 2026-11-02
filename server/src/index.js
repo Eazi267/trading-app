@@ -29,6 +29,7 @@ import { startPriceEngine } from './services/priceEngine.js'
 import { startAutoExpirySweep } from './jobs/autoExpiry.js'
 import { refreshTierConfig, startTierSync } from './services/tierSync.js'
 import { refreshControls, startControlsSync } from './utils/appControls.js'
+import { backfillIds } from './utils/uid.js'
 import adminControlsRouter from './routes/adminControls.js'
 import clientEmailRouter from './routes/clientEmail.js'
 
@@ -148,6 +149,7 @@ app.listen(port, async () => {
   console.log(`Pulse API listening on :${port}`)
   // Load the admin-saved tiers BEFORE the auto-expiry sweep can settle
   // anything, so settlement always uses the real payout caps.
+  try { await backfillIds() } catch (err) { console.error('Could not set up IDs:', err.message) }
   await refreshTierConfig()
   startTierSync()
   await refreshControls()

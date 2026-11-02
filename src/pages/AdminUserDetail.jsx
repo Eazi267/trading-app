@@ -295,7 +295,7 @@ if (sent.error) {
         <div className="panel-head"><h3>Client balance</h3></div>
         <div className="stats-grid" style={{ padding: '16px 20px' }}>
           {(() => {
-            const { total, available, pending, sessionBalance, outstandingFees } = getBalanceBreakdown(userId)
+            const { totalWithAwaiting: total, available, pending, sessionBalance, outstandingFees } = getBalanceBreakdown(userId)
             const clientCurrency = resolveDisplayCurrency(targetUser, settings.currencyCode)
             return (
               <>

@@ -50,6 +50,8 @@ const DEFAULT_SETTINGS = {
   vipTiers: DEFAULT_VIP_TIERS,
 
   brandName: BRAND_DEFAULTS.name,
+  // Letters that start every account and transaction ID (e.g. PM). The server fills this in from the business name.
+  idPrefix: '',
   brandTagline: BRAND_DEFAULTS.tagline,
   logoIconKey: 'LineChart',
   // A real uploaded image (data URL), separate from the preset

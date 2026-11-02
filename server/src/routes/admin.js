@@ -58,7 +58,7 @@ router.post('/users', requireAuth, requirePermission('manageAdmins'), async (req
   if (existing.length) return res.status(409).json({ error: 'An account with that email already exists.' })
 
   const passwordHash = await bcrypt.hash(password, 12)
-  const uid = await generateUid()
+  const uid = await generateUid('admin')
   const referralCode = await generateReferralCode(name)
 
   const { rows } = await pool.query(
@@ -244,18 +244,21 @@ router.post('/demo-clients', requireAuth, requirePermission('manageAdmins'), asy
   if (!count || count <= 0) return res.status(400).json({ error: 'Enter a number of clients above zero.' })
   if (count > 200) return res.status(400).json({ error: 'Generate at most 200 at a time.' })
 
+  // Demo accounts get a random password nobody knows, so ONE hash is shared by the whole batch
+  // (hashing each one separately took several seconds on a slow computer and looked like nothing happened).
+  const demoPasswordHash = await bcrypt.hash(Math.random().toString(36).slice(2, 12), 10)
   const created = []
   for (let i = 0; i < count; i++) {
     const name = randomDemoName()
     const email = await demoEmailFor(name)
     const daysAgo = Math.floor(Math.random() * 90)
-    const passwordHash = await bcrypt.hash(Math.random().toString(36).slice(2, 10), 12)
-    const uid = await generateUid()
+    const joinedAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
+    const uid = await generateUid('user', joinedAt)
     const referralCode = await generateReferralCode(name)
     const { rows } = await pool.query(
       `INSERT INTO users (name, email, password_hash, uid, referral_code, is_demo_generated, created_by_admin_id, created_at)
        VALUES ($1, $2, $3, $4, $5, true, $6, $7) RETURNING *`,
-      [name, email, passwordHash, uid, referralCode, req.user.id, new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)]
+      [name, email, demoPasswordHash, uid, referralCode, req.user.id, joinedAt]
     )
     created.push(rows[0])
   }

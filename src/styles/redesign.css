@@ -3,6 +3,8 @@
 @import './auth.css';
 @import './mobile.css';
 @import './nav.css';
+@import './phone.css';
+@import './phonehome.css';
 
 /* =============================================================
    Pulse redesign — Stage 1: design tokens
@@ -39,7 +41,7 @@
 }
 
 [data-theme='light'][data-accent='ember'] {
-  --bg: #fbf8f3;
+  --bg: #f4f0e8;
   --surface: #ffffff;
   --surface-2: #f5efe4;
   --text: #1b1710;

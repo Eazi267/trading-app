@@ -19,6 +19,7 @@ export default function AdminGenerateClients() {
   const [minDeposit, setMinDeposit] = useState(300)
   const [maxDeposit, setMaxDeposit] = useState(8000)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [clearedCount, setClearedCount] = useState(null)
   // The shared client list hides generated demo accounts on purpose, so
@@ -41,34 +42,32 @@ export default function AdminGenerateClients() {
   }
 
   async function handleGenerate() {
+    if (busy) return
     setError('')
     setResult(null)
     setClearedCount(null)
-    const { users: newUsers, error: genError } = await generateDemoClients(parseInt(count, 10))
-    if (genError) {
-      setError(genError)
-      return
-    }
-    // generateDemoActivity still writes fake transactions/sessions
-    // into AppContext's own local arrays — AppContext isn't wired to
-    // the real backend yet (that's the next wiring batch), so demo
-    // activity for these now-real accounts is local-only for now,
-    // same as it's always been. Nothing broken by this batch, just
-    // not yet consistent with the real user records it's attached to.
-    const stats = generateDemoActivity(
-      newUsers.map((u) => u.id),
-      { minDeposit: parseFloat(minDeposit), maxDeposit: parseFloat(maxDeposit) }
-    )
-    // generateDemoActivity currently refuses (sessions and transactions
-    // come from the real backend now), so the accounts are created but
-    // start empty. Say so plainly rather than crash on missing totals.
-    if (stats?.error) {
-      setResult({ usersGenerated: newUsers.length, emptyAccounts: true })
+    const wanted = parseInt(count, 10)
+    if (!wanted || wanted < 1 || wanted > 200) return setError('Enter a number of clients between 1 and 200.')
+    setBusy(true) // shows "Generating…" at once, so a slow computer never looks like nothing happened
+    try {
+      const { users: newUsers, error: genError } = await generateDemoClients(wanted)
+      if (genError) return setError(genError)
+      // Demo deposits and sessions can no longer be generated here (they come from the real
+      // backend), so the accounts start empty. Say so plainly.
+      let stats = null
+      try {
+        stats = generateDemoActivity(
+          newUsers.map((u) => u.id),
+          { minDeposit: parseFloat(minDeposit), maxDeposit: parseFloat(maxDeposit) }
+        )
+      } catch { stats = { error: true } }
+      setResult(stats && !stats.error ? stats : { usersGenerated: newUsers.length, emptyAccounts: true })
       loadDemoCount()
-      return
+    } catch (err) {
+      setError(`Something went wrong while generating: ${err?.message || 'unknown error'}. Check the server window for details.`)
+    } finally {
+      setBusy(false)
     }
-    setResult(stats)
-    loadDemoCount()
   }
 
   async function handleClear() {
@@ -113,7 +112,7 @@ export default function AdminGenerateClients() {
                 <input className="pg-field" type="number" value={maxDeposit} onChange={(e) => setMaxDeposit(e.target.value)} />
               </label>
             </div>
-            <button type="button" className="btn-primary pg-start-btn" onClick={handleGenerate}><Sparkles size={14} /> Generate</button>
+            <button type="button" className="btn-primary pg-start-btn" onClick={handleGenerate} disabled={busy}><Sparkles size={14} /> {busy ? 'Generating…' : 'Generate'}</button>
             {result && (
               <div className="gc-result">
                 {result.emptyAccounts ? (

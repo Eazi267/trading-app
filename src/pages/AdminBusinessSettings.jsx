@@ -120,6 +120,8 @@ export default function AdminBusinessSettings() {
   // --- Brand + logo/favicon ---
   const [brandName, setBrandName] = useState(settings.brandName)
   const [brandTagline, setBrandTagline] = useState(settings.brandTagline)
+  const [idPrefix, setIdPrefix] = useState(settings.idPrefix || '')
+  const [idPrefixError, setIdPrefixError] = useState('')
   const [brandSaved, flashBrand] = useSavedFlag()
   function handleFileUpload(field, file) {
     if (!file) return
@@ -243,6 +245,17 @@ export default function AdminBusinessSettings() {
           <input type="text" value={brandTagline} onChange={(e) => setBrandTagline(e.target.value)} style={inputStyle} />
         </label>
 
+        <label style={{ ...labelStyle, display: 'block', marginTop: 12 }}>
+          ID letters (2 to 4)
+          <input type="text" value={idPrefix || settings.idPrefix || ''} maxLength={4} placeholder="e.g. PM" onChange={(e) => { setIdPrefix(e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase()); setIdPrefixError('') }} style={{ ...inputStyle, fontFamily: 'monospace', letterSpacing: 2 }} />
+        </label>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.6 }}>
+          Client account: <code>{(idPrefix || settings.idPrefix || 'PM')}-C-2611-0042</code> · Admin account: <code>{(idPrefix || settings.idPrefix || 'PM')}-A-2611-0003</code> · Deposit: <code>{(idPrefix || settings.idPrefix || 'PM')}-D-261101-00040</code><br />
+          C = client, A = admin · 2611 = joined Nov 2026 (YYMM) · 0042 = the 42nd account of that kind · D deposit, W withdrawal, F fee, S session result.
+          Changing the letters only affects NEW accounts and transactions; existing IDs stay as they are.
+        </div>
+        {idPrefixError && <div className="form-error" style={{ marginTop: 8 }}>{idPrefixError}</div>}
+
         <div style={{ marginTop: 14 }}>
           <div style={{ ...labelStyle, marginBottom: 6 }}>Logo mark (used unless a logo image is uploaded below)</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -285,7 +298,11 @@ export default function AdminBusinessSettings() {
         </div>
 
         <ModalSaveButton
-          onClick={() => { updateSettings({ brandName: brandName.trim() || settings.brandName, brandTagline: brandTagline.trim() }); flashBrand() }}
+          onClick={() => {
+            if (idPrefix && !/^[A-Z]{2,4}$/.test(idPrefix)) return setIdPrefixError('The ID letters must be 2 to 4 letters, for example PM.')
+            updateSettings({ brandName: brandName.trim() || settings.brandName, brandTagline: brandTagline.trim(), ...(idPrefix ? { idPrefix } : {}) })
+            flashBrand()
+          }}
           saved={brandSaved}
         />
       </Modal>

@@ -1,17 +1,45 @@
 import { pool } from '../db.js'
+import { getIdPrefix, ensureIdPrefix } from './idPrefix.js'
 
-// Same shape as the frontend's generateUid() in AuthContext.jsx: a
-// unique 9-digit numeric string, re-rolled on collision. Kept
-// identical on purpose — once the frontend switches from its own
-// localStorage-generated UIDs to reading them from this API, existing
-// demo UIDs should look no different from real ones.
-export async function generateUid() {
-  let uid
-  let exists = true
-  while (exists) {
-    uid = String(Math.floor(100000000 + Math.random() * 900000000))
-    const { rows } = await pool.query('SELECT 1 FROM users WHERE uid = $1', [uid])
-    exists = rows.length > 0
+// Account ID, e.g.  PM-C-2611-0042
+//   PM    company letters (Business Settings)
+//   C / A client account / admin (staff) account
+//   2611  joined in 2026, month 11 (YYMM)
+//   0042  the 42nd account of that kind ever created (never reused)
+export function formatUid(prefix, role, date, n) {
+  const d = new Date(date)
+  const yy = String(d.getUTCFullYear()).slice(-2)
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  return `${prefix}-${role === 'admin' ? 'A' : 'C'}-${yy}${mm}-${String(n).padStart(4, '0')}`
+}
+
+export const UID_PATTERN = /^[A-Z]{2,4}-[CA]-\d{4}-\d{4,}$/
+
+export async function generateUid(role = 'user', joinedAt = new Date()) {
+  const prefix = await getIdPrefix()
+  const sequence = role === 'admin' ? 'uid_admin_seq' : 'uid_client_seq' // fixed names, never user input
+  const { rows } = await pool.query(`SELECT nextval('${sequence}') AS n`)
+  return formatUid(prefix, role, joinedAt, Number(rows[0].n))
+}
+
+// Runs at startup (safe to repeat): gives every account that still has an old-style ID
+// (nine digits) the new kind, in the order the accounts were created, and fills in the
+// ID of every transaction that has none yet.
+export async function backfillIds() {
+  const lock = await pool.query('SELECT pg_try_advisory_lock(7270001) AS ok')
+  if (!lock.rows[0].ok) return
+  try {
+    const prefix = await ensureIdPrefix()
+    if (!prefix) return
+    const { rows: legacy } = await pool.query(
+      "SELECT id, role, created_at FROM users WHERE uid IS NULL OR uid !~ '^[A-Z]{2,4}-[CA]-[0-9]{4}-[0-9]{4,}$' ORDER BY created_at, id")
+    for (const u of legacy) {
+      const uid = await generateUid(u.role, u.created_at)
+      await pool.query('UPDATE users SET uid = $1 WHERE id = $2', [uid, u.id])
+    }
+    const done = await pool.query('UPDATE transactions SET ref = transaction_ref($1, type::text, created_at, id) WHERE ref IS NULL', [prefix])
+    if (legacy.length || done.rowCount) console.log(`IDs: gave ${legacy.length} account(s) and ${done.rowCount} transaction(s) the new format (prefix ${prefix}).`)
+  } finally {
+    await pool.query('SELECT pg_advisory_unlock(7270001)')
   }
-  return uid
 }

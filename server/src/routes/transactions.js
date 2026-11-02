@@ -39,6 +39,7 @@ const ALLOWED_TYPES = ['deposit', 'withdrawal']
 function publicTx(row) {
   return {
     id: row.id,
+    ref: row.ref || null, // e.g. PM-D-261101-00040
     userId: row.user_id,
     userName: row.user_name, // only present when joined with users, see /pending below
     type: row.type,
@@ -181,6 +182,10 @@ router.post('/:id/proof', requireAuth, async (req, res) => {
   const { screenshots } = req.body || {}
   if (!Array.isArray(screenshots) || screenshots.length === 0) {
     return res.status(400).json({ error: 'Add at least one screenshot.' })
+  }
+  // Stored as-is, so cap the count and size and accept only real image data (no scripts, no links).
+  if (screenshots.length > 10 || screenshots.some((shot) => typeof shot !== 'string' || shot.length > 3_000_000 || !/^data:image\/(png|jpe?g|webp|gif|heic|heif);base64,[A-Za-z0-9+/=]+$/.test(shot))) {
+    return res.status(400).json({ error: 'Attach up to 10 image files (JPG or PNG), each under about 2 MB.' })
   }
 
   const { rows } = await pool.query('SELECT * FROM transactions WHERE id = $1', [req.params.id])

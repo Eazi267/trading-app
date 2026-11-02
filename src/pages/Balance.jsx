@@ -48,7 +48,7 @@ export default function Balance() {
     )
   }
 
-  const { total, available, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees } = getBalanceBreakdown(currentUser.id)
+  const { total: certifiedTotal, totalWithAwaiting: total, awaiting, available, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees } = getBalanceBreakdown(currentUser.id)
   const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const outstandingFeeList = getOutstandingFees(currentUser.id)
@@ -76,22 +76,35 @@ export default function Balance() {
           {displayCurrency.code !== 'USD' && <div className="dz-muted">≈ {formatCurrency(total, displayCurrency.code)}</div>}
 
           {(() => {
-            // Real proportions: money committed to sessions vs money free to use.
-            const committed = Math.min(Math.max(pending, 0), Math.max(total, 0))
-            const pctCommitted = total > 0 ? (committed / total) * 100 : 0
+            // Real proportions of the total: free to use, committed to sessions, and
+            // session profit awaiting certification (locked until it is certified).
+            const base = Math.max(total, 0)
+            const committed = Math.min(Math.max(pending, 0), Math.max(certifiedTotal, 0))
+            const pctCommitted = base > 0 ? (committed / base) * 100 : 0
+            const pctAwaiting = base > 0 ? (Math.min(awaiting, base) / base) * 100 : 0
+            const pctFree = Math.max(0, 100 - pctCommitted - pctAwaiting)
             return (
               <>
-                <div className="pg-split" role="img" aria-label={`${(100 - pctCommitted).toFixed(0)}% available, ${pctCommitted.toFixed(0)}% in sessions`}>
-                  <span className="pg-split-free" style={{ width: `${100 - pctCommitted}%` }} />
+                <div className="pg-split" role="img" aria-label={`${pctFree.toFixed(0)}% available, ${pctCommitted.toFixed(0)}% in sessions, ${pctAwaiting.toFixed(0)}% awaiting certification`}>
+                  <span className="pg-split-free" style={{ width: `${pctFree}%` }} />
                   <span className="pg-split-locked" style={{ width: `${pctCommitted}%` }} />
+                  <span className="pg-split-await" style={{ width: `${pctAwaiting}%` }} />
                 </div>
                 <div className="pg-split-legend">
                   <div><i className="pg-dot free" /><span className="dz-label">Available</span><strong className="mono">{formatMoney(available)}</strong>{displayCurrency.code !== 'USD' && <em>≈ {formatCurrency(available, displayCurrency.code)}</em>}</div>
                   <div><i className="pg-dot locked" /><span className="dz-label"><Lock size={11} style={{ verticalAlign: -1, marginRight: 4 }} />Pending in sessions</span><strong className="mono">{formatMoney(pending)}</strong>{displayCurrency.code !== 'USD' && <em>≈ {formatCurrency(pending, displayCurrency.code)}</em>}</div>
+                  {awaiting > 0 && (
+                    <div><i className="pg-dot await" /><span className="dz-label"><Lock size={11} style={{ verticalAlign: -1, marginRight: 4 }} />Awaiting certification</span><strong className="mono">{formatMoney(awaiting)}</strong>{displayCurrency.code !== 'USD' && <em>≈ {formatCurrency(awaiting, displayCurrency.code)}</em>}</div>
+                  )}
                 </div>
               </>
             )
           })()}
+          {awaiting > 0 && (
+            <p className="dz-muted" style={{ marginTop: 14 }}>
+              Awaiting-certification funds are part of your total but are locked. They become available once your account manager certifies them{pendingCappedProfit > 0 ? ' (and any release fee is paid)' : ''}.
+            </p>
+          )}
           {pending > 0 && (
             <p className="dz-muted" style={{ marginTop: 14 }}>
               Pending balance is committed to active sessions and isn't available to withdraw until those sessions close.

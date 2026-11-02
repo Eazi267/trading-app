@@ -9,6 +9,7 @@ import { getTradeStats, getProfitBreakdown, getActiveTradeCount, getClosedPositi
 import { getTier } from '../config/tiers.js'
 import { resolveDisplayCurrency, formatCurrency } from '../config/currencies.js'
 import PerformanceHero from '../components/PerformanceHero.jsx'
+import PhoneHome from '../components/PhoneHome.jsx'
 
 const money = (n) => Number(n).toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
 const when = (iso) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -39,8 +40,8 @@ export default function ClientDashboard() {
   const { settings } = useSettings()
   const [tab, setTab] = useState('tx')
 
-  const { total, available } = getBalanceBreakdown(currentUser.id)
-  const inSessions = Math.max(0, total - available)
+  const { totalWithAwaiting: total, available } = getBalanceBreakdown(currentUser.id)
+  const inSessions = Math.max(0, total - available) // committed to sessions + locked awaiting certification
   const displayCurrency = resolveDisplayCurrency(currentUser, settings.currencyCode)
   const mySessions = getSessionsForUser(currentUser.id)
   const activeSessions = mySessions.filter((s) => s.status === 'active')
@@ -59,15 +60,24 @@ export default function ClientDashboard() {
 
   return (
     <div className="dz">
-      <header className="dz-head">
+      <header className="dz-head dz-desktop-only">
         <div>
           <div className="dz-muted">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
           <h1 className="dz-title">{greeting()}, {firstName}</h1>
         </div>
       </header>
 
+      {!loading && _dataReady && (
+        <PhoneHome
+          total={total} available={available} inSessions={inSessions} todayProfit={profit.today}
+          kycOn={Boolean(settings.kycEnabled || currentUser.kycRequired)}
+          needsVerify={Boolean((settings.kycEnabled || currentUser.kycRequired) && (!currentUser.kyc || currentUser.kyc.status === 'rejected'))}
+          hasSessions={mySessions.length > 0}
+        />
+      )}
+
       {mySessions.length === 0 && (
-        <div className="dz-card dz-cta">
+        <div className="dz-card dz-cta dz-desktop-only">
           <div>
             <strong>Set up your first investment</strong>
             <div className="dz-muted">{available > 0 ? 'Choose a tier and commit part of your balance to start.' : 'Deposit first, then choose a tier to start investing.'}</div>
@@ -82,7 +92,7 @@ export default function ClientDashboard() {
           <div className="dz-side"><div className="dz-card"><div className="skeleton" style={{ height: 110 }} /></div><div className="dz-card"><div className="skeleton" style={{ height: 80 }} /></div></div>
         </div>
       ) : (
-        <div className="dz-grid fade-in-up">
+        <div className="dz-grid fade-in-up dz-desktop-only">
           <div className="dz-main">
             <PerformanceHero
               transactions={transactions} userId={currentUser.id} total={total}
@@ -164,7 +174,7 @@ export default function ClientDashboard() {
         </div>
       </div>
 
-      <div className="dz-ticks">
+      <div className="dz-ticks dz-desktop-only">
         {Object.entries(prices).map(([symbol, price]) => {
           const src = priceSources?.[symbol]
           return (

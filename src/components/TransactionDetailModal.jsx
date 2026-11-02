@@ -81,7 +81,7 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
   }
 
   return (
-    <Modal open={!!transaction} onClose={onClose} title={`${formatType(t.type)} · #${t.id}`}>
+    <Modal open={!!transaction} onClose={onClose} title={formatType(t.type)}>
       <div style={{ padding: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="stats-grid responsive-grid-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div className="stat-card">
@@ -100,8 +100,8 @@ export default function TransactionDetailModal({ transaction, isAdmin, onClose }
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-muted)' }}>Transaction ID</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>#{t.id}</span>
-                <CopyButton value={String(t.id)} label="Copy transaction ID" size={12} />
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all', textAlign: 'right' }}>{t.ref || `#${t.id}`}</span>
+                <CopyButton value={String(t.ref || t.id)} label="Copy transaction ID" size={12} />
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>

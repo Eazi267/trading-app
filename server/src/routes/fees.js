@@ -9,6 +9,7 @@ const router = Router()
 function publicFee(row) {
   return {
     id: row.id,
+    ref: row.ref || null,
     userId: row.user_id,
     amount: Number(row.amount),
     note: row.note,

@@ -38,7 +38,7 @@ export default function AdminUsers() {
 
   const q = search.trim().toLowerCase()
   const rows = clients
-    .filter((u) => !q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.uid?.includes(q))
+    .filter((u) => !q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.uid?.toLowerCase().includes(q))
     .filter((u) => filter === 'all' || (filter === 'flagged' && u.flaggedForReview) || (filter === 'pending' && pendingFor(u.id) > 0))
     .sort((a, b) => {
       if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '')

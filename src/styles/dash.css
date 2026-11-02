@@ -437,3 +437,7 @@ a.ad-kpi:hover { border-color: var(--accent); transform: translateY(-2px); }
 .legal-body p, .legal-body li { font-size: 14.5px; line-height: 1.7; color: var(--text-muted); }
 .legal-body ul { padding-left: 20px; }
 .legal-body strong { color: var(--text); }
+
+.pg-split-await { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, var(--surface-2)) 0 6px, color-mix(in srgb, var(--accent) 25%, var(--surface-2)) 6px 12px); transition: width .5s var(--ease); }
+.pg-dot.await { background: color-mix(in srgb, var(--accent) 45%, var(--surface-2)); border: 1px dashed var(--accent); }
+.pg-split-legend { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }

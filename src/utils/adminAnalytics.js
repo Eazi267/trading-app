@@ -36,7 +36,12 @@ export function getClientBalances(users, transactions, sessions) {
     const pendingReview = transactions
       .filter((t) => t.userId === user.id && t.type === 'capped_profit_release' && t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0)
-    return { user, total, available: total - committed, committed, pendingReview }
+    // Same rule the client's own Balance page uses: payouts still awaiting
+    // certification are locked, but they count toward the total.
+    const awaiting = transactions
+      .filter((t) => t.userId === user.id && t.status === 'pending' && (t.type === 'session_settlement' || t.type === 'capped_profit_release') && t.amount > 0)
+      .reduce((sum, t) => sum + t.amount, 0)
+    return { user, total: total + awaiting, settled: total, available: total - committed, committed, pendingReview, awaiting }
   })
 }
 
@@ -51,6 +56,7 @@ export function getPlatformTotals(users, transactions, sessions) {
     totalAUM: balances.reduce((sum, b) => sum + b.total, 0),
     totalAvailable: balances.reduce((sum, b) => sum + b.available, 0),
     totalCommitted: balances.reduce((sum, b) => sum + b.committed, 0),
+    totalAwaiting: balances.reduce((sum, b) => sum + b.awaiting, 0),
     totalPendingReview: balances.reduce((sum, b) => sum + b.pendingReview, 0),
     activeSessionCount: sessions.filter((s) => s.status === 'active').length
   }

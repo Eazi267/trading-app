@@ -117,7 +117,7 @@ export default function Home() {
               <brand.LogoIcon size={18} />
             )}
           </div>
-          {brand.name}
+          <span className="hx-brand-name">{brand.name}</span>
         </div>
         <div className="hx-links">
           <a href="#markets">Markets</a>
@@ -134,7 +134,7 @@ export default function Home() {
         ) : (
           <>
             <Link to="/login" className="hx-login">Log in</Link>
-            <Link to="/signup" className="btn-primary" style={{ padding: '9px 16px', fontSize: 13.5 }}>
+            <Link to="/signup" className="btn-primary hx-signup" style={{ padding: '9px 16px', fontSize: 13.5 }}>
               Sign up <ArrowRight size={15} />
             </Link>
           </>

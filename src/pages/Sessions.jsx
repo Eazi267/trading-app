@@ -139,7 +139,18 @@ export default function Sessions() {
             })}
           </div>
 
-          <p className="dz-muted" style={{ margin: '4px 0 16px' }}>
+          {(() => {
+            const t = getTier(selectedTier)
+            return t ? (
+              <div className="pg-tier-detail">
+                <strong>{t.name}</strong>
+                <span>{t.leverageRange.min}x–{t.leverageRange.max}x leverage · {t.durationRange.min}–{t.durationRange.max} days</span>
+                <em>{t.description}</em>
+              </div>
+            ) : null
+          })()}
+
+          <p className="dz-muted pg-range-note" style={{ margin: '4px 0 16px' }}>
             Need a session below {formatMoney(TIERS[0].minDeposit)} or above {formatMoney(TIERS[TIERS.length - 1].maxDeposit)}?
             {' '}Contact your account manager — they can set up a tailored session for accounts outside the standard range.
           </p>

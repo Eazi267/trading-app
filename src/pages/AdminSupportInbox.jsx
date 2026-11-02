@@ -138,7 +138,7 @@ export default function AdminSupportInbox() {
                 <div className="ib-links">
                   <Link to={`/admin/users/${selected.userId}`} className="dz-chip ad-link">Open client</Link>
                   {selected.relatedTransactionId && (
-                    <Link to={`/admin/users/${selected.userId}`} className="dz-chip ad-link"><Receipt size={11} /> Transaction #{selected.relatedTransactionId}</Link>
+                    <Link to={`/admin/users/${selected.userId}`} className="dz-chip ad-link"><Receipt size={11} /> Transaction {selected.relatedTransactionRef || `#${selected.relatedTransactionId}`}</Link>
                   )}
                 </div>
 

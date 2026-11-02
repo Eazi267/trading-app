@@ -86,7 +86,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
   if (existingRows.length) return res.status(409).json({ error: 'An account with that email already exists.' })
 
   const passwordHash = await bcrypt.hash(password, 12)
-  const uid = await generateUid()
+  const uid = await generateUid('user')
   const referralCode = await generateReferralCode(name)
 
   const { rows } = await pool.query(

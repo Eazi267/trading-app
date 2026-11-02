@@ -1,0 +1,111 @@
+/* Stage 14: phone polish (Bybit-inspired). Loaded LAST from redesign.css.
+   1. overlays: header + dropdowns always sit above page content
+   2. clear card separation (white cards, borders, soft shadow) in light and dark
+   3. compact investment tier tiles
+   4. public landing / login header that doesn't wrap or crowd */
+
+/* ---------- 1. overlays ---------- */
+@media (max-width: 900px) {
+  /* The old header used a blur effect, which trapped its dropdowns UNDER the page. Solid + above everything instead. */
+  .topbar-wrap {
+    position: sticky; top: 0; z-index: 200;
+    background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+  .dropdown-panel, .dropdown-panel-right {
+    position: fixed; z-index: 400;
+    top: calc(env(safe-area-inset-top, 0px) + 64px); left: 12px; right: 12px; width: auto;
+    max-height: min(70vh, 520px); overflow-y: auto;
+    background: var(--surface); border-radius: 18px;
+    box-shadow: 0 24px 60px -14px rgba(0, 0, 0, .5), 0 0 0 1px var(--border);
+  }
+  .dropdown-panel-right { left: auto; width: 230px; }
+  .dropdown-panel .dropdown-item { padding: 13px 16px; }
+  .dropdown-panel .dropdown-link { padding: 13px 16px; width: 100%; }
+  /* the floating settings button covered buttons and content; Appearance now lives in the avatar menu */
+  .configurator-trigger { display: none !important; }
+  .configurator-panel { z-index: 500; }
+  .configurator-backdrop { z-index: 480; }
+}
+@media (min-width: 901px) { .dropdown-phone-only { display: none !important; } }
+
+/* ---------- 2. cards ---------- */
+@media (max-width: 600px) {
+  .app-shell { --m-gutter: 14px; --m-gap: 14px; }
+  .app-shell .page-content { padding-top: 10px; }
+
+  .app-shell .dz-card:not(.dz-hero):not(.pg-balance) {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
+    padding: 16px; box-shadow: 0 1px 2px var(--shadow-color), 0 8px 20px -16px var(--shadow-color);
+  }
+  .app-shell .dz-card-head { margin-bottom: 10px; }
+  .app-shell .dz-card-head h3 { color: var(--text-secondary); }
+
+  /* hero: a rounded card, not a full-bleed tint */
+  .app-shell .dz-hero, .app-shell .dz-hero.pg-balance, .app-shell .pg-balance {
+    margin: 0; border: 1px solid var(--border); border-radius: 22px; padding: 18px 16px 14px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 11%, var(--surface)) 0%, var(--surface) 75%);
+    box-shadow: 0 1px 2px var(--shadow-color), 0 10px 26px -18px var(--shadow-color);
+  }
+  .app-shell .dz-hero .dz-chart { margin: 6px -16px 0; }
+
+  /* rows inside cards: hairlines, not nested boxes */
+  .app-shell .dz-card .entity-card, .app-shell .dz-card .investment-card, .app-shell .dz-card .nt-item { border-top: 1px solid var(--border); }
+  .app-shell .dz-card .entity-card:first-child, .app-shell .dz-card .investment-card:first-child, .app-shell .dz-card .nt-item:first-child { border-top: 0; }
+
+  /* notes / banners read as their own object */
+  .app-shell .dz-note { border: 1px solid var(--border); background: var(--surface); box-shadow: 0 1px 2px var(--shadow-color); }
+  .app-shell .verify-banner { background: var(--surface) !important; border: 1px solid var(--border) !important; box-shadow: 0 1px 2px var(--shadow-color); margin: 0 0 var(--m-gap) !important; }
+
+  /* statistic tiles */
+  .app-shell .pg-hist-stats > div { background: var(--surface); box-shadow: 0 1px 2px var(--shadow-color); }
+
+  /* keep the primary action clear of the dock now that the floating button is gone */
+  .app-shell .pg-start .pg-start-btn, .app-shell .pg-tx .pg-start-btn { bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ---------- 3. compact investment tiles ---------- */
+  .app-shell .pg-tiers { gap: 10px; margin: 0 calc(var(--m-gutter) * -1 - 2px) 10px; padding: 2px calc(var(--m-gutter) + 2px) 6px; }
+  .app-shell .pg-tier { flex: 0 0 148px; padding: 12px; border-radius: 16px; scroll-snap-align: start; background: var(--bg); }
+  .app-shell .pg-tier:hover { transform: none; }
+  .app-shell .pg-tier.on { background: var(--accent-bg); }
+  .app-shell .pg-tier-head { gap: 8px; }
+  .app-shell .pg-tier-icon { width: 26px; height: 26px; border-radius: 8px; flex: none; }
+  .app-shell .pg-tier-head strong { font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell .pg-tier-check { flex: none; }
+  .app-shell .pg-tier p, .app-shell .pg-tier .pg-pills { display: none; }
+  .app-shell .pg-tier-payout { font-size: 22px; margin-top: 10px; line-height: 1.1; }
+  .app-shell .pg-tier > .dz-muted { font-size: 10.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-shell .pg-tier-range { font-size: 11.5px; margin: 8px 0 0; color: var(--text-secondary); }
+  .app-shell .pg-tier-detail { display: grid; gap: 3px; padding: 11px 13px; margin: 0 0 12px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); font-size: 12.5px; }
+  .app-shell .pg-tier-detail strong { font-size: 13.5px; }
+  .app-shell .pg-tier-detail span { color: var(--accent-bright); font-weight: 600; }
+  .app-shell .pg-tier-detail em { font-style: normal; color: var(--text-muted); line-height: 1.45; }
+  .app-shell .pg-range-note { font-size: 12px; margin: 0 0 14px !important; }
+}
+.pg-tier-detail { display: none; }
+@media (max-width: 600px) { .app-shell .pg-tier-detail { display: grid; } }
+
+/* ---------- 4. public landing + login header ---------- */
+@media (max-width: 560px) {
+  .hx-nav { height: 60px; padding: 0 14px; gap: 8px; }
+  .hx-brand { min-width: 0; gap: 8px; font-size: 16px; flex: 0 1 auto; }
+  .hx-brand-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hx-mark { flex: none; }
+  .hx-spacer { flex: 1 1 0; min-width: 0; }
+  .hx-login { flex: none; white-space: nowrap; padding: 8px 10px; font-size: 13.5px; }
+  .hx-nav .btn-primary { flex: none; white-space: nowrap; padding: 8px 14px !important; font-size: 13.5px !important; border-radius: 999px; gap: 5px; }
+  .hx-nav .btn-primary svg { display: none; }
+  .hx-cta { gap: 14px; }
+  .hx-cta .btn-primary { flex: 1 1 auto; justify-content: center; border-radius: 14px; }
+
+  .home-nav { padding: 10px 14px; flex-wrap: nowrap; gap: 8px; }
+  .home-nav-brand { min-width: 0; font-size: 16px; gap: 8px; }
+  .home-nav-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-nav-mark { flex: none; }
+  .home-nav-actions { flex: none; gap: 4px; }
+  .home-nav-login { white-space: nowrap; padding: 8px 8px; }
+  .home-nav-cta { white-space: nowrap; padding: 8px 14px !important; border-radius: 999px; }
+  .home-nav-cta svg { display: none; }
+}
+.cta-short { display: none; }
+@media (max-width: 560px) { .home-nav .cta-long { display: none; } .home-nav .cta-short { display: inline; } }

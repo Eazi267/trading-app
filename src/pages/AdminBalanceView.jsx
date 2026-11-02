@@ -56,7 +56,7 @@ export default function AdminBalanceView() {
             <Kpi icon={Wallet} label="Total AUM" value={totals.totalAUM} formatter={formatMoney} />
             <Kpi icon={Unlock} label="Total available" value={totals.totalAvailable} formatter={formatMoney} />
             <Kpi icon={Lock} label="Committed to sessions" value={totals.totalCommitted} formatter={formatMoney} />
-            <Kpi icon={Hourglass} label="Pending profit review" value={totals.totalPendingReview} formatter={formatMoney} />
+            <Kpi icon={Hourglass} label="Awaiting certification (locked)" value={totals.totalAwaiting} formatter={formatMoney} />
           </>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link, NavLink } from 'react-router-dom'
-import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home, Menu } from 'lucide-react'
+import { Bell, Moon, Sun, Wifi, WifiOff, User, LogOut, ChevronRight, Home, Menu, Palette } from 'lucide-react'
 import { useApp } from '../context/AppContext.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useNotifications } from '../context/NotificationContext.jsx'
@@ -127,7 +127,9 @@ export default function Topbar({ pageTitle, onMenuClick }) {
             </div>
             {avatarOpen && (
               <div className="dropdown-panel dropdown-panel-right">
-                <a className="dropdown-link" href="/settings"><User size={14} /> Profile</a>
+                <Link className="dropdown-link" to="/settings" onClick={() => setAvatarOpen(false)}><User size={14} /> Profile</Link>
+                {/* On phones the floating settings button is hidden (it covered buttons); appearance lives here. */}
+                <button className="dropdown-link dropdown-phone-only" onClick={() => { setAvatarOpen(false); window.dispatchEvent(new CustomEvent('pulse:open-configurator')) }}><Palette size={14} /> Appearance</button>
                 <div className="dropdown-divider" />
                 <button className="dropdown-link" onClick={handleLogout}><LogOut size={14} /> Log out</button>
               </div>

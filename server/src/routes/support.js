@@ -17,6 +17,7 @@ function publicCase(row) {
     subject: row.subject,
     category: row.category,
     relatedTransactionId: row.related_transaction_id,
+    relatedTransactionRef: row.related_transaction_ref || null,
     status: row.status,
     unreadForAdmin: row.unread_for_admin,
     unreadForClient: row.unread_for_client,
@@ -56,7 +57,7 @@ async function withMessages(caseRows) {
 // that operates on a single case, so the same check can't drift
 // between them.
 async function loadAuthorizedCase(req, res) {
-  const { rows } = await pool.query('SELECT * FROM support_cases WHERE id = $1', [req.params.id])
+  const { rows } = await pool.query('SELECT sc.*, (SELECT t.ref FROM transactions t WHERE t.id = sc.related_transaction_id) AS related_transaction_ref FROM support_cases sc WHERE sc.id = $1', [req.params.id])
   const supportCase = rows[0]
   if (!supportCase) {
     res.status(404).json({ error: 'Case not found.' })
@@ -94,7 +95,7 @@ router.post('/cases', requireAuth, async (req, res) => {
 
 router.get('/cases/mine', requireAuth, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT sc.*, $2::text AS user_name FROM support_cases sc WHERE sc.user_id = $1 ORDER BY sc.last_message_at DESC',
+    'SELECT sc.*, $2::text AS user_name, (SELECT t.ref FROM transactions t WHERE t.id = sc.related_transaction_id) AS related_transaction_ref FROM support_cases sc WHERE sc.user_id = $1 ORDER BY sc.last_message_at DESC',
     [req.user.id, req.user.name]
   )
   res.json({ cases: await withMessages(rows) })
@@ -111,7 +112,7 @@ router.get('/cases', requireAuth, requirePermission('support'), async (req, res)
     where = 'WHERE sc.status = $1'
   }
   const { rows } = await pool.query(
-    `SELECT sc.*, u.name AS user_name FROM support_cases sc
+    `SELECT sc.*, u.name AS user_name, (SELECT t.ref FROM transactions t WHERE t.id = sc.related_transaction_id) AS related_transaction_ref FROM support_cases sc
      JOIN users u ON u.id = sc.user_id
      ${where}
      ORDER BY sc.last_message_at DESC`,

@@ -552,7 +552,12 @@ export function AppProvider({ children }) {
     const outstandingFees = transactions
       .filter((t) => t.userId === userId && t.type === 'fee' && t.feeStatus === 'outstanding')
       .reduce((sum, t) => sum + getFeeOwedAmount(t), 0)
-    return { total, available: total - pending, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees }
+    // Session profit still waiting for certification (or held for a release fee) is
+    // the client's money but LOCKED: it counts in the total, never in "available".
+    const awaiting = transactions
+      .filter((t) => t.userId === userId && (t.type === 'session_settlement' || t.type === 'capped_profit_release') && t.status === 'pending' && t.amount > 0)
+      .reduce((sum, t) => sum + t.amount, 0)
+    return { total, totalWithAwaiting: total + awaiting, awaiting, available: total - pending, pending, pendingSessionSettlements, pendingCappedProfit, sessionBalance, outstandingFees }
   }
 
   // Starts a session for a client (or for yourself). The server does

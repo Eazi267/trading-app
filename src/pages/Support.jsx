@@ -140,7 +140,7 @@ export default function Support() {
               </div>
 
               {selected.relatedTransactionId && (
-                <span className="dz-chip sp-linked"><Receipt size={11} /> Linked to Transaction #{selected.relatedTransactionId}</span>
+                <span className="dz-chip sp-linked"><Receipt size={11} /> Linked to Transaction {selected.relatedTransactionRef || `#${selected.relatedTransactionId}`}</span>
               )}
 
               <div className="chat-thread" ref={threadRef}>
